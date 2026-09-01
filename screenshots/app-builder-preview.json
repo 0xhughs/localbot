@@ -1,0 +1,36 @@
+{
+  "url": "http://127.0.0.1:8080/",
+  "viewports": {
+    "desktop": {
+      "width": 1280,
+      "height": 800,
+      "status": 200,
+      "title": "LocalBot",
+      "hasCanvas": false,
+      "bodyTextLen": 223,
+      "bodyTextHash": "cb9ea910df878164335f969533322053de344ff66a21d5cd1d50c59b28b4eee0",
+      "bodyTextPrefix": "LocalBot FIRST RUN 1 / 3 Your agents, on this computer. LocalBot",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-preview.png"
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844,
+      "status": 200,
+      "title": "LocalBot",
+      "hasCanvas": false,
+      "bodyTextLen": 223,
+      "bodyTextHash": "cb9ea910df878164335f969533322053de344ff66a21d5cd1d50c59b28b4eee0",
+      "bodyTextPrefix": "LocalBot FIRST RUN 1 / 3 Your agents, on this computer. LocalBot",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-preview-mobile.png"
+    }
+  },
+  "brandWarnings": [],
+  "authWarnings": [],
+  "verdictFile": "/workspace/screenshots/app-builder-preview.json"
+}

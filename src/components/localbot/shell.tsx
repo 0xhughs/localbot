@@ -1,0 +1,92 @@
+import { useEffect } from "react";
+import { Menu, Monitor, Plus, Settings as SettingsIcon } from "lucide-react";
+import { useLocalBot } from "@/lib/store";
+import { Button } from "@/components/ui/button";
+import { ChatPane } from "./chat";
+import { ComputerPane } from "./computer";
+import { NewAgentDialog } from "./new-agent";
+import { CommandPalette } from "./palette";
+import { SettingsDialog } from "./settings";
+import { Sidebar } from "./sidebar";
+
+export function AppShell() {
+  const setUi = useLocalBot((s) => s.setUi);
+  const agentsOpen = useLocalBot((s) => s.ui.agentsOpen);
+  const showComputer = useLocalBot((s) => s.ui.showComputer);
+  const selected = useLocalBot((s) => s.ui.selectedBotId);
+  const bots = useLocalBot((s) => s.bots);
+
+  useEffect(() => {
+    if (!selected) {
+      const first = bots.find((b) => !b.hidden) ?? bots[0];
+      if (first) useLocalBot.getState().selectBot(first.id);
+    }
+  }, [selected, bots]);
+
+  return (
+    <div className="flex h-dvh flex-col bg-bg text-fg">
+      <div className="flex h-11 shrink-0 items-center gap-1 border-b border-border px-2 md:hidden">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Agents"
+          onClick={() => setUi({ agentsOpen: !agentsOpen })}
+        >
+          <Menu className="size-4" />
+        </Button>
+        <span className="flex-1 text-sm font-medium">LocalBot</span>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label="New agent"
+          onClick={() => setUi({ newAgentOpen: true })}
+        >
+          <Plus className="size-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Computer"
+          onClick={() => setUi({ showComputer: !showComputer })}
+        >
+          <Monitor className="size-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Settings"
+          onClick={() => setUi({ showSettings: true })}
+        >
+          <SettingsIcon className="size-4" />
+        </Button>
+      </div>
+
+      <div className="relative flex min-h-0 flex-1">
+        <div
+          className={`${
+            agentsOpen ? "flex" : "hidden"
+          } absolute inset-0 z-20 md:static md:z-0 md:flex`}
+        >
+          <Sidebar />
+          {agentsOpen && (
+            <button
+              type="button"
+              className="flex-1 bg-bg/50 md:hidden"
+              aria-label="Close agents"
+              onClick={() => setUi({ agentsOpen: false })}
+            />
+          )}
+        </div>
+        <ChatPane />
+        {showComputer && (
+          <div className="flex max-md:absolute max-md:inset-x-0 max-md:bottom-0 max-md:z-10 max-md:h-[50%] md:static">
+            <ComputerPane />
+          </div>
+        )}
+      </div>
+      <SettingsDialog />
+      <NewAgentDialog />
+      <CommandPalette />
+    </div>
+  );
+}
