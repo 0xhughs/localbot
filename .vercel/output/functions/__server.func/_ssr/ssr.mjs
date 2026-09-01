@@ -88,7 +88,7 @@ var HEADERS = { TSS_SHELL: "X-TSS_SHELL" };
 * the dev styles URL for route-scoped CSS collection.
 */
 async function getStartManifest(matchedRoutes) {
-	const { tsrStartManifest } = await import("../_tanstack-start-manifest_v-BkZFozD6.mjs");
+	const { tsrStartManifest } = await import("../_tanstack-start-manifest_v-BbGhHJuW.mjs");
 	const startManifest = tsrStartManifest();
 	let routes = startManifest.routes;
 	routes[rootRouteId];
@@ -110,127 +110,127 @@ async function getStartManifest(matchedRoutes) {
 var manifest = {
 	"0c465437edd45d3f2bd2924494b9097eb2b16378c8acc1e1c0af4ce50fe26b81": {
 		functionName: "modelImport_createServerFn_handler",
-		importer: () => import("./model-server-CdxaBIWL.mjs")
+		importer: () => import("./model-server-DICB5Gsu.mjs")
 	},
 	"0cfb78988111782633ceeb01ab5f9e0736aa02b2cd724cbbd61bb54dc9b98909": {
 		functionName: "modelDownloadStatus_createServerFn_handler",
-		importer: () => import("./model-server-CdxaBIWL.mjs")
+		importer: () => import("./model-server-DICB5Gsu.mjs")
 	},
 	"0fa999f4c5f50f97f50e396c72d22bac509e66fe9a51a0668a0866c0788bcc3e": {
 		functionName: "fsMkdir_createServerFn_handler",
-		importer: () => import("./server-Uk8ZBo_X.mjs")
+		importer: () => import("./server-CRKLLkfI.mjs")
 	},
 	"11857cc008c32a0141f9ebfffa9ce5384d5fea775130cefdbef972ae6603405f": {
 		functionName: "fsGetCompanyRoot_createServerFn_handler",
-		importer: () => import("./server-Uk8ZBo_X.mjs")
+		importer: () => import("./server-CRKLLkfI.mjs")
 	},
 	"1c9e314be70d5595ab05707502096bb9cfe6d4a037e7825b225ae227799fb911": {
 		functionName: "modelEngineStatus_createServerFn_handler",
-		importer: () => import("./model-server-CdxaBIWL.mjs")
+		importer: () => import("./model-server-DICB5Gsu.mjs")
 	},
 	"1e164447cf5fb3b60e111085cb9d388b506dd4773dd0fc655d62f0794e230e88": {
 		functionName: "fsDelete_createServerFn_handler",
-		importer: () => import("./server-Uk8ZBo_X.mjs")
+		importer: () => import("./server-CRKLLkfI.mjs")
 	},
 	"1f289b3c13d0e081998b37de1b19fc322edfa4a1fb6a5ca1febc01cc8248b102": {
 		functionName: "modelEnsureEngine_createServerFn_handler",
-		importer: () => import("./model-server-CdxaBIWL.mjs")
+		importer: () => import("./model-server-DICB5Gsu.mjs")
 	},
 	"216280aab065baa2c1570dec8fec91a193841d36f6d16c0753d315d8170f14ff": {
 		functionName: "modelSetHostedDemo_createServerFn_handler",
-		importer: () => import("./model-server-CdxaBIWL.mjs")
+		importer: () => import("./model-server-DICB5Gsu.mjs")
 	},
 	"21aeebc0ab0a4911fb4efe3f4690e0b2b215b90c1f7bd5174b9de93b5ae81277": {
 		functionName: "modelDownloadResume_createServerFn_handler",
-		importer: () => import("./model-server-CdxaBIWL.mjs")
+		importer: () => import("./model-server-DICB5Gsu.mjs")
 	},
 	"2e81004d9c157d79dcd862c83ab950685065a5fcff9a8e8194734eebb3e985ae": {
 		functionName: "fsList_createServerFn_handler",
-		importer: () => import("./server-Uk8ZBo_X.mjs")
+		importer: () => import("./server-CRKLLkfI.mjs")
 	},
 	"3f9c85ded0c85b11ad85670089fd879179da2f48f457656eba9fdafb31750187": {
 		functionName: "fsSeedCompanyTree_createServerFn_handler",
-		importer: () => import("./server-Uk8ZBo_X.mjs")
+		importer: () => import("./server-CRKLLkfI.mjs")
 	},
 	"40e6e177fdc1ea80b599d36b38c9289f1b9ed31408636fad28e2df4f98f06f9f": {
 		functionName: "modelDownloadPause_createServerFn_handler",
-		importer: () => import("./model-server-CdxaBIWL.mjs")
+		importer: () => import("./model-server-DICB5Gsu.mjs")
 	},
 	"420cd8996fd4a20743089920e3ef7620d1193a44f16c1b84c8dc056db1d497d0": {
 		functionName: "modelList_createServerFn_handler",
-		importer: () => import("./model-server-CdxaBIWL.mjs")
+		importer: () => import("./model-server-DICB5Gsu.mjs")
 	},
 	"4347559c4b74a5838aebefc5f983e45487402e7d6ffd715cfb0cf04562b19b9d": {
 		functionName: "fsMove_createServerFn_handler",
-		importer: () => import("./server-Uk8ZBo_X.mjs")
+		importer: () => import("./server-CRKLLkfI.mjs")
 	},
 	"4d014b7d5695cf271ecb6d606e4830cf820e40735c07c63b45eca84471656734": {
 		functionName: "getAiStatus_createServerFn_handler",
-		importer: () => import("./turn-B9TVQOBz.mjs")
+		importer: () => import("./turn-B-VERuuj.mjs")
 	},
 	"5875d83adb820146b198e6ccc54ed8cb37e894f263a7b32db594774f6fe6323f": {
 		functionName: "fsTree_createServerFn_handler",
-		importer: () => import("./server-Uk8ZBo_X.mjs")
+		importer: () => import("./server-CRKLLkfI.mjs")
 	},
 	"6532b4f18cc5bcc2361d69f45f2f84e2d4d87ad9ed8a519945f97f3260b8e7bc": {
 		functionName: "runHarnessTurn_createServerFn_handler",
-		importer: () => import("./turn-B9TVQOBz.mjs")
+		importer: () => import("./turn-B-VERuuj.mjs")
 	},
 	"7779bcdf5afea5c7528cfb1c0cc4c7f2d5a50a7d74a75f7be5fbcd6853f4b670": {
 		functionName: "fsSeedDepartment_createServerFn_handler",
-		importer: () => import("./server-Uk8ZBo_X.mjs")
+		importer: () => import("./server-CRKLLkfI.mjs")
 	},
 	"7b60d75daa39e4a11a3ec50382dc778da66240eae85482fc038975b8e18c8822": {
 		functionName: "fsSeedBot_createServerFn_handler",
-		importer: () => import("./server-Uk8ZBo_X.mjs")
+		importer: () => import("./server-CRKLLkfI.mjs")
 	},
 	"7bd77591bf0ceac531fbc9d547755d3ba0595a450a9ee9aef216d83e71d41d71": {
 		functionName: "fsExists_createServerFn_handler",
-		importer: () => import("./server-Uk8ZBo_X.mjs")
+		importer: () => import("./server-CRKLLkfI.mjs")
 	},
 	"7d1e3233596efa615b20640ed4065b14038fb7ac8de34a64e963a93c0ab2dbfd": {
 		functionName: "fsRead_createServerFn_handler",
-		importer: () => import("./server-Uk8ZBo_X.mjs")
+		importer: () => import("./server-CRKLLkfI.mjs")
 	},
 	"7f0c95b4d4230c67a1ee8278822c7daa6e0b5727086c1751d102f0d387bf7f3d": {
 		functionName: "fsStat_createServerFn_handler",
-		importer: () => import("./server-Uk8ZBo_X.mjs")
+		importer: () => import("./server-CRKLLkfI.mjs")
 	},
 	"8a65b429183ddd80c22c497da1b0bb7df13f24c14d8fdf07f0f217f9270350ef": {
 		functionName: "modelSetOllama_createServerFn_handler",
-		importer: () => import("./model-server-CdxaBIWL.mjs")
+		importer: () => import("./model-server-DICB5Gsu.mjs")
 	},
 	"a10030064aa8cb2d1a66e8c1ba637b73d5b3dc705a6289627c80f7758fc1f92f": {
 		functionName: "fsScanServerHardware_createServerFn_handler",
-		importer: () => import("./model-server-CdxaBIWL.mjs")
+		importer: () => import("./model-server-DICB5Gsu.mjs")
 	},
 	"a56685740e9d84f84e4b0c69ed6ac965de2d8bb265b32495470135422431bb18": {
 		functionName: "fsSetCompanyRoot_createServerFn_handler",
-		importer: () => import("./server-Uk8ZBo_X.mjs")
+		importer: () => import("./server-CRKLLkfI.mjs")
 	},
 	"a99cc9c9f05221311156adc2a5933b187cd1ae643e18705a1937324f8ba0247c": {
 		functionName: "fsRunCommand_createServerFn_handler",
-		importer: () => import("./server-Uk8ZBo_X.mjs")
+		importer: () => import("./server-CRKLLkfI.mjs")
 	},
 	"aa0cf80feb628d830e818e3bfd93b3aa2bbecce6a5055b7096c5fd2e72464032": {
 		functionName: "modelVerify_createServerFn_handler",
-		importer: () => import("./model-server-CdxaBIWL.mjs")
+		importer: () => import("./model-server-DICB5Gsu.mjs")
 	},
 	"b977a74c3349a02ed3377147a0dc0c34994631b8b57c284a89cff7aa90b49228": {
 		functionName: "fsWrite_createServerFn_handler",
-		importer: () => import("./server-Uk8ZBo_X.mjs")
+		importer: () => import("./server-CRKLLkfI.mjs")
 	},
 	"c6f58459f422d316538337864eb436e437c4ea69158d8d21fdb0a7142606da48": {
 		functionName: "fsReplace_createServerFn_handler",
-		importer: () => import("./server-Uk8ZBo_X.mjs")
+		importer: () => import("./server-CRKLLkfI.mjs")
 	},
 	"c6f65c16d8da84d6a4ad2ff8034e14b91f3ebd421fc676c72895f8752bbccfde": {
 		functionName: "modelDownloadStart_createServerFn_handler",
-		importer: () => import("./model-server-CdxaBIWL.mjs")
+		importer: () => import("./model-server-DICB5Gsu.mjs")
 	},
 	"dfb0a5cde55326e99915ceb245bd0283168759002f29a58000602ca49f147b8d": {
 		functionName: "fsSeedEmployee_createServerFn_handler",
-		importer: () => import("./server-Uk8ZBo_X.mjs")
+		importer: () => import("./server-CRKLLkfI.mjs")
 	}
 };
 async function getServerFnById(id, access) {
@@ -1500,7 +1500,7 @@ var getBaseManifest = getProdBaseManifest;
 var createEarlyHintsForRequest = createEarlyHintsCollector;
 async function loadEntries() {
 	const [routerEntry, startEntry, pluginAdapters] = await Promise.all([
-		import("./router-C5q70B-Z.mjs").then((n) => n.t),
+		import("./router-B-wpwIiC.mjs").then((n) => n.t),
 		import("./start-5Z2QO8AU.mjs"),
 		import("./empty-plugin-adapters-D9UWiqvJ.mjs")
 	]);

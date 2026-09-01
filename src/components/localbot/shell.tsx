@@ -4,6 +4,7 @@ import { useLocalBot } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { ChatPane } from "./chat";
 import { ComputerPane } from "./computer";
+import { DesktopTitlebar } from "./desktop-titlebar";
 import { NewAgentDialog } from "./new-agent";
 import { CommandPalette } from "./palette";
 import { SettingsDialog } from "./settings";
@@ -25,6 +26,7 @@ export function AppShell() {
 
   return (
     <div className="flex h-dvh flex-col bg-bg text-fg">
+      <DesktopTitlebar />
       <div className="flex h-11 shrink-0 items-center gap-1 border-b border-border px-2 md:hidden">
         <Button
           variant="ghost"
@@ -79,9 +81,17 @@ export function AppShell() {
         </div>
         <ChatPane />
         {showComputer && (
-          <div className="flex max-md:absolute max-md:inset-x-0 max-md:bottom-0 max-md:z-10 max-md:h-[50%] md:static">
-            <ComputerPane />
-          </div>
+          <>
+            <button
+              type="button"
+              className="absolute inset-0 z-20 bg-bg/40 max-md:hidden"
+              aria-label="Close computer"
+              onClick={() => setUi({ showComputer: false })}
+            />
+            <div className="absolute inset-x-0 bottom-0 z-30 flex h-[50%] md:inset-y-0 md:right-0 md:left-auto md:h-auto md:w-[320px]">
+              <ComputerPane />
+            </div>
+          </>
         )}
       </div>
       <SettingsDialog />

@@ -1,0 +1,30 @@
+{
+  "release": "b10749",
+  "notes": "Official ggml-org/llama.cpp release assets. Linux uses the ubuntu-x64 tarball; Windows uses the CPU zip (not CUDA). Do not assume Ubuntu-only.",
+  "targets": {
+    "darwin-arm64": {
+      "filename": "llama-b10749-bin-macos-arm64.tar.gz",
+      "kind": "tar.gz",
+      "binary": "llama-server",
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10749/llama-b10749-bin-macos-arm64.tar.gz"
+    },
+    "darwin-x64": {
+      "filename": "llama-b10749-bin-macos-x64.tar.gz",
+      "kind": "tar.gz",
+      "binary": "llama-server",
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10749/llama-b10749-bin-macos-x64.tar.gz"
+    },
+    "win32-x64": {
+      "filename": "llama-b10749-bin-win-cpu-x64.zip",
+      "kind": "zip",
+      "binary": "llama-server.exe",
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10749/llama-b10749-bin-win-cpu-x64.zip"
+    },
+    "linux-x64": {
+      "filename": "llama-b10749-bin-ubuntu-x64.tar.gz",
+      "kind": "tar.gz",
+      "binary": "llama-server",
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10749/llama-b10749-bin-ubuntu-x64.tar.gz"
+    }
+  }
+}

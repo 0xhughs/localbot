@@ -1,32 +1,31 @@
 import { AGENT_COLORS, type Bot } from "@/lib/types";
-import { cn, initials } from "@/lib/utils";
+import { isMascotId, mascotIdForTemplate } from "@/lib/mascots";
+import { cn } from "@/lib/utils";
+import { MascotMark } from "./mascots";
 
 export function AgentAvatar({
   bot,
   size = "md",
 }: {
-  bot: Pick<Bot, "name" | "color">;
+  bot: Pick<Bot, "name" | "color"> & { mascotId?: Bot["mascotId"] };
   size?: "xs" | "sm" | "md" | "lg";
 }) {
-  const hex = AGENT_COLORS[bot.color]?.hex ?? AGENT_COLORS.sage.hex;
+  const mascot = isMascotId(bot.mascotId) ? bot.mascotId : mascotIdForTemplate(bot.name);
   const dim =
     size === "xs"
-      ? "size-6 text-[10px]"
+      ? "size-6"
       : size === "sm"
-        ? "size-8 text-[11px]"
+        ? "size-8"
         : size === "lg"
-          ? "size-12 text-base"
-          : "size-9 text-xs";
+          ? "size-12"
+          : "size-9";
   return (
     <span
-      className={cn(
-        "inline-flex shrink-0 items-center justify-center rounded-sm font-medium text-accent-fg",
-        dim,
-      )}
-      style={{ backgroundColor: hex }}
+      className={cn("inline-flex shrink-0 overflow-hidden rounded-full", dim)}
       aria-hidden
+      title={bot.name}
     >
-      {initials(bot.name)}
+      <MascotMark id={mascot} />
     </span>
   );
 }

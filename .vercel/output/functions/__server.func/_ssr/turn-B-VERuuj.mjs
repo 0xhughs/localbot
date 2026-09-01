@@ -1,14 +1,14 @@
 import { t as createServerFn } from "./ssr.mjs";
 import { t as createServerRpc } from "./createServerRpc-A6pJPYTF.mjs";
-//#region node_modules/.nitro/vite/services/ssr/assets/turn-B9TVQOBz.js
+//#region node_modules/.nitro/vite/services/ssr/assets/turn-B-VERuuj.js
 var getAiStatus_createServerFn_handler = createServerRpc({
 	id: "4d014b7d5695cf271ecb6d606e4830cf820e40735c07c63b45eca84471656734",
 	name: "getAiStatus",
 	filename: "src/lib/runtime/turn.ts"
 }, (opts) => getAiStatus.__executeServer(opts));
 var getAiStatus = createServerFn({ method: "POST" }).handler(getAiStatus_createServerFn_handler, async () => {
-	const { loadConfig } = await import("./disk-Ch6iovlC.mjs");
-	const { engineStatus } = await import("./local-engine-5e_UwL5c.mjs");
+	const { loadConfig } = await import("./disk-DHDludua.mjs");
+	const { engineStatus } = await import("./local-engine-DhYP15os.mjs");
 	const cfg = loadConfig();
 	const local = engineStatus();
 	if (!cfg.allowHostedDemo) return {
@@ -39,7 +39,7 @@ var runHarnessTurn_createServerFn_handler = createServerRpc({
 	filename: "src/lib/runtime/turn.ts"
 }, (opts) => runHarnessTurn.__executeServer(opts));
 var runHarnessTurn = createServerFn({ method: "POST" }).validator((input) => input).handler(runHarnessTurn_createServerFn_handler, async ({ data }) => {
-	const { executeTurn } = await import("./execute-turn-BljB1Mp2.mjs");
+	const { executeTurn } = await import("./execute-turn-BEA7JgIG.mjs");
 	return executeTurn(data);
 });
 //#endregion

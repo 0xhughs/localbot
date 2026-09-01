@@ -1,20 +1,18 @@
 # Architecture
 
-This build is a TanStack Start **browser app**. Default chat is a **local GGUF**.
+This build is a TanStack Start app in an **Electron window** (`npm run desktop`) and a browser preview (`npm run dev`). Default chat is a **local GGUF**.
 
 ```
-UI (React shell)
-  → harnessAdapter.ts (tool loop + permission cards)
-    → runHarnessTurn (server function)
+Electron window (no URL bar)
+  → existing TanStack UI
+    → harnessAdapter.ts
       → llama-server 127.0.0.1:18789   (default)
       → api.x.ai grok-4.5              (only if Allow hosted demo is ON)
-    → fs/* server functions
-      → real directories under the company root
-    → model-server.ts
-      → Hugging Face download / import into data/LocalBot/models
 ```
 
-There is no Electron, no DeepSeek Harness, no required Ollama install.
+Electron is a window around the same UI. Signed `.dmg` / `.exe` are **not** this pass. llama.cpp binaries are mapped for macOS arm64/x64, Windows x64, and Linux x64.
+
+There is no DeepSeek Harness, no required Ollama install.
 
 ## 1. Shell
 

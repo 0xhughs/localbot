@@ -9,24 +9,22 @@ import {
   Trash2,
 } from "lucide-react";
 import { useLocalBot } from "@/lib/store";
-import { formatRelative } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { AgentAvatar } from "./avatar";
 import { Wordmark } from "./logo";
 
 export function Sidebar() {
   const allBots = useLocalBot((s) => s.bots);
-  const bots = allBots.filter((b) => !b.hidden).sort((a, b) => Number(b.pinned) - Number(a.pinned) || a.name.localeCompare(b.name));
+  const bots = allBots
+    .filter((b) => !b.hidden)
+    .sort((a, b) => Number(b.pinned) - Number(a.pinned) || a.name.localeCompare(b.name));
   const selected = useLocalBot((s) => s.ui.selectedBotId);
-  const sessions = useLocalBot((s) => s.sessions);
   const selectBot = useLocalBot((s) => s.selectBot);
   const pinBot = useLocalBot((s) => s.pinBot);
   const hideBot = useLocalBot((s) => s.hideBot);
   const duplicateBot = useLocalBot((s) => s.duplicateBot);
   const deleteBot = useLocalBot((s) => s.deleteBot);
   const setUi = useLocalBot((s) => s.setUi);
-  const company = useLocalBot((s) => s.company);
-  const badge = useLocalBot((s) => s.runtime.badge);
 
   return (
     <aside className="flex h-full min-h-0 w-[248px] shrink-0 flex-col border-r border-border bg-surface">
@@ -41,15 +39,9 @@ export function Sidebar() {
           <Settings className="size-4" />
         </Button>
       </div>
-      <div className="px-3 pb-2">
-        <p className="truncate font-mono text-[10px] tracking-wider text-subtle uppercase">
-          {company?.name ?? "LocalBot"}
-        </p>
-      </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-1.5 scrollbar-thin">
         {bots.map((bot) => {
           const active = selected === bot.id;
-          const last = sessions[bot.id]?.messages.at(-1);
           return (
             <div
               key={bot.id}
@@ -70,20 +62,11 @@ export function Sidebar() {
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-1.5">
-                    <span className="truncate text-sm font-medium text-fg">
-                      {bot.name}
-                    </span>
+                    <span className="truncate text-sm font-medium text-fg">{bot.name}</span>
                     {bot.pinned && <Pin className="size-3 text-subtle" />}
                   </span>
-                  <span className="block truncate text-[11px] text-muted">
-                    {last?.content?.slice(0, 48) || bot.job}
-                  </span>
+                  <span className="block truncate text-[11px] text-muted">{bot.job}</span>
                 </span>
-                {last && (
-                  <span className="font-mono text-[10px] text-subtle tabular-nums">
-                    {formatRelative(last.createdAt)}
-                  </span>
-                )}
               </button>
               <details className="relative mr-1">
                 <summary className="flex size-8 list-none items-center justify-center rounded-sm text-subtle opacity-0 hover:bg-hover hover:text-fg group-hover:opacity-100 [&::-webkit-details-marker]:hidden">
@@ -112,17 +95,10 @@ export function Sidebar() {
         )}
       </div>
       <div className="border-t border-border p-2">
-        <Button
-          variant="secondary"
-          className="w-full"
-          onClick={() => setUi({ newAgentOpen: true })}
-        >
+        <Button variant="secondary" className="w-full" onClick={() => setUi({ newAgentOpen: true })}>
           <Plus className="size-4" />
           New agent
         </Button>
-        <p className="mt-2 px-1 font-mono text-[10px] text-subtle">
-          {badge || "Local model"}
-        </p>
       </div>
     </aside>
   );

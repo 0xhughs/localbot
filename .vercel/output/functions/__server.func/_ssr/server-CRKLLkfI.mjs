@@ -1,8 +1,8 @@
-import { defaultCompanyRoot, diskDelete, diskExists, diskList, diskMkdir, diskMove, diskPrettyTree, diskRead, diskReplace, diskShell, diskStat, diskWrite, loadConfig, saveConfig } from "./disk-Ch6iovlC.mjs";
+import { defaultCompanyRoot, diskDelete, diskExists, diskList, diskMkdir, diskMove, diskPrettyTree, diskRead, diskReplace, diskShell, diskStat, diskWrite, loadConfig, saveConfig } from "./disk-DHDludua.mjs";
 import { t as createServerFn } from "./ssr.mjs";
 import { t as createServerRpc } from "./createServerRpc-A6pJPYTF.mjs";
 import path from "node:path";
-//#region node_modules/.nitro/vite/services/ssr/assets/server-Uk8ZBo_X.js
+//#region node_modules/.nitro/vite/services/ssr/assets/server-CRKLLkfI.js
 function json(value) {
 	return JSON.stringify(value, null, 2) + "\n";
 }
@@ -49,6 +49,7 @@ function seedBotFolderOnDisk(companyRoot, bot, department, employee) {
 		job: bot.job,
 		modelId: bot.modelId,
 		color: bot.color,
+		mascotId: bot.mascotId,
 		grants: bot.grants,
 		createdAt: bot.createdAt
 	}));

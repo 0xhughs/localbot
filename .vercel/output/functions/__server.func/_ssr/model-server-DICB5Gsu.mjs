@@ -1,6 +1,6 @@
 import { t as createServerFn } from "./ssr.mjs";
 import { t as createServerRpc } from "./createServerRpc-A6pJPYTF.mjs";
-//#region node_modules/.nitro/vite/services/ssr/assets/model-server-CdxaBIWL.js
+//#region node_modules/.nitro/vite/services/ssr/assets/model-server-DICB5Gsu.js
 var fsScanServerHardware_createServerFn_handler = createServerRpc({
 	id: "a10030064aa8cb2d1a66e8c1ba637b73d5b3dc705a6289627c80f7758fc1f92f",
 	name: "fsScanServerHardware",
@@ -16,7 +16,7 @@ var modelDownloadStart_createServerFn_handler = createServerRpc({
 	filename: "src/lib/runtime/model-server.ts"
 }, (opts) => modelDownloadStart.__executeServer(opts));
 var modelDownloadStart = createServerFn({ method: "POST" }).validator((input) => input).handler(modelDownloadStart_createServerFn_handler, async ({ data }) => {
-	const { startDownload } = await import("./models-CC8RiEvK.mjs").then((n) => n.n).then((n) => n.n);
+	const { startDownload } = await import("./models-CJyvMDtF.mjs").then((n) => n.n).then((n) => n.n);
 	return startDownload(data.catalogId);
 });
 var modelDownloadStatus_createServerFn_handler = createServerRpc({
@@ -25,7 +25,7 @@ var modelDownloadStatus_createServerFn_handler = createServerRpc({
 	filename: "src/lib/runtime/model-server.ts"
 }, (opts) => modelDownloadStatus.__executeServer(opts));
 var modelDownloadStatus = createServerFn({ method: "POST" }).handler(modelDownloadStatus_createServerFn_handler, async () => {
-	const { getDownloadStatus } = await import("./models-CC8RiEvK.mjs").then((n) => n.n).then((n) => n.n);
+	const { getDownloadStatus } = await import("./models-CJyvMDtF.mjs").then((n) => n.n).then((n) => n.n);
 	return getDownloadStatus();
 });
 var modelDownloadPause_createServerFn_handler = createServerRpc({
@@ -34,7 +34,7 @@ var modelDownloadPause_createServerFn_handler = createServerRpc({
 	filename: "src/lib/runtime/model-server.ts"
 }, (opts) => modelDownloadPause.__executeServer(opts));
 var modelDownloadPause = createServerFn({ method: "POST" }).handler(modelDownloadPause_createServerFn_handler, async () => {
-	const { pauseDownload } = await import("./models-CC8RiEvK.mjs").then((n) => n.n).then((n) => n.n);
+	const { pauseDownload } = await import("./models-CJyvMDtF.mjs").then((n) => n.n).then((n) => n.n);
 	return pauseDownload();
 });
 var modelDownloadResume_createServerFn_handler = createServerRpc({
@@ -43,7 +43,7 @@ var modelDownloadResume_createServerFn_handler = createServerRpc({
 	filename: "src/lib/runtime/model-server.ts"
 }, (opts) => modelDownloadResume.__executeServer(opts));
 var modelDownloadResume = createServerFn({ method: "POST" }).handler(modelDownloadResume_createServerFn_handler, async () => {
-	const { resumeDownload } = await import("./models-CC8RiEvK.mjs").then((n) => n.n).then((n) => n.n);
+	const { resumeDownload } = await import("./models-CJyvMDtF.mjs").then((n) => n.n).then((n) => n.n);
 	return resumeDownload();
 });
 var modelVerify_createServerFn_handler = createServerRpc({
@@ -52,7 +52,7 @@ var modelVerify_createServerFn_handler = createServerRpc({
 	filename: "src/lib/runtime/model-server.ts"
 }, (opts) => modelVerify.__executeServer(opts));
 var modelVerify = createServerFn({ method: "POST" }).validator((input) => input).handler(modelVerify_createServerFn_handler, async ({ data }) => {
-	const { verifyModel } = await import("./models-CC8RiEvK.mjs").then((n) => n.n).then((n) => n.n);
+	const { verifyModel } = await import("./models-CJyvMDtF.mjs").then((n) => n.n).then((n) => n.n);
 	return verifyModel(data.catalogId);
 });
 var modelList_createServerFn_handler = createServerRpc({
@@ -61,8 +61,8 @@ var modelList_createServerFn_handler = createServerRpc({
 	filename: "src/lib/runtime/model-server.ts"
 }, (opts) => modelList.__executeServer(opts));
 var modelList = createServerFn({ method: "POST" }).handler(modelList_createServerFn_handler, async () => {
-	const { listModelsOnDisk } = await import("./models-CC8RiEvK.mjs").then((n) => n.n).then((n) => n.n);
-	const { loadConfig, defaultModelsDir } = await import("./disk-Ch6iovlC.mjs");
+	const { listModelsOnDisk } = await import("./models-CJyvMDtF.mjs").then((n) => n.n).then((n) => n.n);
+	const { loadConfig, defaultModelsDir } = await import("./disk-DHDludua.mjs");
 	return {
 		models: listModelsOnDisk(),
 		modelsDir: loadConfig().modelsDir || defaultModelsDir()
@@ -74,7 +74,7 @@ var modelImport_createServerFn_handler = createServerRpc({
 	filename: "src/lib/runtime/model-server.ts"
 }, (opts) => modelImport.__executeServer(opts));
 var modelImport = createServerFn({ method: "POST" }).validator((input) => input).handler(modelImport_createServerFn_handler, async ({ data }) => {
-	const { importGguf } = await import("./models-CC8RiEvK.mjs").then((n) => n.n).then((n) => n.n);
+	const { importGguf } = await import("./models-CJyvMDtF.mjs").then((n) => n.n).then((n) => n.n);
 	return importGguf(data.absolutePath, data.catalogId);
 });
 var modelSetHostedDemo_createServerFn_handler = createServerRpc({
@@ -83,7 +83,7 @@ var modelSetHostedDemo_createServerFn_handler = createServerRpc({
 	filename: "src/lib/runtime/model-server.ts"
 }, (opts) => modelSetHostedDemo.__executeServer(opts));
 var modelSetHostedDemo = createServerFn({ method: "POST" }).validator((input) => input).handler(modelSetHostedDemo_createServerFn_handler, async ({ data }) => {
-	const { patchConfig } = await import("./disk-Ch6iovlC.mjs");
+	const { patchConfig } = await import("./disk-DHDludua.mjs");
 	return patchConfig({ allowHostedDemo: data.allow });
 });
 var modelSetOllama_createServerFn_handler = createServerRpc({
@@ -92,7 +92,7 @@ var modelSetOllama_createServerFn_handler = createServerRpc({
 	filename: "src/lib/runtime/model-server.ts"
 }, (opts) => modelSetOllama.__executeServer(opts));
 var modelSetOllama = createServerFn({ method: "POST" }).validator((input) => input).handler(modelSetOllama_createServerFn_handler, async ({ data }) => {
-	const { patchConfig } = await import("./disk-Ch6iovlC.mjs");
+	const { patchConfig } = await import("./disk-DHDludua.mjs");
 	return patchConfig({ useExistingOllama: data.use });
 });
 var modelEngineStatus_createServerFn_handler = createServerRpc({
@@ -101,7 +101,7 @@ var modelEngineStatus_createServerFn_handler = createServerRpc({
 	filename: "src/lib/runtime/model-server.ts"
 }, (opts) => modelEngineStatus.__executeServer(opts));
 var modelEngineStatus = createServerFn({ method: "POST" }).handler(modelEngineStatus_createServerFn_handler, async () => {
-	const { engineStatus } = await import("./local-engine-5e_UwL5c.mjs");
+	const { engineStatus } = await import("./local-engine-DhYP15os.mjs");
 	return engineStatus();
 });
 var modelEnsureEngine_createServerFn_handler = createServerRpc({
@@ -110,7 +110,7 @@ var modelEnsureEngine_createServerFn_handler = createServerRpc({
 	filename: "src/lib/runtime/model-server.ts"
 }, (opts) => modelEnsureEngine.__executeServer(opts));
 var modelEnsureEngine = createServerFn({ method: "POST" }).handler(modelEnsureEngine_createServerFn_handler, async () => {
-	const { ensureLlamaBinary, ensureLocalServer } = await import("./local-engine-5e_UwL5c.mjs");
+	const { ensureLlamaBinary, ensureLocalServer } = await import("./local-engine-DhYP15os.mjs");
 	const bin = await ensureLlamaBinary();
 	if (!bin.ok) return bin;
 	return ensureLocalServer();

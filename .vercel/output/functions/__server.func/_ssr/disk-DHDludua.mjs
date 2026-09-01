@@ -1,6 +1,69 @@
 import fs from "node:fs";
 import path from "node:path";
-//#region node_modules/.nitro/vite/services/ssr/assets/disk-Ch6iovlC.js
+//#region node_modules/.nitro/vite/services/ssr/assets/disk-DHDludua.js
+var llama_assets_default = {
+	release: "b10749",
+	notes: "Official ggml-org/llama.cpp release assets. Linux uses the ubuntu-x64 tarball; Windows uses the CPU zip (not CUDA). Do not assume Ubuntu-only.",
+	targets: {
+		"darwin-arm64": {
+			"filename": "llama-b10749-bin-macos-arm64.tar.gz",
+			"kind": "tar.gz",
+			"binary": "llama-server",
+			"url": "https://github.com/ggml-org/llama.cpp/releases/download/b10749/llama-b10749-bin-macos-arm64.tar.gz"
+		},
+		"darwin-x64": {
+			"filename": "llama-b10749-bin-macos-x64.tar.gz",
+			"kind": "tar.gz",
+			"binary": "llama-server",
+			"url": "https://github.com/ggml-org/llama.cpp/releases/download/b10749/llama-b10749-bin-macos-x64.tar.gz"
+		},
+		"win32-x64": {
+			"filename": "llama-b10749-bin-win-cpu-x64.zip",
+			"kind": "zip",
+			"binary": "llama-server.exe",
+			"url": "https://github.com/ggml-org/llama.cpp/releases/download/b10749/llama-b10749-bin-win-cpu-x64.zip"
+		},
+		"linux-x64": {
+			"filename": "llama-b10749-bin-ubuntu-x64.tar.gz",
+			"kind": "tar.gz",
+			"binary": "llama-server",
+			"url": "https://github.com/ggml-org/llama.cpp/releases/download/b10749/llama-b10749-bin-ubuntu-x64.tar.gz"
+		}
+	}
+};
+llama_assets_default.release;
+var ASSETS = {
+	"linux-x64": row("linux-x64"),
+	"darwin-arm64": row("darwin-arm64"),
+	"darwin-x64": row("darwin-x64"),
+	"win32-x64": row("win32-x64")
+};
+function row(target) {
+	const t = llama_assets_default.targets[target];
+	return {
+		target,
+		url: t.url,
+		filename: t.filename,
+		kind: t.kind,
+		binary: t.binary
+	};
+}
+function llamaTarget(platform = process.platform, arch = process.arch) {
+	const p = String(platform);
+	const a = String(arch);
+	if (p === "linux" && (a === "x64" || a === "x86_64")) return "linux-x64";
+	if (p === "darwin" && (a === "arm64" || a === "aarch64")) return "darwin-arm64";
+	if (p === "darwin") return "darwin-x64";
+	if ((p === "win32" || p === "windows") && (a === "x64" || a === "x86_64")) return "win32-x64";
+	return null;
+}
+function llamaAssetFor(platform, arch) {
+	const t = llamaTarget(platform, arch);
+	return t ? ASSETS[t] : null;
+}
+function isElectronRuntime() {
+	return process.env.LOCALBOT_ELECTRON === "1";
+}
 function dataDir() {
 	if (process.env.LOCALBOT_DATA_DIR) return path.resolve(process.env.LOCALBOT_DATA_DIR);
 	return path.resolve(process.cwd(), "data");
@@ -12,7 +75,9 @@ function slugName(name) {
 	return name.trim().replace(/[\\/:*?"<>|]/g, "").replace(/\s+/g, " ") || "Untitled";
 }
 function defaultCompanyRoot(companyName = "Studio") {
-	return path.join(dataDir(), "LocalBot", slugName(companyName) || "Studio");
+	const name = slugName(companyName) || "Studio";
+	if (process.env.LOCALBOT_DOCUMENTS_DIR) return path.join(process.env.LOCALBOT_DOCUMENTS_DIR, "LocalBot", name);
+	return path.join(dataDir(), "LocalBot", name);
 }
 function isUnderDir(root, target) {
 	const r = path.resolve(root);
@@ -25,10 +90,28 @@ function isUnderProjectData(p) {
 	return isUnderDir(dataDir(), p) || path.resolve(p) === dataDir();
 }
 function defaultModelsDir() {
+	if (isElectronRuntime()) return path.join(dataDir(), "models");
 	return path.join(dataDir(), "LocalBot", "models");
 }
+function llamaBinRoot() {
+	if (isElectronRuntime()) return path.join(dataDir(), "bin");
+	return path.join(dataDir(), "LocalBot", "bin");
+}
+function llamaServerName() {
+	return process.platform === "win32" ? "llama-server.exe" : "llama-server";
+}
 function llamaBinDir() {
-	return path.join(dataDir(), "LocalBot", "bin", "llama-b10749");
+	const root = llamaBinRoot();
+	const key = llamaTarget() ?? `${process.platform}-${process.arch}`;
+	const preferred = path.join(root, key);
+	const name = llamaServerName();
+	const candidates = [
+		preferred,
+		path.join(root, "llama-b10749"),
+		root
+	];
+	for (const dir of candidates) if (fs.existsSync(path.join(dir, name))) return dir;
+	return preferred;
 }
 var DEFAULT_CFG_FIELDS = {
 	activeModelId: null,
@@ -408,4 +491,4 @@ function diskShell(companyRoot, cwd, command, allowedRoots) {
 	}
 }
 //#endregion
-export { defaultCompanyRoot, defaultModelsDir, diskDelete, diskExists, diskList, diskMkdir, diskMove, diskPrettyTree, diskRead, diskReplace, diskShell, diskStat, diskWrite, llamaBinDir, loadConfig, patchConfig, saveConfig };
+export { defaultCompanyRoot, defaultModelsDir, diskDelete, diskExists, diskList, diskMkdir, diskMove, diskPrettyTree, diskRead, diskReplace, diskShell, diskStat, diskWrite, llamaBinDir, llamaServerName, loadConfig, patchConfig, saveConfig, llamaAssetFor as t };

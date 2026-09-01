@@ -2,33 +2,62 @@ import childProcess, { type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { llamaBinDir, loadConfig } from "../fs/disk.ts";
-import { getCatalogModel, requiredMemoryGb } from "../catalog.ts";
-import { LOOPBACK_HOST, LOOPBACK_PORT, LOCAL_OPENAI_BASE_URL, assertLoopbackOnly } from "../../runtime/loopback.ts";
 import type { TurnInput, TurnOutput, TurnToolCall } from "./turn-types.ts";
 import { findReadyModel } from "./models.ts";
-
-const LLAMA_RELEASE = "b10749";
-const TARBALL: Record<string, string> = {
-  "linux-x64": `https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_RELEASE}/llama-${LLAMA_RELEASE}-bin-ubuntu-x64.tar.gz`,
-  "darwin-arm64": `https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_RELEASE}/llama-${LLAMA_RELEASE}-bin-macos-arm64.tar.gz`,
-  "darwin-x64": `https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_RELEASE}/llama-${LLAMA_RELEASE}-bin-macos-x64.tar.gz`,
-};
+import { llamaAssetFor } from "./llama-platform.ts";
+import { llamaBinDir, llamaServerName, loadConfig } from "../fs/disk.ts";
+import { getCatalogModel, requiredMemoryGb } from "../catalog.ts";
+import { LOOPBACK_HOST, LOOPBACK_PORT, LOCAL_OPENAI_BASE_URL, assertLoopbackOnly } from "../../runtime/loopback.ts";
 
 let child: ChildProcess | null = null;
 let loadedPath: string | null = null;
 
-function platformKey(): string {
-  const p = os.platform();
-  const a = os.arch();
-  if (p === "linux" && a === "x64") return "linux-x64";
-  if (p === "darwin" && a === "arm64") return "darwin-arm64";
-  if (p === "darwin") return "darwin-x64";
-  return `${p}-${a}`;
+export function llamaServerBin(): string {
+  return path.join(llamaBinDir(), llamaServerName());
 }
 
-export function llamaServerBin(): string {
-  return path.join(llamaBinDir(), "llama-server");
+function walkForBinary(root: string, name: string, depth = 0): string | null {
+  if (depth > 4) return null;
+  const direct = path.join(root, name);
+  if (fs.existsSync(direct)) return direct;
+  let entries: fs.Dirent[] = [];
+  try {
+    entries = fs.readdirSync(root, { withFileTypes: true });
+  } catch {
+    return null;
+  }
+  for (const e of entries) {
+    if (!e.isDirectory()) continue;
+    const found = walkForBinary(path.join(root, e.name), name, depth + 1);
+    if (found) return found;
+  }
+  return null;
+}
+
+async function extractArchive(archive: string, dest: string, kind: "tar.gz" | "zip"): Promise<void> {
+  fs.mkdirSync(dest, { recursive: true });
+  const { execSync } = await import("node:child_process");
+  if (kind === "tar.gz") {
+    execSync(`tar --no-same-owner -xzf ${JSON.stringify(archive)} -C ${JSON.stringify(dest)}`, {
+      stdio: "ignore",
+    });
+    return;
+  }
+  if (process.platform === "win32") {
+    execSync(
+      `powershell -NoProfile -Command "Expand-Archive -Force -Path ${JSON.stringify(archive)} -DestinationPath ${JSON.stringify(dest)}"`,
+      { stdio: "ignore" },
+    );
+    return;
+  }
+  try {
+    execSync(`unzip -o ${JSON.stringify(archive)} -d ${JSON.stringify(dest)}`, { stdio: "ignore" });
+  } catch {
+    execSync(
+      `python3 -c "import zipfile; zipfile.ZipFile(${JSON.stringify(archive)}).extractall(${JSON.stringify(dest)})"`,
+      { stdio: "ignore" },
+    );
+  }
 }
 
 export async function pingLocal(url = `http://${LOOPBACK_HOST}:${LOOPBACK_PORT}/health`): Promise<boolean> {
@@ -99,31 +128,39 @@ async function waitForHealth(ms = 60000): Promise<boolean> {
 export async function ensureLlamaBinary(): Promise<{ ok: true; bin: string } | { ok: false; error: string }> {
   const bin = llamaServerBin();
   if (fs.existsSync(bin)) return { ok: true, bin };
-  const key = platformKey();
-  const url = TARBALL[key];
-  if (!url) {
+  const asset = llamaAssetFor();
+  if (!asset) {
     return {
       ok: false,
-      error: `No llama.cpp binary for ${key}. Place llama-server in ${llamaBinDir()}.`,
+      error: `No llama.cpp binary for ${process.platform}-${process.arch}. Place ${llamaServerName()} in ${llamaBinDir()}.`,
     };
   }
   const dir = llamaBinDir();
-  fs.mkdirSync(path.dirname(dir), { recursive: true });
-  const tarPath = path.join(path.dirname(dir), `llama-${LLAMA_RELEASE}.tar.gz`);
+  fs.mkdirSync(dir, { recursive: true });
+  const archivePath = path.join(path.dirname(dir), asset.filename);
   try {
-    const res = await fetch(url, { redirect: "follow" });
+    const res = await fetch(asset.url, { redirect: "follow" });
     if (!res.ok) return { ok: false, error: `Failed to fetch llama.cpp binary (${res.status})` };
     const buf = Buffer.from(await res.arrayBuffer());
-    fs.writeFileSync(tarPath, buf);
-    const { execSync } = await import("node:child_process");
-    execSync(`mkdir -p ${JSON.stringify(path.dirname(dir))} && tar --no-same-owner -xzf ${JSON.stringify(tarPath)} -C ${JSON.stringify(path.dirname(dir))}`, {
-      stdio: "ignore",
-    });
-    if (!fs.existsSync(bin)) {
-      return { ok: false, error: `Extracted tarball but ${bin} is missing` };
+    fs.writeFileSync(archivePath, buf);
+    await extractArchive(archivePath, dir, asset.kind);
+    let found = walkForBinary(dir, asset.binary);
+    if (!found) found = walkForBinary(path.dirname(dir), asset.binary);
+    if (!found) {
+      return { ok: false, error: `Extracted ${asset.filename} but ${asset.binary} is missing` };
     }
-    fs.chmodSync(bin, 0o755);
-    return { ok: true, bin };
+    const dest = path.join(dir, asset.binary);
+    if (path.resolve(found) !== path.resolve(dest)) {
+      fs.copyFileSync(found, dest);
+    }
+    if (asset.kind !== "zip") {
+      try {
+        fs.chmodSync(dest, 0o755);
+      } catch {
+        /* windows */
+      }
+    }
+    return { ok: true, bin: dest };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
@@ -161,7 +198,12 @@ export async function ensureLocalServer(): Promise<{ ok: true; url: string } | {
     "--jinja",
   ];
   child = childProcess.spawn(bin.bin, args, {
-    env: { ...process.env, LD_LIBRARY_PATH: llamaBinDir() },
+    cwd: path.dirname(bin.bin),
+    env: {
+      ...process.env,
+      LD_LIBRARY_PATH: path.dirname(bin.bin),
+      DYLD_LIBRARY_PATH: path.dirname(bin.bin),
+    },
     stdio: ["ignore", "pipe", "pipe"],
   });
   child.stderr?.on("data", () => undefined);

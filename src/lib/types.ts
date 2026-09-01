@@ -1,3 +1,7 @@
+import type { MascotId } from "./mascots";
+
+export type { MascotId };
+
 export type AgentColorId =
   | "sage"
   | "steel"
@@ -106,6 +110,7 @@ export type Bot = {
   name: string;
   job: string;
   color: AgentColorId;
+  mascotId: MascotId;
   modelId: string;
   path: string;
   workspacePath: string;

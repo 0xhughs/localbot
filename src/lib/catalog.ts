@@ -37,10 +37,14 @@ export function fitModel(model: CatalogModel, hardware: HardwareReport): ModelFi
     availableGb = hardware.availableRamGb;
   }
 
-  const fits = requiredGb <= availableGb + 1e-6;
-  const reason = fits
-    ? `Needs about ${requiredGb.toFixed(1)} GB. This machine has ${availableGb.toFixed(1)} GB available.`
-    : `Needs about ${requiredGb.toFixed(1)} GB free memory. This machine has ${availableGb.toFixed(1)} GB available.`;
+  const ramClassGb = Math.round(hardware.totalRamGb);
+  const classOk = ramClassGb + 1e-6 >= model.minRamGb;
+  const fits = classOk && requiredGb <= availableGb + 1e-6;
+  const reason = !classOk
+    ? `Needs about ${model.minRamGb} GB RAM class. This machine reports ${ramClassGb} GB total.`
+    : fits
+      ? `Needs about ${requiredGb.toFixed(1)} GB. This machine has ${availableGb.toFixed(1)} GB available.`
+      : `Needs about ${requiredGb.toFixed(1)} GB free memory. This machine has ${availableGb.toFixed(1)} GB available.`;
 
   return {
     modelId: model.id,

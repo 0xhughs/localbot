@@ -24,15 +24,17 @@ import {
 } from "@/lib/runtime/model-server";
 import { useLocalBot } from "@/lib/store";
 import { AGENT_COLOR_LIST, type AgentColorId, type CatalogModel } from "@/lib/types";
+import { MASCOT_IDS, MASCOT_META, type MascotId } from "@/lib/mascots";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ColorSwatch } from "./avatar";
 import { Wordmark } from "./logo";
+import { MascotMark } from "./mascots";
 
-const TEMPLATES: { name: string; job: string; color: AgentColorId }[] = [
-  { name: "Writer", job: "Turn notes into drafts, briefs, and outbox deliverables.", color: "sage" },
-  { name: "Researcher", job: "Gather sources into the department shared folder.", color: "steel" },
-  { name: "Ops", job: "Keep the workspace organized and file the finished work.", color: "pine" },
+const TEMPLATES: { name: string; job: string; color: AgentColorId; mascotId: MascotId }[] = [
+  { name: "Writer", job: "Turn notes into drafts, briefs, and outbox deliverables.", color: "sage", mascotId: "writer" },
+  { name: "Researcher", job: "Gather sources into the department shared folder.", color: "clay", mascotId: "researcher" },
+  { name: "Ops", job: "Keep the workspace organized and file the finished work.", color: "slate", mascotId: "ops" },
 ];
 
 type Step = "hello" | "stay" | "grants" | "scan" | "models" | "download" | "agent";
@@ -40,8 +42,8 @@ type Step = "hello" | "stay" | "grants" | "scan" | "models" | "download" | "agen
 const WELCOME: { id: Step; title: string; body: string }[] = [
   {
     id: "hello",
-    title: "Your agents, in this browser.",
-    body: "LocalBot is a web app. You create named agents and talk to them like contacts. Each one has its own workspace folder on the machine running this server.",
+    title: "Your agents, on this computer.",
+    body: "LocalBot is a chat of named agents. Each one has its own workspace folder on this machine.",
   },
   {
     id: "stay",
@@ -71,6 +73,7 @@ export function Onboarding() {
   const [botName, setBotName] = useState("Writer");
   const [botJob, setBotJob] = useState(TEMPLATES[0]!.job);
   const [color, setColor] = useState<AgentColorId>("sage");
+  const [mascotId, setMascotId] = useState<MascotId>("writer");
   const [companyRoot, setCompanyRoot] = useState("");
   const [rootTouched, setRootTouched] = useState(false);
   const [previewData, setPreviewData] = useState(true);
@@ -131,7 +134,7 @@ export function Onboarding() {
         </span>
       </header>
 
-      <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-5 pb-10 md:px-8">
+      <main className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col overflow-y-auto px-5 pb-10 md:px-8">
         {WELCOME.some((w) => w.id === step) && (
           <Welcome
             step={step}
@@ -184,6 +187,8 @@ export function Onboarding() {
             setBotJob={setBotJob}
             color={color}
             setColor={setColor}
+            mascotId={mascotId}
+            setMascotId={setMascotId}
             companyRoot={companyRoot}
             setCompanyRoot={(v) => {
               setRootTouched(true);
@@ -196,6 +201,7 @@ export function Onboarding() {
               setBotName(t.name);
               setBotJob(t.job);
               setColor(t.color);
+              setMascotId(t.mascotId);
             }}
             onBack={() => setStep("download")}
             onFinish={async () => {
@@ -209,6 +215,7 @@ export function Onboarding() {
                 botName,
                 botJob,
                 color,
+                mascotId,
                 modelId,
                 sharedRoot: shared,
                 companyRoot,
@@ -236,7 +243,7 @@ function Welcome({
   const idx = WELCOME.findIndex((w) => w.id === step);
   const Icon = [HardDrive, Shield, FolderLock][idx] ?? HardDrive;
   return (
-    <section className="stagger-in flex flex-1 flex-col justify-center py-8">
+    <section className="stagger-in flex flex-1 flex-col justify-center py-4">
       <p className="mb-6 font-mono text-[11px] tracking-[0.18em] text-subtle uppercase">
         {idx + 1} / 3
       </p>
@@ -278,7 +285,7 @@ function ScanStep({
 }) {
   const hardware = useLocalBot((s) => s.hardware);
   return (
-    <section className="stagger-in flex flex-1 flex-col justify-center py-8">
+    <section className="stagger-in flex flex-1 flex-col justify-center py-4">
       <p className="mb-3 font-mono text-[11px] tracking-[0.18em] text-subtle uppercase">
         Hardware
       </p>
@@ -569,6 +576,8 @@ function AgentStep(props: {
   setBotJob: (v: string) => void;
   color: AgentColorId;
   setColor: (v: AgentColorId) => void;
+  mascotId: MascotId;
+  setMascotId: (v: MascotId) => void;
   companyRoot: string;
   setCompanyRoot: (v: string) => void;
   previewData: boolean;
@@ -639,8 +648,11 @@ function AgentStep(props: {
               key={t.name}
               type="button"
               onClick={() => props.onTemplate(t)}
-              className="rounded-md bg-raised px-3 py-1.5 text-sm text-fg shadow-[0_0_0_1px_var(--color-border)] hover:bg-hover"
+              className="inline-flex items-center gap-2 rounded-md bg-raised px-3 py-1.5 text-sm text-fg shadow-[0_0_0_1px_var(--color-border)] hover:bg-hover"
             >
+              <span className="size-6 overflow-hidden rounded-full">
+                <MascotMark id={t.mascotId} />
+              </span>
               {t.name}
             </button>
           ))}
@@ -657,17 +669,37 @@ function AgentStep(props: {
           <Input className="mt-1.5" value={props.botJob} onChange={(e) => props.setBotJob(e.target.value)} />
         </label>
       </div>
-      <div className="mt-4">
-        <p className="text-xs font-medium text-muted">Color</p>
-        <div className="mt-2 flex gap-2">
-          {AGENT_COLOR_LIST.map((c) => (
-            <ColorSwatch
-              key={c.id}
-              hex={c.hex}
-              selected={props.color === c.id}
-              onClick={() => props.setColor(c.id)}
-            />
-          ))}
+      <div className="mt-4 grid gap-6 md:grid-cols-2">
+        <div>
+          <p className="text-xs font-medium text-muted">Mascot</p>
+          <div className="mt-2 flex gap-2">
+            {MASCOT_IDS.map((id) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => props.setMascotId(id)}
+                className={`flex size-11 items-center justify-center overflow-hidden rounded-full ${
+                  props.mascotId === id ? "ring-2 ring-fg ring-offset-2 ring-offset-bg" : ""
+                }`}
+                aria-label={MASCOT_META[id].label}
+              >
+                <MascotMark id={id} />
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <p className="text-xs font-medium text-muted">Color</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {AGENT_COLOR_LIST.map((c) => (
+              <ColorSwatch
+                key={c.id}
+                hex={c.hex}
+                selected={props.color === c.id}
+                onClick={() => props.setColor(c.id)}
+              />
+            ))}
+          </div>
         </div>
       </div>
 

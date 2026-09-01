@@ -92,6 +92,7 @@ export function seedBotFolderOnDisk(
       job: bot.job,
       modelId: bot.modelId,
       color: bot.color,
+      mascotId: bot.mascotId,
       grants: bot.grants,
       createdAt: bot.createdAt,
     }),

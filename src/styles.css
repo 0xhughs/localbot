@@ -19,6 +19,12 @@
   --color-warn: #b89a62;
   --color-ok: #6a9a78;
   --color-chip: #2a3140;
+  --color-mascot-writer: #8fa394;
+  --color-mascot-writer-bg: #1c2622;
+  --color-mascot-researcher: #c4a46a;
+  --color-mascot-researcher-bg: #2a2318;
+  --color-mascot-ops: #8a93a6;
+  --color-mascot-ops-bg: #1c2028;
 
   --radius-xs: 4px;
   --radius-sm: 6px;

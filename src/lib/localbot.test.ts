@@ -9,15 +9,21 @@ import { allowedRootsFor, expectedCompanyPaths, grantPathFor, resolveAgentFilePa
 import { seedCompanyTreeOnDisk } from "./fs/company-disk.ts";
 import {
   assertInsideRoot,
+  defaultCompanyRoot,
+  defaultModelsDir,
   diskExists,
   diskRead,
   diskWrite,
+  isElectronRuntime,
+  llamaBinDir,
   makeTempRoot,
 } from "./fs/disk.ts";
 import { scanHardware } from "./hardware.ts";
 import { scanServerHardware, scanServerHardwareFrom } from "./hardware-server.ts";
 import { classifyToolCall, pathAllowed } from "./permissions.ts";
+import { mascotIdForTemplate } from "./mascots.ts";
 import { executeTurn } from "./runtime/execute-turn.ts";
+import { llamaAssetFor, llamaAssetMap, llamaTarget } from "./runtime/llama-platform.ts";
 import { importGguf, streamHubDownload, verifyModel } from "./runtime/models.ts";
 import { runLocalTurn } from "./runtime/local-engine.ts";
 import { assertLoopbackOnly, describeBind, LOOPBACK_HOST, LOOPBACK_PORT } from "../runtime/loopback.ts";
@@ -65,6 +71,7 @@ function fixture() {
       memoryPath: posixJoin(botDir, "memory"),
       grants: ["workspace", "output", "shared", "outbox"],
       standingInstructions: "",
+      mascotId: mascotIdForTemplate(name),
       pinned: false,
       hidden: false,
       unread: 0,
@@ -298,6 +305,128 @@ describe("gguf download writer", () => {
   });
 });
 
+describe("llama.cpp platform assets", () => {
+  it("maps darwin-arm64, darwin-x64, win32-x64, linux-x64 to official release names", () => {
+    const map = llamaAssetMap();
+    assert.equal(map["darwin-arm64"], "llama-b10749-bin-macos-arm64.tar.gz");
+    assert.equal(map["darwin-x64"], "llama-b10749-bin-macos-x64.tar.gz");
+    assert.equal(map["win32-x64"], "llama-b10749-bin-win-cpu-x64.zip");
+    assert.equal(map["linux-x64"], "llama-b10749-bin-ubuntu-x64.tar.gz");
+    const win = llamaAssetFor("win32", "x64");
+    assert.ok(win);
+    assert.equal(win.kind, "zip");
+    assert.equal(win.binary, "llama-server.exe");
+    assert.match(win.url, /win-cpu-x64\.zip$/);
+    const mac = llamaAssetFor("darwin", "arm64");
+    assert.ok(mac);
+    assert.equal(mac.kind, "tar.gz");
+    assert.match(mac.url, /macos-arm64\.tar\.gz$/);
+    const macIntel = llamaAssetFor("darwin", "x64");
+    assert.ok(macIntel);
+    assert.match(macIntel.url, /macos-x64\.tar\.gz$/);
+    const linux = llamaAssetFor("linux", "x64");
+    assert.ok(linux);
+    assert.match(linux.url, /ubuntu-x64\.tar\.gz$/);
+    assert.equal(llamaAssetFor("linux", "arm64"), null);
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(process.cwd(), "catalog/llama-assets.json"), "utf8"),
+    ) as { targets: Record<string, { filename: string }> };
+    assert.equal(raw.targets["win32-x64"].filename, map["win32-x64"]);
+    assert.equal(raw.targets["darwin-arm64"].filename, map["darwin-arm64"]);
+  });
+});
+
+describe("electron data dirs", () => {
+  it("points models at appData and company files at documents", () => {
+    const prevE = process.env.LOCALBOT_ELECTRON;
+    const prevD = process.env.LOCALBOT_DATA_DIR;
+    const prevDoc = process.env.LOCALBOT_DOCUMENTS_DIR;
+    process.env.LOCALBOT_ELECTRON = "1";
+    process.env.LOCALBOT_DATA_DIR = path.join(os.tmpdir(), "appdata-LocalBot");
+    process.env.LOCALBOT_DOCUMENTS_DIR = path.join(os.tmpdir(), "Documents");
+    try {
+      assert.equal(isElectronRuntime(), true);
+      assert.equal(defaultModelsDir(), path.join(process.env.LOCALBOT_DATA_DIR, "models"));
+      assert.equal(
+        defaultCompanyRoot("Studio"),
+        path.join(process.env.LOCALBOT_DOCUMENTS_DIR, "LocalBot", "Studio"),
+      );
+      assert.equal(
+        llamaBinDir(),
+        path.join(process.env.LOCALBOT_DATA_DIR, "bin", llamaTarget() ?? `${process.platform}-${process.arch}`),
+      );
+    } finally {
+      if (prevE === undefined) delete process.env.LOCALBOT_ELECTRON;
+      else process.env.LOCALBOT_ELECTRON = prevE;
+      if (prevD === undefined) delete process.env.LOCALBOT_DATA_DIR;
+      else process.env.LOCALBOT_DATA_DIR = prevD;
+      if (prevDoc === undefined) delete process.env.LOCALBOT_DOCUMENTS_DIR;
+      else process.env.LOCALBOT_DOCUMENTS_DIR = prevDoc;
+    }
+  });
+});
+
+describe("ram class catalog", () => {
+  function ram(totalGb: number, freeGb: number) {
+    return scanServerHardwareFrom({
+      totalmem: () => totalGb * 1024 ** 3,
+      freemem: () => freeGb * 1024 ** 3,
+      cpus: () => [{ model: "t" }, { model: "t" }, { model: "t" }, { model: "t" }],
+      arch: () => "x64",
+      platform: () => "linux",
+    });
+  }
+
+  it("enables Recommended 3B on 16 GB and keeps 0.5B as Small", () => {
+    const small = CATALOG.find((m) => m.id === "qwen25-05b-q4");
+    const mid = CATALOG.find((m) => m.id === "qwen25-15b-q4");
+    const rec = CATALOG.find((m) => m.id === "qwen25-3b-q4");
+    const large = CATALOG.find((m) => m.id === "qwen25-7b-q4");
+    assert.ok(small && mid && rec && large);
+    const hw4 = ram(4, 2.5);
+    const hw8 = ram(8, 5);
+    const hw16 = ram(16, 12);
+    const hw24 = ram(24, 18);
+    assert.equal(fitModel(small, hw4).fits, true);
+    assert.equal(fitModel(mid, hw4).fits, false);
+    assert.equal(fitModel(rec, hw4).fits, false);
+    assert.equal(fitModel(mid, hw8).fits, true);
+    assert.equal(fitModel(rec, hw8).fits, false);
+    assert.equal(fitModel(rec, hw16).fits, true);
+    assert.equal(fitModel(large, hw16).fits, false);
+    assert.equal(fitModel(large, hw24).fits, true);
+
+    const almost4 = ram(3.84, 2.5);
+    assert.equal(fitModel(small, almost4).fits, true);
+    assert.equal(fitModel(rec, almost4).fits, false);
+
+    const almost16 = ram(15.6, 12);
+    assert.equal(fitModel(rec, almost16).fits, true);
+    assert.equal(fitModel(large, almost16).fits, false);
+
+    const desktop16 = scanHardware({
+      userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+      platform: "MacIntel",
+      hardwareConcurrency: 8,
+      deviceMemoryGb: 8,
+    });
+    assert.equal(desktop16.totalRamGb, 16);
+    assert.equal(fitModel(rec, desktop16).fits, true);
+    assert.equal(fitModel(large, desktop16).fits, false);
+  });
+});
+
+describe("mascots", () => {
+  it("Writer template has mascotId writer", () => {
+    assert.equal(mascotIdForTemplate("Writer"), "writer");
+    assert.equal(mascotIdForTemplate("Researcher"), "researcher");
+    assert.equal(mascotIdForTemplate("Ops"), "ops");
+    const { writer, researcher } = fixture();
+    assert.equal(writer.mascotId, "writer");
+    assert.equal(researcher.mascotId, "researcher");
+  });
+});
+
 describe("catalog pin", () => {
   it("loads ids from catalog/models.json", () => {
     const raw = JSON.parse(fs.readFileSync(path.join(process.cwd(), "catalog/models.json"), "utf8")) as {
@@ -332,9 +461,12 @@ describe("checksum honesty", () => {
 });
 
 describe("executeTurn default", () => {
-  it("does not require XAI_API_KEY", { timeout: 60000 }, async () => {
+  it("does not require XAI_API_KEY", { timeout: 15000 }, async () => {
     const prev = process.env.XAI_API_KEY;
+    const prevDir = process.env.LOCALBOT_DATA_DIR;
+    const tmp = makeTempRoot();
     delete process.env.XAI_API_KEY;
+    process.env.LOCALBOT_DATA_DIR = tmp;
     try {
       const out = await executeTurn({
         allowNetwork: false,
@@ -351,6 +483,8 @@ describe("executeTurn default", () => {
       }
     } finally {
       if (prev !== undefined) process.env.XAI_API_KEY = prev;
+      if (prevDir === undefined) delete process.env.LOCALBOT_DATA_DIR;
+      else process.env.LOCALBOT_DATA_DIR = prevDir;
     }
   });
 });

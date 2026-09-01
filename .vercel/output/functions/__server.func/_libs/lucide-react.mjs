@@ -417,6 +417,16 @@ var Menu = createLucideIcon("menu", [
 * This source code is licensed under the ISC license.
 * See the LICENSE file in the root directory of this source tree.
 */
+var Minus = createLucideIcon("minus", [["path", {
+	d: "M5 12h14",
+	key: "1ays0h"
+}]]);
+/**
+* @license lucide-react v0.510.0 - ISC
+*
+* This source code is licensed under the ISC license.
+* See the LICENSE file in the root directory of this source tree.
+*/
 var Monitor = createLucideIcon("monitor", [
 	["rect", {
 		width: "20",
@@ -674,4 +684,4 @@ var X = createLucideIcon("x", [["path", {
 	key: "d8bk6v"
 }]]);
 //#endregion
-export { Ban as A, FileSearch as C, Copy as D, Ellipsis as E, ArrowLeft as M, ChevronRight as O, FileText as S, EyeOff as T, HardDrive as _, Square as a, FolderOpen as b, Settings as c, Pin as d, Pause as f, Inbox as g, Menu as h, Terminal as i, ArrowRight as j, Check as k, Plus as l, Monitor as m, TriangleAlert as n, Shield as o, Paperclip as p, Trash2 as r, Share2 as s, X as t, Play as u, Globe as v, FilePenLine as w, FolderLock as x, Folder as y };
+export { Check as A, FileText as C, Ellipsis as D, EyeOff as E, ArrowRight as M, ArrowLeft as N, Copy as O, FolderLock as S, FilePenLine as T, Inbox as _, Square as a, Folder as b, Settings as c, Pin as d, Pause as f, Menu as g, Minus as h, Terminal as i, Ban as j, ChevronRight as k, Plus as l, Monitor as m, TriangleAlert as n, Shield as o, Paperclip as p, Trash2 as r, Share2 as s, X as t, Play as u, HardDrive as v, FileSearch as w, FolderOpen as x, Globe as y };

@@ -5,3 +5,7 @@ node_modules/
 .env.*
 data/LocalBot/
 data/localbot-config.json
+desktop-dist/
+dist/
+release/
+

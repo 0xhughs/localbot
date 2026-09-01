@@ -1,4 +1,4 @@
-//#region node_modules/.nitro/vite/services/ssr/assets/catalog-BxVbn8tK.js
+//#region node_modules/.nitro/vite/services/ssr/assets/catalog-D9qvFKrt.js
 var models_default = {
 	pin: "2026.09-localbot-2",
 	updated: "2026-09-01",
@@ -101,8 +101,10 @@ function fitModel(model, hardware) {
 	let availableGb = hardware.availableRamGb;
 	if (hardware.vramGb && hardware.vramGb > 0 && !hardware.appleSilicon) availableGb = hardware.vramGb;
 	if (hardware.appleSilicon) availableGb = hardware.availableRamGb;
-	const fits = requiredGb <= availableGb + 1e-6;
-	const reason = fits ? `Needs about ${requiredGb.toFixed(1)} GB. This machine has ${availableGb.toFixed(1)} GB available.` : `Needs about ${requiredGb.toFixed(1)} GB free memory. This machine has ${availableGb.toFixed(1)} GB available.`;
+	const ramClassGb = Math.round(hardware.totalRamGb);
+	const classOk = ramClassGb + 1e-6 >= model.minRamGb;
+	const fits = classOk && requiredGb <= availableGb + 1e-6;
+	const reason = !classOk ? `Needs about ${model.minRamGb} GB RAM class. This machine reports ${ramClassGb} GB total.` : fits ? `Needs about ${requiredGb.toFixed(1)} GB. This machine has ${availableGb.toFixed(1)} GB available.` : `Needs about ${requiredGb.toFixed(1)} GB free memory. This machine has ${availableGb.toFixed(1)} GB available.`;
 	return {
 		modelId: model.id,
 		requiredGb,

@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { useLocalBot } from "@/lib/store";
+import { MASCOT_IDS, MASCOT_META, mascotIdForTemplate, type MascotId } from "@/lib/mascots";
 import { AGENT_COLOR_LIST, type AgentColorId } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ColorSwatch } from "./avatar";
+import { MascotMark } from "./mascots";
 
 export function NewAgentDialog() {
   const open = useLocalBot((s) => s.ui.newAgentOpen);
@@ -14,6 +16,7 @@ export function NewAgentDialog() {
   const [name, setName] = useState("");
   const [job, setJob] = useState("");
   const [color, setColor] = useState<AgentColorId>("steel");
+  const [mascotId, setMascotId] = useState<MascotId>("researcher");
   if (!open) return null;
 
   const submit = () => {
@@ -22,6 +25,7 @@ export function NewAgentDialog() {
       name: n,
       job: job.trim() || "Generalist",
       color,
+      mascotId,
       modelId: selectedCatalogId ?? "qwen25-05b-q4",
       extraGrants: ["shared"],
     });
@@ -38,12 +42,41 @@ export function NewAgentDialog() {
         </p>
         <label className="mt-4 block text-xs font-medium text-muted">
           Name
-          <Input className="mt-1.5" value={name} onChange={(e) => setName(e.target.value)} placeholder="Researcher" />
+          <Input
+            className="mt-1.5"
+            value={name}
+            onChange={(e) => {
+              const v = e.target.value;
+              setName(v);
+              const guessed = mascotIdForTemplate(v);
+              setMascotId(guessed);
+              setColor(MASCOT_META[guessed].defaultColor);
+            }}
+            placeholder="Researcher"
+          />
         </label>
         <label className="mt-3 block text-xs font-medium text-muted">
           Job
           <Input className="mt-1.5" value={job} onChange={(e) => setJob(e.target.value)} placeholder="Sources into shared/" />
         </label>
+        <div className="mt-3">
+          <p className="text-xs font-medium text-muted">Mascot</p>
+          <div className="mt-2 flex gap-2">
+            {MASCOT_IDS.map((id) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setMascotId(id)}
+                className={`flex size-11 items-center justify-center overflow-hidden rounded-full ${
+                  mascotId === id ? "ring-2 ring-fg ring-offset-2 ring-offset-bg" : ""
+                }`}
+                aria-label={MASCOT_META[id].label}
+              >
+                <MascotMark id={id} />
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="mt-3">
           <p className="text-xs font-medium text-muted">Color</p>
           <div className="mt-2 flex gap-2">

@@ -6,6 +6,7 @@ import {
   FolderOpen,
   Inbox,
   Share2,
+  X,
 } from "lucide-react";
 import { grantPathFor } from "@/lib/fs/company";
 import { fsList, fsRead } from "@/lib/fs/server";
@@ -23,6 +24,7 @@ export function ComputerPane() {
   const employees = useLocalBot((s) => s.employees);
   const departments = useLocalBot((s) => s.departments);
   const show = useLocalBot((s) => s.ui.showComputer);
+  const setUi = useLocalBot((s) => s.setUi);
   const diskEpoch = useLocalBot((s) => s.diskEpoch);
 
   const ctx =
@@ -51,15 +53,25 @@ export function ComputerPane() {
   };
 
   return (
-    <aside className="flex h-full min-h-0 w-full shrink-0 flex-col border-t border-border bg-surface md:w-[300px] md:border-t-0 md:border-l">
+    <aside className="flex h-full min-h-0 w-full shrink-0 flex-col border-t border-border bg-surface shadow-[0_0_0_1px_var(--color-border),-16px_0_40px_rgb(0_0_0/0.35)] md:border-t-0 md:border-l">
       <div className="flex h-12 items-center justify-between px-3">
         <p className="font-mono text-[10px] tracking-wider text-subtle uppercase">
           Computer
         </p>
-        <Button variant="ghost" size="sm" onClick={() => void copyPath(outbox)}>
-          <Inbox className="size-3.5" />
-          Outbox
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="sm" onClick={() => void copyPath(outbox)}>
+            <Inbox className="size-3.5" />
+            Outbox
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Close computer"
+            onClick={() => setUi({ showComputer: false })}
+          >
+            <X className="size-4" />
+          </Button>
+        </div>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3 scrollbar-thin">
         <TreeSection

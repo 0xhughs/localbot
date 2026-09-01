@@ -24,6 +24,7 @@ import {
   fsTree,
   fsWrite,
 } from "./fs/server";
+import { mascotIdForTemplate, isMascotId, type MascotId } from "./mascots";
 import { pathAllowed } from "./permissions";
 import type {
   AgentColorId,
@@ -54,7 +55,7 @@ const DEFAULT_SETTINGS: Settings = {
 
 const DEFAULT_UI: UiState = {
   selectedBotId: null,
-  showComputer: true,
+  showComputer: false,
   showSettings: false,
   settingsTab: "general",
   composer: "",
@@ -111,6 +112,7 @@ type Actions = {
     botName: string;
     botJob: string;
     color: AgentColorId;
+    mascotId?: MascotId;
     modelId: string;
     sharedRoot: boolean;
     companyRoot: string;
@@ -119,6 +121,7 @@ type Actions = {
     name: string;
     job: string;
     color: AgentColorId;
+    mascotId?: MascotId;
     modelId: string;
     extraGrants?: FolderGrant[];
   }) => Promise<Bot>;
@@ -300,6 +303,7 @@ export const useLocalBot = create<LocalBotState>()(
           name: botName,
           job: input.botJob.trim() || "Generalist",
           color: input.color,
+          mascotId: input.mascotId ?? mascotIdForTemplate(botName),
           modelId: input.modelId,
           path: bP,
           workspacePath: posixJoin(bP, "workspace"),
@@ -338,7 +342,7 @@ export const useLocalBot = create<LocalBotState>()(
             ...get().runtime,
             lastHeartbeat: now,
           },
-          ui: { ...DEFAULT_UI, selectedBotId: bot.id, showComputer: true },
+          ui: { ...DEFAULT_UI, selectedBotId: bot.id, showComputer: false },
           diskEpoch: get().diskEpoch + 1,
         });
         return { ok: true };
@@ -361,6 +365,7 @@ export const useLocalBot = create<LocalBotState>()(
           name,
           job: input.job.trim() || "Generalist",
           color: input.color,
+          mascotId: input.mascotId ?? mascotIdForTemplate(name),
           modelId: input.modelId,
           path: bP,
           workspacePath: posixJoin(bP, "workspace"),
@@ -407,6 +412,7 @@ export const useLocalBot = create<LocalBotState>()(
           name: `${src.name} copy`,
           job: src.job,
           color: src.color,
+          mascotId: src.mascotId,
           modelId: src.modelId,
           extraGrants: src.grants.filter((g) => g === "shared" || g === "company-shared"),
         });
@@ -814,6 +820,24 @@ export const useLocalBot = create<LocalBotState>()(
     {
       name: "localbot-state-v3",
       storage: createJSONStorage(() => memoryStorage),
+      merge: (persisted, current) => {
+        const p = (persisted ?? {}) as Partial<AppSnapshot>;
+        const bots = (p.bots ?? current.bots).map((b) => ({
+          ...b,
+          mascotId: isMascotId(b.mascotId) ? b.mascotId : mascotIdForTemplate(b.name ?? ""),
+        }));
+        return {
+          ...current,
+          ...p,
+          bots,
+          settings: {
+            ...current.settings,
+            ...p.settings,
+            allowHostedDemo: Boolean(p.settings?.allowHostedDemo),
+            useExistingOllama: Boolean(p.settings?.useExistingOllama),
+          },
+        };
+      },
       partialize: (s) => ({
         version: s.version,
         onboarded: s.onboarded,

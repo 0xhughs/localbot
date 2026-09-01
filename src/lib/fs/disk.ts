@@ -1,7 +1,12 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { llamaTarget } from "../runtime/llama-platform.ts";
 import type { DiskConfig, DiskEntry } from "../types.ts";
+
+export function isElectronRuntime(): boolean {
+  return process.env.LOCALBOT_ELECTRON === "1";
+}
 
 export function dataDir(): string {
   if (process.env.LOCALBOT_DATA_DIR) {
@@ -20,7 +25,11 @@ export function slugName(name: string): string {
 }
 
 export function defaultCompanyRoot(companyName = "Studio"): string {
-  return path.join(dataDir(), "LocalBot", slugName(companyName) || "Studio");
+  const name = slugName(companyName) || "Studio";
+  if (process.env.LOCALBOT_DOCUMENTS_DIR) {
+    return path.join(process.env.LOCALBOT_DOCUMENTS_DIR, "LocalBot", name);
+  }
+  return path.join(dataDir(), "LocalBot", name);
 }
 
 export function isUnderDir(root: string, target: string): boolean {
@@ -36,11 +45,29 @@ export function isUnderProjectData(p: string): boolean {
 }
 
 export function defaultModelsDir(): string {
+  if (isElectronRuntime()) return path.join(dataDir(), "models");
   return path.join(dataDir(), "LocalBot", "models");
 }
 
+export function llamaBinRoot(): string {
+  if (isElectronRuntime()) return path.join(dataDir(), "bin");
+  return path.join(dataDir(), "LocalBot", "bin");
+}
+
+export function llamaServerName(): string {
+  return process.platform === "win32" ? "llama-server.exe" : "llama-server";
+}
+
 export function llamaBinDir(): string {
-  return path.join(dataDir(), "LocalBot", "bin", "llama-b10749");
+  const root = llamaBinRoot();
+  const key = llamaTarget() ?? `${process.platform}-${process.arch}`;
+  const preferred = path.join(root, key);
+  const name = llamaServerName();
+  const candidates = [preferred, path.join(root, "llama-b10749"), root];
+  for (const dir of candidates) {
+    if (fs.existsSync(path.join(dir, name))) return dir;
+  }
+  return preferred;
 }
 
 const DEFAULT_CFG_FIELDS = {

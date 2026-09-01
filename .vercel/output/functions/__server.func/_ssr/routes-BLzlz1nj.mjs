@@ -1,14 +1,14 @@
 import { i as __toESM } from "../_runtime.mjs";
-import { a as onboardingCards, n as CATALOG_PIN, r as getCatalogModel, t as CATALOG } from "./catalog-BxVbn8tK.mjs";
+import { a as onboardingCards, n as CATALOG_PIN, r as getCatalogModel, t as CATALOG } from "./catalog-D9qvFKrt.mjs";
 import { n as require_react } from "../_libs/@radix-ui/react-compose-refs+[...].mjs";
 import { v as require_jsx_runtime } from "../_libs/@tanstack/react-router+[...].mjs";
 import { n as TSS_SERVER_FUNCTION, r as getServerFnById, t as createServerFn } from "./ssr.mjs";
-import { A as Ban, C as FileSearch, D as Copy, E as Ellipsis, M as ArrowLeft, O as ChevronRight, S as FileText, T as EyeOff, _ as HardDrive, a as Square, b as FolderOpen, c as Settings, d as Pin, f as Pause, g as Inbox, h as Menu, i as Terminal, j as ArrowRight, k as Check, l as Plus, m as Monitor, o as Shield, p as Paperclip, r as Trash2, s as Share2, t as X, u as Play, v as Globe, w as FilePenLine, x as FolderLock, y as Folder } from "../_libs/lucide-react.mjs";
+import { A as Check, C as FileText, D as Ellipsis, E as EyeOff, M as ArrowRight, N as ArrowLeft, O as Copy, S as FolderLock, T as FilePenLine, _ as Inbox, a as Square, b as Folder, c as Settings, d as Pin, f as Pause, g as Menu, h as Minus, i as Terminal, j as Ban, k as ChevronRight, l as Plus, m as Monitor, o as Shield, p as Paperclip, r as Trash2, s as Share2, t as X, u as Play, v as HardDrive, w as FileSearch, x as FolderOpen, y as Globe } from "../_libs/lucide-react.mjs";
 import { n as persist, r as create, t as createJSONStorage } from "../_libs/zustand.mjs";
 import { n as clsx, t as cva } from "../_libs/class-variance-authority+clsx.mjs";
 import { t as twMerge } from "../_libs/tailwind-merge.mjs";
 import { t as Slot } from "../_libs/radix-ui__react-slot.mjs";
-//#region node_modules/.nitro/vite/services/ssr/assets/routes-CRFE0L3Y.js
+//#region node_modules/.nitro/vite/services/ssr/assets/routes-BLzlz1nj.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_jsx_runtime = require_jsx_runtime();
 var createSsrRpc = (functionId) => {
@@ -34,25 +34,6 @@ function uid(prefix = "id") {
 }
 function nowIso() {
 	return (/* @__PURE__ */ new Date()).toISOString();
-}
-function formatRelative(iso, now = Date.now()) {
-	const t = new Date(iso).getTime();
-	const d = Math.max(0, now - t);
-	const s = Math.floor(d / 1e3);
-	if (s < 45) return "just now";
-	const m = Math.floor(s / 60);
-	if (m < 60) return `${m}m`;
-	const h = Math.floor(m / 60);
-	if (h < 24) return `${h}h`;
-	const days = Math.floor(h / 24);
-	if (days < 7) return `${days}d`;
-	return new Date(iso).toLocaleDateString();
-}
-function initials(name) {
-	const parts = name.trim().split(/\s+/).filter(Boolean);
-	if (parts.length === 0) return "B";
-	if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-	return `${parts[0][0] ?? ""}${parts[1][0] ?? ""}`.toUpperCase();
 }
 function posixJoin(...parts) {
 	const raw = parts.flatMap((p) => p.split("/")).filter((p) => p.length > 0 && p !== ".");
@@ -136,6 +117,41 @@ var fsSeedCompanyTree = createServerFn({ method: "POST" }).validator((input) => 
 var fsSeedBot = createServerFn({ method: "POST" }).validator((input) => input).handler(createSsrRpc("7b60d75daa39e4a11a3ec50382dc778da66240eae85482fc038975b8e18c8822"));
 var fsSeedDepartment = createServerFn({ method: "POST" }).validator((input) => input).handler(createSsrRpc("7779bcdf5afea5c7528cfb1c0cc4c7f2d5a50a7d74a75f7be5fbcd6853f4b670"));
 var fsSeedEmployee = createServerFn({ method: "POST" }).validator((input) => input).handler(createSsrRpc("dfb0a5cde55326e99915ceb245bd0283168759002f29a58000602ca49f147b8d"));
+var MASCOT_IDS = [
+	"writer",
+	"researcher",
+	"ops"
+];
+var MASCOT_META = {
+	writer: {
+		id: "writer",
+		label: "Scrib",
+		blurb: "Paper and pen",
+		defaultColor: "sage"
+	},
+	researcher: {
+		id: "researcher",
+		label: "Lens",
+		blurb: "Magnifier",
+		defaultColor: "clay"
+	},
+	ops: {
+		id: "ops",
+		label: "Crate",
+		blurb: "Gear and crate",
+		defaultColor: "slate"
+	}
+};
+function mascotIdForTemplate(name) {
+	const n = name.trim().toLowerCase();
+	if (n.includes("writer") || n.includes("draft") || n.includes("scrib")) return "writer";
+	if (n.includes("research") || n.includes("lens")) return "researcher";
+	if (n.includes("ops") || n.includes("crate")) return "ops";
+	return "ops";
+}
+function isMascotId(v) {
+	return v === "writer" || v === "researcher" || v === "ops";
+}
 var SHELL_NAMES = /* @__PURE__ */ new Set([
 	"run_command",
 	"shell",
@@ -243,7 +259,7 @@ var DEFAULT_SETTINGS = {
 };
 var DEFAULT_UI = {
 	selectedBotId: null,
-	showComputer: true,
+	showComputer: false,
 	showSettings: false,
 	settingsTab: "general",
 	composer: "",
@@ -384,6 +400,7 @@ var useLocalBot = create()(persist((set, get) => ({
 			name: botName,
 			job: input.botJob.trim() || "Generalist",
 			color: input.color,
+			mascotId: input.mascotId ?? mascotIdForTemplate(botName),
 			modelId: input.modelId,
 			path: bP,
 			workspacePath: posixJoin(bP, "workspace"),
@@ -430,7 +447,7 @@ var useLocalBot = create()(persist((set, get) => ({
 			ui: {
 				...DEFAULT_UI,
 				selectedBotId: bot.id,
-				showComputer: true
+				showComputer: false
 			},
 			diskEpoch: get().diskEpoch + 1
 		});
@@ -450,6 +467,7 @@ var useLocalBot = create()(persist((set, get) => ({
 			name,
 			job: input.job.trim() || "Generalist",
 			color: input.color,
+			mascotId: input.mascotId ?? mascotIdForTemplate(name),
 			modelId: input.modelId,
 			path: bP,
 			workspacePath: posixJoin(bP, "workspace"),
@@ -509,6 +527,7 @@ var useLocalBot = create()(persist((set, get) => ({
 			name: `${src.name} copy`,
 			job: src.job,
 			color: src.color,
+			mascotId: src.mascotId,
 			modelId: src.modelId,
 			extraGrants: src.grants.filter((g) => g === "shared" || g === "company-shared")
 		});
@@ -990,6 +1009,24 @@ var useLocalBot = create()(persist((set, get) => ({
 }), {
 	name: "localbot-state-v3",
 	storage: createJSONStorage(() => memoryStorage),
+	merge: (persisted, current) => {
+		const p = persisted ?? {};
+		const bots = (p.bots ?? current.bots).map((b) => ({
+			...b,
+			mascotId: isMascotId(b.mascotId) ? b.mascotId : mascotIdForTemplate(b.name ?? "")
+		}));
+		return {
+			...current,
+			...p,
+			bots,
+			settings: {
+				...current.settings,
+				...p.settings,
+				allowHostedDemo: Boolean(p.settings?.allowHostedDemo),
+				useExistingOllama: Boolean(p.settings?.useExistingOllama)
+			}
+		};
+	},
 	partialize: (s) => ({
 		version: s.version,
 		onboarded: s.onboarded,
@@ -1208,7 +1245,7 @@ var modelSetHostedDemo = createServerFn({ method: "POST" }).validator((input) =>
 var modelSetOllama = createServerFn({ method: "POST" }).validator((input) => input).handler(createSsrRpc("8a65b429183ddd80c22c497da1b0bb7df13f24c14d8fdf07f0f217f9270350ef"));
 var modelEngineStatus = createServerFn({ method: "POST" }).handler(createSsrRpc("1c9e314be70d5595ab05707502096bb9cfe6d4a037e7825b225ae227799fb911"));
 createServerFn({ method: "POST" }).handler(createSsrRpc("1f289b3c13d0e081998b37de1b19fc322edfa4a1fb6a5ca1febc01cc8248b102"));
-var AGENT_COLORS = {
+var AGENT_COLOR_LIST = Object.values({
 	sage: {
 		id: "sage",
 		label: "Sage",
@@ -1239,8 +1276,7 @@ var AGENT_COLORS = {
 		label: "Pine",
 		hex: "#5f8f86"
 	}
-};
-var AGENT_COLOR_LIST = Object.values(AGENT_COLORS);
+});
 var buttonVariants = cva("inline-flex items-center justify-center gap-2 font-medium transition-[opacity,transform,background-color,color,box-shadow] duration-150 ease-out disabled:pointer-events-none disabled:opacity-40 active:not-disabled:scale-[0.96] select-none", {
 	variants: {
 		variant: {
@@ -1278,13 +1314,180 @@ function Input({ className, ...props }) {
 		...props
 	});
 }
-function AgentAvatar({ bot, size = "md" }) {
-	const hex = AGENT_COLORS[bot.color]?.hex ?? AGENT_COLORS.sage.hex;
-	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-		className: cn("inline-flex shrink-0 items-center justify-center rounded-sm font-medium text-accent-fg", size === "xs" ? "size-6 text-[10px]" : size === "sm" ? "size-8 text-[11px]" : size === "lg" ? "size-12 text-base" : "size-9 text-xs"),
-		style: { backgroundColor: hex },
+function MascotMark({ id, className }) {
+	const cls = cn("size-full", className);
+	if (id === "writer") return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(WriterMascot, { className: cls });
+	if (id === "researcher") return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ResearcherMascot, { className: cls });
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(OpsMascot, { className: cls });
+}
+function WriterMascot({ className }) {
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", {
+		viewBox: "0 0 32 32",
+		className,
 		"aria-hidden": true,
-		children: initials(bot.name)
+		children: [
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+				cx: "16",
+				cy: "16",
+				r: "15",
+				fill: "var(--color-mascot-writer-bg)"
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("ellipse", {
+				cx: "16",
+				cy: "18",
+				rx: "8.5",
+				ry: "7",
+				fill: "var(--color-mascot-writer)"
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+				cx: "13",
+				cy: "16.5",
+				r: "1.15",
+				fill: "var(--color-bg)"
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+				cx: "19",
+				cy: "16.5",
+				r: "1.15",
+				fill: "var(--color-bg)"
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", {
+				d: "M13.2 20.4c1.6 1.1 3.9 1.1 5.6 0",
+				fill: "none",
+				stroke: "var(--color-bg)",
+				strokeWidth: "1.1",
+				strokeLinecap: "round"
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", {
+				d: "M21.2 8.2 24.6 11.4 15.1 21.2l-3.6.6.7-3.5z",
+				fill: "var(--color-fg)",
+				opacity: "0.92"
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", {
+				d: "M21.2 8.2 24.6 11.4 22.4 9.3z",
+				fill: "var(--color-mascot-writer)"
+			})
+		]
+	});
+}
+function ResearcherMascot({ className }) {
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", {
+		viewBox: "0 0 32 32",
+		className,
+		"aria-hidden": true,
+		children: [
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+				cx: "16",
+				cy: "16",
+				r: "15",
+				fill: "var(--color-mascot-researcher-bg)"
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("ellipse", {
+				cx: "15",
+				cy: "17.5",
+				rx: "8",
+				ry: "6.6",
+				fill: "var(--color-mascot-researcher)"
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+				cx: "12.4",
+				cy: "16.2",
+				r: "1.1",
+				fill: "var(--color-bg)"
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+				cx: "17.6",
+				cy: "16.2",
+				r: "1.1",
+				fill: "var(--color-bg)"
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", {
+				d: "M12.6 20.1c1.4.9 3.4.9 4.8 0",
+				fill: "none",
+				stroke: "var(--color-bg)",
+				strokeWidth: "1.1",
+				strokeLinecap: "round"
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+				cx: "21.4",
+				cy: "11.2",
+				r: "4.1",
+				fill: "none",
+				stroke: "var(--color-fg)",
+				strokeWidth: "1.7"
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", {
+				d: "M24.4 14.2 27.4 17.3",
+				fill: "none",
+				stroke: "var(--color-fg)",
+				strokeWidth: "1.8",
+				strokeLinecap: "round"
+			})
+		]
+	});
+}
+function OpsMascot({ className }) {
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", {
+		viewBox: "0 0 32 32",
+		className,
+		"aria-hidden": true,
+		children: [
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+				cx: "16",
+				cy: "16",
+				r: "15",
+				fill: "var(--color-mascot-ops-bg)"
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", {
+				x: "8.5",
+				y: "14",
+				width: "15",
+				height: "10",
+				rx: "1.6",
+				fill: "var(--color-mascot-ops)"
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", {
+				d: "M8.5 17.2h15",
+				stroke: "var(--color-bg)",
+				strokeWidth: "1",
+				opacity: "0.45"
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("rect", {
+				x: "14.2",
+				y: "16.6",
+				width: "3.6",
+				height: "2.4",
+				rx: "0.4",
+				fill: "var(--color-bg)"
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+				cx: "16",
+				cy: "11.2",
+				r: "3.4",
+				fill: "var(--color-fg)"
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+				cx: "16",
+				cy: "11.2",
+				r: "1.35",
+				fill: "var(--color-mascot-ops-bg)"
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("path", {
+				d: "M16 7.4v1.3M16 13.7v1.3M12.2 11.2h1.3M18.5 11.2h1.3M13.3 8.5l.9.9M17.8 12.9l.9.9M18.7 8.5l-.9.9M13.3 12.9l-.9.9",
+				stroke: "var(--color-fg)",
+				strokeWidth: "1.15",
+				strokeLinecap: "round"
+			})
+		]
+	});
+}
+function AgentAvatar({ bot, size = "md" }) {
+	const mascot = isMascotId(bot.mascotId) ? bot.mascotId : mascotIdForTemplate(bot.name);
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+		className: cn("inline-flex shrink-0 overflow-hidden rounded-full", size === "xs" ? "size-6" : size === "sm" ? "size-8" : size === "lg" ? "size-12" : "size-9"),
+		"aria-hidden": true,
+		title: bot.name,
+		children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MascotMark, { id: mascot })
 	});
 }
 function ColorSwatch({ hex, selected, onClick }) {
@@ -1300,24 +1503,27 @@ var TEMPLATES = [
 	{
 		name: "Writer",
 		job: "Turn notes into drafts, briefs, and outbox deliverables.",
-		color: "sage"
+		color: "sage",
+		mascotId: "writer"
 	},
 	{
 		name: "Researcher",
 		job: "Gather sources into the department shared folder.",
-		color: "steel"
+		color: "clay",
+		mascotId: "researcher"
 	},
 	{
 		name: "Ops",
 		job: "Keep the workspace organized and file the finished work.",
-		color: "pine"
+		color: "slate",
+		mascotId: "ops"
 	}
 ];
 var WELCOME = [
 	{
 		id: "hello",
-		title: "Your agents, in this browser.",
-		body: "LocalBot is a web app. You create named agents and talk to them like contacts. Each one has its own workspace folder on the machine running this server."
+		title: "Your agents, on this computer.",
+		body: "LocalBot is a chat of named agents. Each one has its own workspace folder on this machine."
 	},
 	{
 		id: "stay",
@@ -1345,6 +1551,7 @@ function Onboarding() {
 	const [botName, setBotName] = (0, import_react.useState)("Writer");
 	const [botJob, setBotJob] = (0, import_react.useState)(TEMPLATES[0].job);
 	const [color, setColor] = (0, import_react.useState)("sage");
+	const [mascotId, setMascotId] = (0, import_react.useState)("writer");
 	const [companyRoot, setCompanyRoot] = (0, import_react.useState)("");
 	const [rootTouched, setRootTouched] = (0, import_react.useState)(false);
 	const [previewData, setPreviewData] = (0, import_react.useState)(true);
@@ -1392,7 +1599,7 @@ function Onboarding() {
 				children: "First run"
 			})]
 		}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("main", {
-			className: "mx-auto flex w-full max-w-3xl flex-1 flex-col px-5 pb-10 md:px-8",
+			className: "mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col overflow-y-auto px-5 pb-10 md:px-8",
 			children: [
 				WELCOME.some((w) => w.id === step) && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Welcome, {
 					step,
@@ -1436,6 +1643,8 @@ function Onboarding() {
 					setBotJob,
 					color,
 					setColor,
+					mascotId,
+					setMascotId,
 					companyRoot,
 					setCompanyRoot: (v) => {
 						setRootTouched(true);
@@ -1448,6 +1657,7 @@ function Onboarding() {
 						setBotName(t.name);
 						setBotJob(t.job);
 						setColor(t.color);
+						setMascotId(t.mascotId);
 					},
 					onBack: () => setStep("download"),
 					onFinish: async () => {
@@ -1460,6 +1670,7 @@ function Onboarding() {
 							botName,
 							botJob,
 							color,
+							mascotId,
 							modelId: picked ?? "qwen25-05b-q4",
 							sharedRoot: shared,
 							companyRoot
@@ -1481,7 +1692,7 @@ function Welcome({ step, onNext, onBack }) {
 		FolderLock
 	][idx] ?? HardDrive;
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
-		className: "stagger-in flex flex-1 flex-col justify-center py-8",
+		className: "stagger-in flex flex-1 flex-col justify-center py-4",
 		children: [
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
 				className: "mb-6 font-mono text-[11px] tracking-[0.18em] text-subtle uppercase",
@@ -1519,7 +1730,7 @@ function Welcome({ step, onNext, onBack }) {
 function ScanStep({ scanning, browserGuess, onContinue, onBack }) {
 	const hardware = useLocalBot((s) => s.hardware);
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
-		className: "stagger-in flex flex-1 flex-col justify-center py-8",
+		className: "stagger-in flex flex-1 flex-col justify-center py-4",
 		children: [
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 				className: "mb-3 font-mono text-[11px] tracking-[0.18em] text-subtle uppercase",
@@ -1869,11 +2080,14 @@ function AgentStep(props) {
 					children: "Template"
 				}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 					className: "mt-2 flex flex-wrap gap-2",
-					children: TEMPLATES.map((t) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+					children: TEMPLATES.map((t) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 						type: "button",
 						onClick: () => props.onTemplate(t),
-						className: "rounded-md bg-raised px-3 py-1.5 text-sm text-fg shadow-[0_0_0_1px_var(--color-border)] hover:bg-hover",
-						children: t.name
+						className: "inline-flex items-center gap-2 rounded-md bg-raised px-3 py-1.5 text-sm text-fg shadow-[0_0_0_1px_var(--color-border)] hover:bg-hover",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+							className: "size-6 overflow-hidden rounded-full",
+							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MascotMark, { id: t.mascotId })
+						}), t.name]
 					}, t.name))
 				})]
 			}),
@@ -1896,18 +2110,30 @@ function AgentStep(props) {
 				})]
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-				className: "mt-4",
-				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+				className: "mt-4 grid gap-6 md:grid-cols-2",
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+					className: "text-xs font-medium text-muted",
+					children: "Mascot"
+				}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+					className: "mt-2 flex gap-2",
+					children: MASCOT_IDS.map((id) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+						type: "button",
+						onClick: () => props.setMascotId(id),
+						className: `flex size-11 items-center justify-center overflow-hidden rounded-full ${props.mascotId === id ? "ring-2 ring-fg ring-offset-2 ring-offset-bg" : ""}`,
+						"aria-label": MASCOT_META[id].label,
+						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MascotMark, { id })
+					}, id))
+				})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 					className: "text-xs font-medium text-muted",
 					children: "Color"
 				}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-					className: "mt-2 flex gap-2",
+					className: "mt-2 flex flex-wrap gap-2",
 					children: AGENT_COLOR_LIST.map((c) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ColorSwatch, {
 						hex: c.hex,
 						selected: props.color === c.id,
 						onClick: () => props.setColor(c.id)
 					}, c.id))
-				})]
+				})] })]
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 				className: "mt-5 font-mono text-[11px] leading-relaxed text-subtle break-all",
@@ -2640,6 +2866,7 @@ function ComputerPane() {
 	const employees = useLocalBot((s) => s.employees);
 	const departments = useLocalBot((s) => s.departments);
 	const show = useLocalBot((s) => s.ui.showComputer);
+	const setUi = useLocalBot((s) => s.setUi);
 	const diskEpoch = useLocalBot((s) => s.diskEpoch);
 	const ctx = bot && company ? resolveBot({
 		bots,
@@ -2657,18 +2884,27 @@ function ComputerPane() {
 		} catch {}
 	};
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("aside", {
-		className: "flex h-full min-h-0 w-full shrink-0 flex-col border-t border-border bg-surface md:w-[300px] md:border-t-0 md:border-l",
+		className: "flex h-full min-h-0 w-full shrink-0 flex-col border-t border-border bg-surface shadow-[0_0_0_1px_var(--color-border),-16px_0_40px_rgb(0_0_0/0.35)] md:border-t-0 md:border-l",
 		children: [
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				className: "flex h-12 items-center justify-between px-3",
 				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 					className: "font-mono text-[10px] tracking-wider text-subtle uppercase",
 					children: "Computer"
-				}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Button, {
-					variant: "ghost",
-					size: "sm",
-					onClick: () => void copyPath(outbox),
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Inbox, { className: "size-3.5" }), "Outbox"]
+				}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "flex items-center gap-1",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Button, {
+						variant: "ghost",
+						size: "sm",
+						onClick: () => void copyPath(outbox),
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Inbox, { className: "size-3.5" }), "Outbox"]
+					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, {
+						variant: "ghost",
+						size: "icon-sm",
+						"aria-label": "Close computer",
+						onClick: () => setUi({ showComputer: false }),
+						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, { className: "size-4" })
+					})]
 				})]
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
@@ -2846,6 +3082,62 @@ function DiskPreview({ path, companyRoot, epoch }) {
 		})]
 	});
 }
+function DesktopTitlebar() {
+	const selected = useLocalBot((s) => s.ui.selectedBotId);
+	const bots = useLocalBot((s) => s.bots);
+	const setUi = useLocalBot((s) => s.setUi);
+	const bot = bots.find((b) => b.id === selected);
+	const title = bot ? `${bot.name} · LocalBot` : "LocalBot";
+	const desktop = typeof window !== "undefined" ? window.localbotDesktop : void 0;
+	(0, import_react.useEffect)(() => {
+		document.title = title;
+		desktop?.setTitle(title);
+	}, [title, desktop]);
+	(0, import_react.useEffect)(() => {
+		if (!desktop?.onSettings) return;
+		return desktop.onSettings(() => setUi({ showSettings: true }));
+	}, [desktop, setUi]);
+	if (!desktop) return null;
+	const showControls = desktop.platform !== "darwin";
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+		className: "flex h-9 shrink-0 items-center border-b border-border bg-bg px-3",
+		style: { WebkitAppRegion: "drag" },
+		children: [
+			desktop.platform === "darwin" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "w-16" }),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+				className: "flex-1 truncate font-mono text-[11px] tracking-wide text-subtle",
+				children: title
+			}),
+			showControls && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "flex",
+				style: { WebkitAppRegion: "no-drag" },
+				children: [
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: "flex size-8 items-center justify-center text-muted hover:text-fg",
+						"aria-label": "Minimize",
+						onClick: () => desktop.minimize(),
+						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Minus, { className: "size-3.5" })
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: "flex size-8 items-center justify-center text-muted hover:text-fg",
+						"aria-label": "Maximize",
+						onClick: () => desktop.maximize(),
+						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Square, { className: "size-3" })
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: "flex size-8 items-center justify-center text-muted hover:text-danger",
+						"aria-label": "Close",
+						onClick: () => desktop.close(),
+						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, { className: "size-3.5" })
+					})
+				]
+			})
+		]
+	});
+}
 function NewAgentDialog() {
 	const open = useLocalBot((s) => s.ui.newAgentOpen);
 	const setUi = useLocalBot((s) => s.setUi);
@@ -2855,6 +3147,7 @@ function NewAgentDialog() {
 	const [name, setName] = (0, import_react.useState)("");
 	const [job, setJob] = (0, import_react.useState)("");
 	const [color, setColor] = (0, import_react.useState)("steel");
+	const [mascotId, setMascotId] = (0, import_react.useState)("researcher");
 	if (!open) return null;
 	const submit = () => {
 		const n = name.trim() || `Agent ${bots.length + 1}`;
@@ -2862,6 +3155,7 @@ function NewAgentDialog() {
 			name: n,
 			job: job.trim() || "Generalist",
 			color,
+			mascotId,
 			modelId: selectedCatalogId ?? "qwen25-05b-q4",
 			extraGrants: ["shared"]
 		});
@@ -2886,7 +3180,13 @@ function NewAgentDialog() {
 					children: ["Name", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Input, {
 						className: "mt-1.5",
 						value: name,
-						onChange: (e) => setName(e.target.value),
+						onChange: (e) => {
+							const v = e.target.value;
+							setName(v);
+							const guessed = mascotIdForTemplate(v);
+							setMascotId(guessed);
+							setColor(MASCOT_META[guessed].defaultColor);
+						},
 						placeholder: "Researcher"
 					})]
 				}),
@@ -2897,6 +3197,22 @@ function NewAgentDialog() {
 						value: job,
 						onChange: (e) => setJob(e.target.value),
 						placeholder: "Sources into shared/"
+					})]
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "mt-3",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+						className: "text-xs font-medium text-muted",
+						children: "Mascot"
+					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+						className: "mt-2 flex gap-2",
+						children: MASCOT_IDS.map((id) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+							type: "button",
+							onClick: () => setMascotId(id),
+							className: `flex size-11 items-center justify-center overflow-hidden rounded-full ${mascotId === id ? "ring-2 ring-fg ring-offset-2 ring-offset-bg" : ""}`,
+							"aria-label": MASCOT_META[id].label,
+							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(MascotMark, { id })
+						}, id))
 					})]
 				}),
 				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
@@ -3551,15 +3867,12 @@ function Row({ k, v }) {
 function Sidebar() {
 	const bots = useLocalBot((s) => s.bots).filter((b) => !b.hidden).sort((a, b) => Number(b.pinned) - Number(a.pinned) || a.name.localeCompare(b.name));
 	const selected = useLocalBot((s) => s.ui.selectedBotId);
-	const sessions = useLocalBot((s) => s.sessions);
 	const selectBot = useLocalBot((s) => s.selectBot);
 	const pinBot = useLocalBot((s) => s.pinBot);
 	const hideBot = useLocalBot((s) => s.hideBot);
 	const duplicateBot = useLocalBot((s) => s.duplicateBot);
 	const deleteBot = useLocalBot((s) => s.deleteBot);
 	const setUi = useLocalBot((s) => s.setUi);
-	const company = useLocalBot((s) => s.company);
-	const badge = useLocalBot((s) => s.runtime.badge);
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("aside", {
 		className: "flex h-full min-h-0 w-[248px] shrink-0 flex-col border-r border-border bg-surface",
 		children: [
@@ -3573,50 +3886,35 @@ function Sidebar() {
 					children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Settings, { className: "size-4" })
 				})]
 			}),
-			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-				className: "px-3 pb-2",
-				children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-					className: "truncate font-mono text-[10px] tracking-wider text-subtle uppercase",
-					children: company?.name ?? "LocalBot"
-				})
-			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				className: "min-h-0 flex-1 overflow-y-auto px-1.5 scrollbar-thin",
 				children: [bots.map((bot) => {
 					const active = selected === bot.id;
-					const last = sessions[bot.id]?.messages.at(-1);
 					return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						className: `group relative mb-0.5 flex items-center rounded-md ${active ? "bg-raised" : "hover:bg-hover"}`,
 						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 							type: "button",
 							onClick: () => selectBot(bot.id),
 							className: "flex min-w-0 flex-1 items-center gap-2.5 px-2 py-2 text-left",
-							children: [
-								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-									className: "relative",
-									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(AgentAvatar, {
-										bot,
-										size: "sm"
-									}), bot.unread > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "absolute -top-0.5 -right-0.5 size-2 rounded-full bg-accent" })]
-								}),
-								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-									className: "min-w-0 flex-1",
-									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-										className: "flex items-center gap-1.5",
-										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-											className: "truncate text-sm font-medium text-fg",
-											children: bot.name
-										}), bot.pinned && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Pin, { className: "size-3 text-subtle" })]
-									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-										className: "block truncate text-[11px] text-muted",
-										children: last?.content?.slice(0, 48) || bot.job
-									})]
-								}),
-								last && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-									className: "font-mono text-[10px] text-subtle tabular-nums",
-									children: formatRelative(last.createdAt)
-								})
-							]
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+								className: "relative",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(AgentAvatar, {
+									bot,
+									size: "sm"
+								}), bot.unread > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: "absolute -top-0.5 -right-0.5 size-2 rounded-full bg-accent" })]
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+								className: "min-w-0 flex-1",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+									className: "flex items-center gap-1.5",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "truncate text-sm font-medium text-fg",
+										children: bot.name
+									}), bot.pinned && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Pin, { className: "size-3 text-subtle" })]
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+									className: "block truncate text-[11px] text-muted",
+									children: bot.job
+								})]
+							})]
 						}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("details", {
 							className: "relative mr-1",
 							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("summary", {
@@ -3654,17 +3952,14 @@ function Sidebar() {
 					children: "No agents yet."
 				})]
 			}),
-			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 				className: "border-t border-border p-2",
-				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Button, {
+				children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Button, {
 					variant: "secondary",
 					className: "w-full",
 					onClick: () => setUi({ newAgentOpen: true }),
 					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Plus, { className: "size-4" }), "New agent"]
-				}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-					className: "mt-2 px-1 font-mono text-[10px] text-subtle",
-					children: badge || "Local model"
-				})]
+				})
 			})
 		]
 	});
@@ -3692,6 +3987,7 @@ function AppShell() {
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 		className: "flex h-dvh flex-col bg-bg text-fg",
 		children: [
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)(DesktopTitlebar, {}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				className: "flex h-11 shrink-0 items-center gap-1 border-b border-border px-2 md:hidden",
 				children: [
@@ -3742,10 +4038,15 @@ function AppShell() {
 						})]
 					}),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChatPane, {}),
-					showComputer && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-						className: "flex max-md:absolute max-md:inset-x-0 max-md:bottom-0 max-md:z-10 max-md:h-[50%] md:static",
+					showComputer && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: "absolute inset-0 z-20 bg-bg/40 max-md:hidden",
+						"aria-label": "Close computer",
+						onClick: () => setUi({ showComputer: false })
+					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+						className: "absolute inset-x-0 bottom-0 z-30 flex h-[50%] md:inset-y-0 md:right-0 md:left-auto md:h-auto md:w-[320px]",
 						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ComputerPane, {})
-					})
+					})] })
 				]
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)(SettingsDialog, {}),

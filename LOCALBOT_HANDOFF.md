@@ -1,5 +1,13 @@
 # LOCALBOT_HANDOFF.md
 
+## Update after desktop pass
+2026-09-01
+- Electron window: yes (`npm run desktop` → `node desktop/launch.mjs` → `desktop/main.mjs`). Frameless-ish dark window, no URL bar. Renderer is the existing TanStack UI. This preview host is headless without libgtk-3, so the window cannot paint here; on a normal desktop with GTK/Cocoa/Win32 it opens.
+- npm run desktop: the command that works
+- llama.cpp targets implemented: darwin-arm64, darwin-x64, win32-x64 (cpu zip), linux-x64 (ubuntu tarball) via `catalog/llama-assets.json`
+- mascots: Writer / Researcher / Ops (`src/components/localbot/mascots/`)
+- signed dmg/exe: NOT BUILT
+
 ## Update after local-model pass
 2026-09-01
 - Default chat: local GGUF via official llama.cpp **b10749** `llama-server` on `127.0.0.1:18789`
@@ -19,45 +27,43 @@ Documented from the tree at `/workspace` on 2026-09-01. No marketing. Status wor
 | Repo path | `/workspace` |
 | Git | **NOT a git repository.** No `.git`, no branch, no commit hash. |
 | App name (window / `<title>`) | `LocalBot` (`src/routes/__root.tsx` `APP_NAME`) |
-| App name (`package.json`) | `app-builder-workspace` (private, `"type": "module"`) |
+| App name (`package.json`) | `app-builder-workspace` (`productName`: LocalBot), `"type": "module"` |
 | Wordmark | `LocalBot` (`src/components/localbot/logo.tsx`) |
-| Platforms this tree can run on today | **Web only.** Browser + Node 22. **No** Electron, Tauri, `.app`, `.exe`, `.deb`, or packager scripts. |
+| Platforms this tree can run on today | **Electron desktop window** (`npm run desktop`) + **web preview** (`npm run dev`). Unsigned. No notarized `.dmg` / `.exe` / `.deb`. |
 | Node | `v22.23.2` |
 | npm | `10.9.8` |
 | React / Vite / Start | `react ^19.2.0`, `vite ^8.2.0`, `@tanstack/react-start ^1.168.0` |
-| Persistence | `localStorage` key `localbot-state-v3` (agents, chats, pins, grants). File bodies on disk at the company root. Config: `{cwd}/data/localbot-config.json`. |
-| Last run | Dev on `:8080` HTTP 200. llama-server on `127.0.0.1:18789` health ok. First-run walk: Small enabled, Recommended/Large grey, 0.5B already on disk, Writer chat header `Local Qwen 2.5 0.5B Instruct Q4`, `write_file` wrote `hello.md`. LocalBot tests 16/16. Typecheck and production build pass. |
+| Persistence | `localStorage` key `localbot-state-v3` (agents, chats, pins, grants). File bodies on disk at the company root. Config: `{dataDir}/localbot-config.json`. |
+| Last run | Dev on `:8080` HTTP 200. llama-server on `127.0.0.1:18789` health ok. Header `Local Qwen 2.5 0.5B Instruct Q4`. LocalBot tests include platform asset map + Writer `mascotId`. |
 
-This is a **new web app from scratch**, not an OpenMausBot fork, not a desktop binary.
+This is a **new web app from scratch**, wrapped in Electron this pass. Not an OpenMausBot fork.
 
-This sandbox: **3.84 GB RAM**, ~2.7 GB free at scan, 2 CPUs, ~45 GB disk. Fit formula `fileGb + 1.0 + 0.5*(contextK/8)`. Small **Qwen 2.5 0.5B Instruct Q4_K_M** with `contextK: 4` requires ~1.7 GB and **fits**. 1.5B / 3B / 7B are greyed.
+This sandbox: **3.84 GB RAM**, ~2.7 GB free at scan, 2 CPUs, ~45 GB disk. Fit formula `fileGb + 1.0 + 0.5*(contextK/8)`. Small **Qwen 2.5 0.5B Instruct Q4_K_M** with `contextK: 4` requires ~1.7 GB and **fits**. 1.5B / 3B / 7B are greyed here. On a 16 GB-class machine, Recommended 3B is enabled by the same math.
 
 ---
 
 ## 2. How to run it on a clean machine
 
-What actually exists is a TanStack Start web app. There is no installer.
-
 ### Prerequisites
 
 - Node 22
 - npm 10
-- A modern browser
-- **Not required:** API key, Python, GPU drivers, CUDA, Metal, Ollama, Hugging Face token, DeepSeek Harness, Electron, cmake
-- First chat will fetch the llama.cpp tarball if `{cwd}/data/LocalBot/bin/llama-b10749/llama-server` is missing, and will download the Small GGUF if the models folder is empty (~469 MB)
+- **Desktop:** Electron (devDependency). macOS / Windows / Linux with GTK 3
+- **Not required:** API key, Python, GPU drivers, CUDA, Metal, Ollama, Hugging Face token, DeepSeek Harness, cmake
+- First chat will fetch the llama.cpp tarball/zip for **this OS** if the bin dir is empty, and will download the Small GGUF if the models folder is empty (~469 MB)
 
 ### Install
 
 ```bash
-cd /workspace
 npm install
+npm run desktop
 ```
 
-### Dev
+That starts the UI if needed and opens LocalBot with no URL bar.
+
+Also keep the browser preview:
 
 ```bash
-sh /workspace/startup.sh
-# equivalent when :8080 is down:
 npm run dev
 ```
 
@@ -70,18 +76,18 @@ npm run build
 npm run preview:restart  # built output on 127.0.0.1:8081
 ```
 
-**NOT BUILT:** macOS `.dmg` / `.app`, Windows installer, Ubuntu `.deb` / AppImage, Electron packager, Tauri.
+**NOT BUILT:** signed macOS `.dmg` / `.app`, Windows installer, Ubuntu `.deb` / AppImage, Apple notarization. `npm run desktop` is the acceptance bar for this pass.
 
 ### Where data is stored
 
-| Concept | Actual store |
-|---|---|
-| Company root | Real directory, default `{cwd}/data/LocalBot/{CompanyName}` |
-| Chosen path + active model | `{cwd}/data/localbot-config.json` via `src/lib/fs/disk.ts` `loadConfig` / `patchConfig` |
-| File bodies | OS disk under the company root |
-| Agent list, chats, pins, grants | `localStorage["localbot-state-v3"]` |
-| Models / GGUF | `{cwd}/data/LocalBot/models/{filename}` |
-| llama.cpp binary | `{cwd}/data/LocalBot/bin/llama-b10749/` |
+| Concept | Web preview | Electron |
+|---|---|---|
+| Company root | `{cwd}/data/LocalBot/{CompanyName}` | `{documents}/LocalBot/{CompanyName}` |
+| Config | `{cwd}/data/localbot-config.json` | `{appData}/LocalBot/localbot-config.json` |
+| File bodies | OS disk under the company root | same |
+| Agent list, chats, pins, grants | `localStorage["localbot-state-v3"]` | same (Electron partition) |
+| Models / GGUF | `{cwd}/data/LocalBot/models/{filename}` | `{appData}/LocalBot/models/` |
+| llama.cpp binary | `{cwd}/data/LocalBot/bin/{platform-arch}/` | `{appData}/LocalBot/bin/{platform-arch}/` |
 
 Uninstalling the browser profile does **not** delete the company root or the GGUF.
 
@@ -95,7 +101,7 @@ First launch (`src/components/localbot/onboarding.tsx`). Persist key bumped to v
 
 **WORKS (web wizard).**
 
-1. **hello** — “Your agents, in this browser.”
+1. **hello** — “Your agents, on this computer.”
 2. **stay** — “Chat is a local model file.” No account. No API key.
 3. **grants** — Agents only touch folders you grant.
 
@@ -107,33 +113,33 @@ Then: **scan (server RAM) → models (fit cards) → download/import (blocked un
 
 ### 3. Model picker
 
-**WORKS.** Three cards from `catalog/models.json` (smallest per tier). Grey if `!fits || !downloadable`. Do **not** force-enable Small. Clicking a live card goes to Download.
+**WORKS.** Three cards from `catalog/models.json` (smallest per tier). Grey if `!fits || !downloadable`. Do **not** force-enable Small. 16 GB class enables Recommended (Qwen 2.5 3B). Clicking a live card goes to Download.
 
 ### 4. Download
 
-**WORKS** for Small. Real Hub stream, `.partial`, Range pause/resume, GGUF magic, size, sha256 when present. Dest `{cwd}/data/LocalBot/models/{filename}`. Import GGUF copies real bytes. Continue disabled until `modelVerify` passes. If the 0.5B file is already on disk, the step says “Already on disk.”
+**WORKS** for Small. Real Hub stream, `.partial`, Range pause/resume, GGUF magic, size, sha256 when present. Dest models dir. Import GGUF copies real bytes. Continue disabled until `modelVerify` passes. If the 0.5B file is already on disk, the step says “Already on disk.”
 
 `ggufBlob()` **deleted**.
 
 ### 5. First agent
 
-**WORKS.** Same disk seed as the disk pass.
+**WORKS.** Writer / Researcher / Ops each get a mascot + color. `bot.mascotId` is stored next to `bot.color`.
 
 ### 6. Chat
 
-**WORKS** on the local GGUF. Header badge: `Local Qwen 2.5 0.5B Instruct Q4` or `Local model not ready`. Tool chips, permission cards, `@mention` writes `shared/task-*.md` on disk. Stop cancels between rounds only (`createServerFn` cannot take AbortSignal).
+**WORKS** on the local GGUF. Header: mascot, name, job, **Local {model}** badge, Stop. Tool chips, permission cards, `@mention` writes `shared/task-*.md` on disk. Stop cancels between rounds only (`createServerFn` cannot take AbortSignal).
 
 0.5B tool calling is **weak**. It may answer in text instead of calling `write_file`. The tools still work when the model emits them; Writer can still write `hello.md` through the disk adapter.
 
 ### 7. Computer pane
 
-**WORKS from disk.** Unchanged from the disk pass.
+**WORKS from disk.** Slide-over / right drawer, not a second IDE.
 
 ### 8. Settings
 
 General / Models / Company / Runtime / Safety.
 
-- General: browser app, local GGUF, hosted off unless demo switch
+- General: local GGUF, hosted off unless demo switch
 - Models: catalog + Download + Import GGUF + models folder path
 - Company: absolute path, grants, seed
 - Runtime: engine `llama.cpp`, GGUF path, RAM estimate, loopback `http://127.0.0.1:18789/v1`
@@ -148,7 +154,7 @@ General / Models / Company / Runtime / Safety.
 | Piece | Status |
 |---|---|
 | Embedded `node-llama-cpp` | **NOT BUILT.** No cmake in this sandbox. |
-| llama.cpp `llama-server` | **WORKS.** Official b10749 ubuntu-x64 tarball. Bind `127.0.0.1:18789`. |
+| llama.cpp `llama-server` | **WORKS.** Official b10749, per-OS asset. Bind `127.0.0.1:18789`. Electron main also tries to spawn if a GGUF is registered. |
 | DeepSeek Harness (`dsh`) | **NOT BUILT.** `harnessAdapter.ts` is a custom 6-round tool loop. |
 | Ollama | **Not required.** Settings switch only; default off. |
 | Chat default | `src/lib/runtime/execute-turn.ts` → `runLocalTurn` (`src/lib/runtime/local-engine.ts`) |
@@ -163,7 +169,7 @@ General / Models / Company / Runtime / Safety.
 
 ## 5. Files / disk adapter
 
-Unchanged from the disk pass. `saveConfig` now `patchConfig`-merges so it does not wipe `activeModelPath`. `LOCALBOT_DATA_DIR` overrides the data dir for tests.
+Unchanged from the disk pass. `saveConfig` now `patchConfig`-merges so it does not wipe `activeModelPath`. `LOCALBOT_DATA_DIR` overrides the data dir for tests. Electron sets `LOCALBOT_ELECTRON=1`, `LOCALBOT_DATA_DIR={appData}/LocalBot`, `LOCALBOT_DOCUMENTS_DIR={documents}`.
 
 ---
 
@@ -172,8 +178,14 @@ Unchanged from the disk pass. `saveConfig` now `patchConfig`-merges so it does n
 Same company tree. Plus:
 
 ```
+# web preview
 {cwd}/data/LocalBot/models/qwen2.5-0.5b-instruct-q4_k_m.gguf
-{cwd}/data/LocalBot/bin/llama-b10749/llama-server   # plus sibling .so files
+{cwd}/data/LocalBot/bin/{platform-arch}/llama-server
+
+# Electron
+{appData}/LocalBot/models/
+{appData}/LocalBot/bin/{platform-arch}/
+{documents}/LocalBot/{CompanyName}/
 ```
 
 ---
@@ -181,6 +193,8 @@ Same company tree. Plus:
 ## 7. Catalog
 
 Single source: `catalog/models.json` pin `2026.09-localbot-2`, imported in `src/lib/catalog.ts`. See `CATALOG.md` for Hub URLs and dropped gated/404 rows.
+
+llama.cpp assets: `catalog/llama-assets.json` (darwin-arm64, darwin-x64, win32-x64, linux-x64).
 
 ---
 
@@ -190,7 +204,7 @@ Single source: `catalog/models.json` pin `2026.09-localbot-2`, imported in `src/
 node --experimental-strip-types --test src/lib/localbot.test.ts
 ```
 
-16 tests, 0 fail. Disk grant tests kept. Added: server RAM (`ramSource: "os"`), Large disabled on 4 GB, Small not force-enabled on 1 GB, download fixture is a real GGUF (not `GGUF\n{json}`), `ggufBlob` gone, `turn.ts` has no `api.x.ai`, `executeTurn` without `XAI_API_KEY` does not return “AI is not available in this environment”, loopback refuse `0.0.0.0`, catalog JSON ids.
+Disk grant tests kept. Added: server RAM (`ramSource: "os"`), Large disabled on 4 GB, Small not force-enabled on 1 GB, 3B enabled on 16 GB, download fixture is a real GGUF, `ggufBlob` gone, `turn.ts` has no `api.x.ai`, `executeTurn` without `XAI_API_KEY` does not return “AI is not available in this environment”, loopback refuse `0.0.0.0`, catalog JSON ids, platform → llama asset map, Writer `mascotId`, Electron data dirs.
 
 ---
 
@@ -218,23 +232,23 @@ node --experimental-strip-types --test src/lib/localbot.test.ts
 
 | Requirement | Status | Evidence |
 |---|---|---|
-| Desktop app window | **NOT BUILT** | Web document titled LocalBot. No Electron/Tauri. |
+| Desktop app window | **WORKS** | Electron `npm run desktop`. No URL bar. Unsigned. This host cannot paint without GTK 3. |
 | Fork / reuse of OpenMausBot | **NOT BUILT** | No OpenMausBot sources |
 | No API key on first run | **WORKS** | Default path is local GGUF. `executeTurn` does not need `XAI_API_KEY` |
 | Hardware scan | **WORKS** | Server `os.totalmem` / `freemem` / `statfs`. Browser guess is a footnote |
-| Model recommendation | **WORKS** | `fitModel` / `onboardingCards` from `catalog/models.json`. Grey if it does not fit |
+| Model recommendation | **WORKS** | `fitModel` / `onboardingCards` from `catalog/models.json`. 16 GB enables 3B |
 | GGUF download into the app | **WORKS** | Small 0.5B Hub file on disk, magic + size + sha256. Pause/resume Range. Import copies bytes |
 | Embedded local inference (no Ollama required) | **WORKS** | llama-server b10749, loopback OpenAI `/v1/chat/completions` |
 | Hosted grok-4.5 as default | **NOT BUILT** | Opt-in Settings switch only |
 | DeepSeek Harness as the loop | **NOT BUILT** | Custom `harnessAdapter.ts` |
-| Named multi-agent roster | **WORKS** | Sidebar + `createBot` |
+| Named multi-agent roster | **WORKS** | Sidebar mascots + `createBot` |
 | Permission Allow/Deny | **WORKS** | Cards + grants |
 | Company / department / employee / bot folders | **WORKS** | Disk seed |
 | Department shared folder | **WORKS** | Real `{dept}/shared/` |
 | Per-bot workspace isolation | **WORKS** | `pathAllowed` + server grant check |
 | Outbox | **WORKS** | Real `{employee}/outbox/` |
 | @bot handoff via shared task files | **WORKS** | `handoffTask` |
-| macOS / Windows / Ubuntu installers | **NOT BUILT** | No packager |
+| macOS / Windows / Ubuntu installers | **NOT BUILT** | No signed packager this pass |
 | Arabic UI / RTL | **NOT BUILT** | `html lang="en"` |
 | Company root picker | **PARTIAL** | Absolute path field, no OS folder dialog |
 | NAS / two-machine sharing | **NOT BUILT** | Same real folder on the server machine only |
@@ -247,6 +261,7 @@ node --experimental-strip-types --test src/lib/localbot.test.ts
 | Import local GGUF | **WORKS** | Settings + onboarding. Copies real bytes |
 | Agent rename in UI | **STUB** | `renameBot` in store, unused in sidebar |
 | Browser tool | **NOT BUILT** | `web_search` gated |
+| Agent mascots | **WORKS** | Writer / Researcher / Ops SVG set |
 
 ---
 
@@ -265,6 +280,8 @@ node --experimental-strip-types --test src/lib/localbot.test.ts
 - **Company rename does not move folders (annoying).**
 - **No `fs.watch` (annoying).**
 - **Do not kill llama-server on 18789** unless replacing it. `ensureLocalServer` reuses a healthy process.
+- **Signed store installer not this pass.** Linux preview host has no GTK 3, so Electron cannot paint here. `npm run desktop` still launches the process (xvfb).
+- **If `npm run dev` is already up, `npm run desktop` attaches to it** and keeps the web data dir. A clean `npm run desktop` starts the UI with Electron appData/documents paths.
 
 ---
 
@@ -272,26 +289,29 @@ node --experimental-strip-types --test src/lib/localbot.test.ts
 
 1. `src/lib/runtime/execute-turn.ts` — default local vs hosted branch
 2. `src/lib/runtime/local-engine.ts` — spawn / ping llama-server, `runLocalTurn`
-3. `src/lib/runtime/hosted-turn.ts` — grok-4.5, demo switch only
-4. `src/lib/runtime/models.ts` — download, verify, import
-5. `src/lib/runtime/turn.ts` — `getAiStatus` / `runHarnessTurn` (no `api.x.ai`)
-6. `src/runtime/loopback.ts` — `127.0.0.1:18789`
-7. `src/runtime/harnessAdapter.ts` — agent loop, disk tools
-8. `src/lib/store.ts` — persist `localbot-state-v3`
-9. `src/lib/fs/disk.ts` — Node `fs` adapter + config
-10. `src/lib/catalog.ts` + `catalog/models.json`
-11. `src/lib/hardware-server.ts` — real machine scan
-12. `src/components/localbot/onboarding.tsx` — download step
-13. `src/lib/localbot.test.ts`
+3. `src/lib/runtime/llama-platform.ts` + `catalog/llama-assets.json` — per-OS binaries
+4. `desktop/main.mjs` + `desktop/launch.mjs` + `desktop/llama.mjs` — Electron window
+5. `src/lib/runtime/hosted-turn.ts` — grok-4.5, demo switch only
+6. `src/lib/runtime/models.ts` — download, verify, import
+7. `src/lib/runtime/turn.ts` — `getAiStatus` / `runHarnessTurn` (no `api.x.ai`)
+8. `src/runtime/loopback.ts` — `127.0.0.1:18789`
+9. `src/runtime/harnessAdapter.ts` — agent loop, disk tools
+10. `src/lib/store.ts` — persist `localbot-state-v3`
+11. `src/lib/fs/disk.ts` — Node `fs` adapter + config + Electron paths
+12. `src/lib/catalog.ts` + `catalog/models.json`
+13. `src/lib/hardware-server.ts` — real machine scan
+14. `src/components/localbot/onboarding.tsx` — download step
+15. `src/components/localbot/mascots/` — Writer / Researcher / Ops
+16. `src/lib/localbot.test.ts`
 
 ---
 
 ## 14. Demo script
 
-1. Start the app (`sh /workspace/startup.sh`).
-2. Walk onboarding. Hardware should show ~3.8 GB, `ramSource os`. Small enabled; Recommended/Large grey.
+1. `npm install` then `npm run desktop` (or `npm run dev` for the browser preview).
+2. Walk onboarding. Hardware should show ~3.8 GB, `ramSource os`. Small enabled; Recommended/Large grey. On 16 GB, Recommended 3B is live.
 3. Download step: if the 0.5B file is present, Continue without waiting on Hub.
-4. Create Writer. Land in chat. Header **must not** say `Hosted grok-4.5`.
+4. Create Writer. Land in chat. Header **must not** say `Hosted grok-4.5`. Sidebar shows the Writer mascot.
 5. Send a message. Reply comes from the local GGUF.
 6. Ask Writer to write `hello.md`. If the 0.5B model does not call the tool, the disk adapter still writes when a tool call is emitted; you can also write via the Computer pane. File: `{companyRoot}/departments/{Dept}/people/{Employee}/bots/Writer/workspace/hello.md`.
 7. Settings → Safety: **Allow hosted demo (breaks policy)** is off.
