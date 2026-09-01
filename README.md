@@ -1,8 +1,8 @@
 # LocalBot
 
-Browser app: named agents, folder grants, a file pane. Chat uses **hosted grok-4.5**. Work files live on **disk at the company root**.
+Browser app: named agents, folder grants, a file pane. Chat uses a **local GGUF** via llama.cpp on this machine. Work files live on **disk at the company root**.
 
-There is no desktop installer and no local GGUF inference in this build. The model picker is a catalog placeholder.
+No API key is required on the default path. Hosted models stay off unless you turn on **Allow hosted demo (breaks policy)** in Settings.
 
 ## First run
 
@@ -13,23 +13,23 @@ open http://127.0.0.1:8080
 ```
 
 1. Walk the welcome screens.
-2. Pick a catalog size (stored as an id only — nothing is downloaded).
-3. Name the company, department, employee, and first agent. Set the company root (defaults to `{cwd}/data/LocalBot/{CompanyName}`).
-4. Chat. Ask Writer to write `hello.md` into its workspace. The file is created on disk.
+2. Server hardware scan (Node RAM/disk — not a 16 GB browser guess).
+3. Pick Small if it fits. Recommended/Large grey out when this machine cannot hold them.
+4. Download the GGUF from Hugging Face into `{cwd}/data/LocalBot/models/`, or import a `.gguf` already on this machine. Continue is disabled until the file verifies.
+5. Name the company, department, employee, and first agent.
+6. Chat. Ask Writer to write `hello.md` into its workspace.
 
-Chat needs `XAI_API_KEY` on the server. If it is missing, the header shows **AI unavailable** and turns return an error. Onboarding still finishes.
+If no GGUF is loaded, the header says **Local model not ready** and the turn returns that error. It does not fall back to a hosted model.
 
 ## Where files go
 
-Company root is a real directory, default:
-
 ```
-{cwd}/data/LocalBot/{CompanyName}/
+{cwd}/data/LocalBot/models/{filename}     # GGUF weights
+{cwd}/data/LocalBot/{CompanyName}/        # company tree
+{cwd}/data/localbot-config.json           # company root, models dir, active GGUF
 ```
 
-On this preview that is the project `data/` folder. Two people share work only if they point at the **same real folder** (NAS / Drive / shared disk) on the machine running `npm run dev`. This process cannot see another laptop’s disk.
-
-Uninstalling the browser profile does not delete the company root on disk.
+Two people share work only if they point at the **same real folder** on the machine running `npm run dev`.
 
 ## Keyboard
 

@@ -1,6 +1,6 @@
-import { t as createServerFn } from "./ssr.mjs";
-import { t as createServerRpc } from "./createServerRpc-A6pJPYTF.mjs";
-//#region node_modules/.nitro/vite/services/ssr/assets/turn-COpEy_IP.js
+import { loadConfig } from "./disk-Ch6iovlC.mjs";
+import { runLocalTurn } from "./local-engine-5e_UwL5c.mjs";
+//#region node_modules/.nitro/vite/services/ssr/assets/execute-turn-BljB1Mp2.js
 var TOOLS = [
 	{
 		type: "function",
@@ -77,7 +77,7 @@ var TOOLS = [
 		type: "function",
 		function: {
 			name: "run_command",
-			description: "Run a workspace shell command (ls, cat, mkdir, touch, rm, echo, mv, cp, head, pwd). Always requires permission. Scoped to the company root.",
+			description: "Run a workspace shell command. Always requires permission.",
 			parameters: {
 				type: "object",
 				properties: { command: { type: "string" } },
@@ -98,27 +98,12 @@ var TOOLS = [
 		}
 	}
 ];
-var getAiStatus_createServerFn_handler = createServerRpc({
-	id: "4d014b7d5695cf271ecb6d606e4830cf820e40735c07c63b45eca84471656734",
-	name: "getAiStatus",
-	filename: "src/lib/runtime/turn.ts"
-}, (opts) => getAiStatus.__executeServer(opts));
-var getAiStatus = createServerFn({ method: "POST" }).handler(getAiStatus_createServerFn_handler, async () => {
-	return {
-		available: Boolean(process.env.XAI_API_KEY),
-		model: "grok-4.5"
-	};
-});
-var runHarnessTurn_createServerFn_handler = createServerRpc({
-	id: "6532b4f18cc5bcc2361d69f45f2f84e2d4d87ad9ed8a519945f97f3260b8e7bc",
-	name: "runHarnessTurn",
-	filename: "src/lib/runtime/turn.ts"
-}, (opts) => runHarnessTurn.__executeServer(opts));
-var runHarnessTurn = createServerFn({ method: "POST" }).validator((input) => input).handler(runHarnessTurn_createServerFn_handler, async ({ data }) => {
+/** Only called when the explicit hosted-demo switch is ON in server config. */
+async function runHostedTurn(data) {
 	const apiKey = process.env.XAI_API_KEY;
 	if (!apiKey) return {
 		ok: false,
-		error: "AI is not available in this environment"
+		error: "Hosted demo is on, but no API key is set."
 	};
 	const tools = data.allowNetwork ? TOOLS : TOOLS.filter((t) => t.function.name !== "web_search");
 	const messages = data.messages.map((m) => {
@@ -163,7 +148,7 @@ var runHarnessTurn = createServerFn({ method: "POST" }).validator((input) => inp
 		const body = await res.text().catch(() => "");
 		return {
 			ok: false,
-			error: `Runtime error ${res.status}${body ? `: ${body.slice(0, 240)}` : ""}`
+			error: `Hosted demo error ${res.status}${body ? `: ${body.slice(0, 240)}` : ""}`
 		};
 	}
 	const message = (await res.json()).choices?.[0]?.message;
@@ -177,6 +162,11 @@ var runHarnessTurn = createServerFn({ method: "POST" }).validator((input) => inp
 		content: message?.content ?? "",
 		toolCalls
 	};
-});
+}
+/** Default path is local GGUF. Hosted grok-4.5 only if allowHostedDemo is on. */
+async function executeTurn(data) {
+	if (loadConfig().allowHostedDemo) return runHostedTurn(data);
+	return runLocalTurn(data);
+}
 //#endregion
-export { getAiStatus_createServerFn_handler, runHarnessTurn_createServerFn_handler };
+export { executeTurn };

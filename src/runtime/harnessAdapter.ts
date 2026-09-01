@@ -1,6 +1,8 @@
 /**
  * Isolation layer: the UI talks to this adapter, never to the model HTTP client.
- * This pass: hosted grok-4.5 via src/lib/runtime/turn.ts.
+ * Default: local GGUF via llama-server on 127.0.0.1. Hosted grok-4.5 only if
+ * the explicit demo switch is on in server config.
+ *
  * File tools write to the company root on the server disk.
  *
  * AbortSignal cannot be forwarded through createServerFn; Stop cancels the

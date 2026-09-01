@@ -27,10 +27,12 @@
         "./src/*"
       ]
     },
-    "allowImportingTsExtensions": true
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true
   },
   "include": [
     "src",
-    "server"
+    "server",
+    "catalog"
   ]
 }

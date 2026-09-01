@@ -1,209 +1,41 @@
 import { createServerFn } from "@tanstack/react-start";
+import type { TurnInput, TurnOutput } from "./turn-types.ts";
 
-export type TurnMessage = {
-  role: "system" | "user" | "assistant" | "tool";
-  content: string;
-  tool_call_id?: string;
-  tool_calls?: TurnToolCall[];
-};
-
-export type TurnToolCall = {
-  id: string;
-  name: string;
-  arguments: string;
-};
-
-export type TurnInput = {
-  messages: TurnMessage[];
-  allowNetwork: boolean;
-};
-
-export type TurnOutput =
-  | { ok: true; content: string; toolCalls: TurnToolCall[] }
-  | { ok: false; error: string };
-
-const TOOLS = [
-  {
-    type: "function",
-    function: {
-      name: "read_file",
-      description: "Read a UTF-8 file from the granted folders.",
-      parameters: {
-        type: "object",
-        properties: { path: { type: "string" } },
-        required: ["path"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "write_file",
-      description: "Write a UTF-8 file, creating parent folders as needed.",
-      parameters: {
-        type: "object",
-        properties: {
-          path: { type: "string" },
-          content: { type: "string" },
-        },
-        required: ["path", "content"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "str_replace",
-      description: "Replace the first occurrence of old_string in a file.",
-      parameters: {
-        type: "object",
-        properties: {
-          path: { type: "string" },
-          old_string: { type: "string" },
-          new_string: { type: "string" },
-        },
-        required: ["path", "old_string", "new_string"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "list_dir",
-      description: "List a directory tree (granted folders only).",
-      parameters: {
-        type: "object",
-        properties: { path: { type: "string" } },
-        required: ["path"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "delete_file",
-      description: "Delete a file or folder. Always requires user permission.",
-      parameters: {
-        type: "object",
-        properties: { path: { type: "string" } },
-        required: ["path"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "run_command",
-      description:
-        "Run a workspace shell command (ls, cat, mkdir, touch, rm, echo, mv, cp, head, pwd). Always requires permission. Scoped to the company root.",
-      parameters: {
-        type: "object",
-        properties: { command: { type: "string" } },
-        required: ["command"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "web_search",
-      description: "Search the web. Only when the user enabled network.",
-      parameters: {
-        type: "object",
-        properties: { query: { type: "string" } },
-        required: ["query"],
-      },
-    },
-  },
-] as const;
+export type { TurnInput, TurnMessage, TurnOutput, TurnToolCall } from "./turn-types.ts";
 
 export const getAiStatus = createServerFn({ method: "POST" }).handler(async () => {
+  const { loadConfig } = await import("../fs/disk.ts");
+  const { engineStatus } = await import("./local-engine.ts");
+  const cfg = loadConfig();
+  const local = engineStatus();
+  if (!cfg.allowHostedDemo) {
+    return {
+      available: local.ready,
+      model: local.model || "local",
+      engine: local.engine,
+      ggufPath: local.ggufPath,
+      loopback: local.loopback,
+      ramEstimate: local.ramEstimate,
+      badge: local.badge,
+      allowHostedDemo: false,
+    };
+  }
+  const hostedOn = Boolean(process.env.XAI_API_KEY);
   return {
-    available: Boolean(process.env.XAI_API_KEY),
-    model: "grok-4.5" as const,
+    available: hostedOn,
+    model: "grok-4.5",
+    engine: "hosted-grok-4.5",
+    ggufPath: local.ggufPath,
+    loopback: local.loopback,
+    ramEstimate: local.ramEstimate,
+    badge: hostedOn ? "Hosted grok-4.5 (demo)" : "Hosted demo — no key",
+    allowHostedDemo: true,
   };
 });
 
 export const runHarnessTurn = createServerFn({ method: "POST" })
   .validator((input: TurnInput) => input)
   .handler(async ({ data }): Promise<TurnOutput> => {
-    const apiKey = process.env.XAI_API_KEY;
-    if (!apiKey) {
-      return { ok: false, error: "AI is not available in this environment" };
-    }
-
-    const tools = data.allowNetwork
-      ? TOOLS
-      : TOOLS.filter((t) => t.function.name !== "web_search");
-
-    const messages = data.messages.map((m) => {
-      if (m.role === "assistant" && m.tool_calls && m.tool_calls.length > 0) {
-        return {
-          role: "assistant" as const,
-          content: m.content || null,
-          tool_calls: m.tool_calls.map((tc) => ({
-            id: tc.id,
-            type: "function" as const,
-            function: { name: tc.name, arguments: tc.arguments },
-          })),
-        };
-      }
-      if (m.role === "tool") {
-        return {
-          role: "tool" as const,
-          tool_call_id: m.tool_call_id,
-          content: m.content,
-        };
-      }
-      return { role: m.role, content: m.content };
-    });
-
-    // AbortSignal cannot be forwarded through createServerFn; the client
-    // Stop button cancels between tool rounds only.
-    const res = await fetch("https://api.x.ai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: "grok-4.5",
-        max_tokens: 1600,
-        temperature: 0.5,
-        tools,
-        tool_choice: "auto",
-        messages,
-      }),
-    });
-
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      return {
-        ok: false,
-        error: `Runtime error ${res.status}${body ? `: ${body.slice(0, 240)}` : ""}`,
-      };
-    }
-
-    const json = (await res.json()) as {
-      choices?: {
-        message?: {
-          content?: string | null;
-          tool_calls?: {
-            id: string;
-            function: { name: string; arguments: string };
-          }[];
-        };
-      }[];
-    };
-    const message = json.choices?.[0]?.message;
-    const toolCalls: TurnToolCall[] = (message?.tool_calls ?? []).map((tc) => ({
-      id: tc.id,
-      name: tc.function.name,
-      arguments: tc.function.arguments,
-    }));
-    return {
-      ok: true,
-      content: message?.content ?? "",
-      toolCalls,
-    };
+    const { executeTurn } = await import("./execute-turn.ts");
+    return executeTurn(data);
   });

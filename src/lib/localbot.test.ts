@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import http from "node:http";
+import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
-import { CATALOG, fitModel, requiredMemoryGb } from "./catalog.ts";
+import { CATALOG, CATALOG_PIN, fitModel, requiredMemoryGb } from "./catalog.ts";
 import { allowedRootsFor, expectedCompanyPaths, grantPathFor, resolveAgentFilePath } from "./fs/company.ts";
 import { seedCompanyTreeOnDisk } from "./fs/company-disk.ts";
 import {
@@ -13,7 +15,12 @@ import {
   makeTempRoot,
 } from "./fs/disk.ts";
 import { scanHardware } from "./hardware.ts";
+import { scanServerHardware, scanServerHardwareFrom } from "./hardware-server.ts";
 import { classifyToolCall, pathAllowed } from "./permissions.ts";
+import { executeTurn } from "./runtime/execute-turn.ts";
+import { importGguf, streamHubDownload, verifyModel } from "./runtime/models.ts";
+import { runLocalTurn } from "./runtime/local-engine.ts";
+import { assertLoopbackOnly, describeBind, LOOPBACK_HOST, LOOPBACK_PORT } from "../runtime/loopback.ts";
 import type { Bot, Company, Department, Employee } from "./types.ts";
 import { posixJoin } from "./utils.ts";
 
@@ -40,7 +47,7 @@ function fixture() {
     departmentId: department.id,
     displayName: "Employee One",
     path: posixJoin(department.path, "people", "Employee One"),
-    defaultModelId: "gemma4-e2b-q4",
+    defaultModelId: "qwen25-05b-q4",
     createdAt: now,
   };
   const bot = (name: string, id: string): Bot => {
@@ -51,7 +58,7 @@ function fixture() {
       name,
       job: name,
       color: "sage",
-      modelId: "gemma4-e2b-q4",
+      modelId: "qwen25-05b-q4",
       path: botDir,
       workspacePath: posixJoin(botDir, "workspace"),
       outputPath: posixJoin(botDir, "output"),
@@ -88,12 +95,46 @@ describe("hardware scanner", () => {
     assert.ok(hw.availableRamGb > 0);
     assert.ok(hw.availableRamGb <= 4);
 
-    const large = CATALOG.find((m) => m.id === "qwen35-27b-q4");
+    const large = CATALOG.find((m) => m.id === "qwen25-7b-q4");
     assert.ok(large);
     const fit = fitModel(large, hw);
     assert.equal(fit.fits, false);
     assert.match(fit.reason, /Needs about/);
     assert.ok(requiredMemoryGb(large) > hw.availableRamGb);
+  });
+});
+
+describe("server hardware", () => {
+  it("uses os.totalmem, not a 16 GB browser assumption", () => {
+    const hw = scanServerHardwareFrom({
+      totalmem: () => 4 * 1024 ** 3,
+      freemem: () => 2.5 * 1024 ** 3,
+      cpus: () => [{ model: "test" }, { model: "test" }, { model: "test" }, { model: "test" }],
+      arch: () => "x64",
+      platform: () => "linux",
+    });
+    assert.equal(hw.ramSource, "os");
+    assert.ok(Math.abs(hw.totalRamGb - 4) < 0.01);
+    assert.ok(hw.totalRamGb < 8);
+    assert.ok(Math.abs(hw.availableRamGb - 2.5) < 0.01);
+    const live = scanServerHardwareFrom(os);
+    assert.equal(live.ramSource, "os");
+    assert.ok(Math.abs(live.totalRamGb - os.totalmem() / 1024 ** 3) < 0.01);
+
+    const large = CATALOG.find((m) => m.id === "qwen25-7b-q4");
+    assert.ok(large);
+    assert.equal(fitModel(large, hw).fits, false);
+
+    const small = CATALOG.find((m) => m.id === "qwen25-05b-q4");
+    assert.ok(small);
+    const oneGig = scanServerHardwareFrom({
+      totalmem: () => 1 * 1024 ** 3,
+      freemem: () => 0.4 * 1024 ** 3,
+      cpus: () => [{ model: "tiny" }],
+      arch: () => "x64",
+      platform: () => "linux",
+    });
+    assert.equal(fitModel(small, oneGig).fits, false);
   });
 });
 
@@ -179,5 +220,169 @@ describe("workspace grants", () => {
     diskWrite(root, posixJoin(shared, "from-researcher.md"), "r");
     assert.equal(fs.readFileSync(path.join(shared, "from-writer.md"), "utf8"), "w");
     assert.equal(fs.readFileSync(path.join(shared, "from-researcher.md"), "utf8"), "r");
+  });
+});
+
+describe("local model policy", () => {
+  it("turn.ts default path does not call api.x.ai", () => {
+    const src = fs.readFileSync(path.join(process.cwd(), "src/lib/runtime/turn.ts"), "utf8");
+    assert.equal(src.includes("api.x.ai"), false);
+    assert.equal(src.includes("execute-turn"), true);
+    const hosted = fs.readFileSync(
+      path.join(process.cwd(), "src/lib/runtime/hosted-turn.ts"),
+      "utf8",
+    );
+    assert.equal(hosted.includes("api.x.ai"), true);
+  });
+
+  it("runLocalTurn does not require XAI_API_KEY", async () => {
+    const prev = process.env.LOCALBOT_DATA_DIR;
+    const tmp = makeTempRoot();
+    process.env.LOCALBOT_DATA_DIR = tmp;
+    try {
+      const r = await runLocalTurn({
+        messages: [{ role: "user", content: "hi" }],
+        allowNetwork: false,
+      });
+      assert.equal(r.ok, false);
+      assert.match(r.error, /Local model not ready/);
+      assert.equal(/api\.x\.ai|XAI_API_KEY|hosted grok/i.test(r.error), false);
+    } finally {
+      if (prev === undefined) delete process.env.LOCALBOT_DATA_DIR;
+      else process.env.LOCALBOT_DATA_DIR = prev;
+    }
+  });
+});
+
+describe("gguf download writer", () => {
+  it("streams bytes to disk; the file is a GGUF, not a synthetic json blob", async () => {
+    const payload = Buffer.concat([
+      Buffer.from("GGUF"),
+      Buffer.from([3, 0, 0, 0]),
+      Buffer.alloc(64, 7),
+    ]);
+    const server = http.createServer((req, res) => {
+      res.writeHead(200, {
+        "Content-Type": "application/octet-stream",
+        "Content-Length": String(payload.length),
+      });
+      res.end(payload);
+    });
+    const port = await new Promise<number>((resolve) => {
+      server.listen(0, "127.0.0.1", () => {
+        const addr = server.address();
+        resolve(typeof addr === "object" && addr ? addr.port : 0);
+      });
+    });
+    const destDir = makeTempRoot();
+    const partial = path.join(destDir, "tiny.gguf.partial");
+    const dest = path.join(destDir, "tiny.gguf");
+    try {
+      const ac = new AbortController();
+      await streamHubDownload(
+        `http://127.0.0.1:${port}/tiny.gguf`,
+        partial,
+        0,
+        () => undefined,
+        ac.signal,
+      );
+      fs.renameSync(partial, dest);
+      const buf = fs.readFileSync(dest);
+      assert.equal(buf.subarray(0, 4).toString("utf8"), "GGUF");
+      assert.equal(buf.includes(Buffer.from("\n{")), false);
+      assert.notEqual(buf.toString("utf8").slice(0, 20), "GGUF\n{");
+      assert.equal(buf.length, payload.length);
+    } finally {
+      server.close();
+    }
+  });
+});
+
+describe("catalog pin", () => {
+  it("loads ids from catalog/models.json", () => {
+    const raw = JSON.parse(fs.readFileSync(path.join(process.cwd(), "catalog/models.json"), "utf8")) as {
+      pin: string;
+      models: { id: string; gated: boolean }[];
+    };
+    assert.equal(CATALOG_PIN, raw.pin);
+    assert.deepEqual(
+      CATALOG.map((m) => m.id),
+      raw.models.filter((m) => !m.gated).map((m) => m.id),
+    );
+    assert.ok(CATALOG.some((m) => m.id === "qwen25-05b-q4" && m.downloadable));
+  });
+});
+
+describe("loopback bind", () => {
+  it("binds 127.0.0.1:18789 and refuses 0.0.0.0", () => {
+    assert.equal(LOOPBACK_HOST, "127.0.0.1");
+    assert.equal(LOOPBACK_PORT, 18789);
+    const check = describeBind();
+    assert.equal(check.loopbackOnly, true);
+    assert.equal(check.lanBind, false);
+    assert.throws(() => assertLoopbackOnly("0.0.0.0"), /Refusing non-loopback bind/);
+  });
+});
+
+describe("checksum honesty", () => {
+  it("does not ship ggufBlob", () => {
+    const src = fs.readFileSync(path.join(process.cwd(), "src/lib/checksum.ts"), "utf8");
+    assert.equal(src.includes("ggufBlob"), false);
+  });
+});
+
+describe("executeTurn default", () => {
+  it("does not require XAI_API_KEY", { timeout: 60000 }, async () => {
+    const prev = process.env.XAI_API_KEY;
+    delete process.env.XAI_API_KEY;
+    try {
+      const out = await executeTurn({
+        allowNetwork: false,
+        messages: [
+          { role: "system", content: "Reply with the single word hello." },
+          { role: "user", content: "Say hello" },
+        ],
+      });
+      if (!out.ok) {
+        assert.equal(out.error.includes("AI is not available in this environment"), false);
+        assert.match(out.error, /Local model|llama-server|GGUF|not ready/i);
+      } else {
+        assert.equal(typeof out.content, "string");
+      }
+    } finally {
+      if (prev !== undefined) process.env.XAI_API_KEY = prev;
+    }
+  });
+});
+
+describe("import and verify", { concurrency: false }, () => {
+  it("importGguf copies real bytes into the models dir", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "localbot-data-"));
+    const prev = process.env.LOCALBOT_DATA_DIR;
+    process.env.LOCALBOT_DATA_DIR = tmp;
+    try {
+      const src = path.join(tmp, "imported.gguf");
+      const blob = Buffer.concat([Buffer.from("GGUF"), Buffer.from([3, 0, 0, 0]), Buffer.alloc(64, 9)]);
+      fs.writeFileSync(src, blob);
+      const r = importGguf(src);
+      assert.equal(r.ok, true);
+      assert.ok(r.path);
+      const copied = fs.readFileSync(r.path);
+      assert.equal(copied.subarray(0, 4).toString("utf8"), "GGUF");
+      assert.deepEqual(copied, blob);
+      assert.equal(copied.toString("utf8").startsWith("GGUF\n{"), false);
+    } finally {
+      if (prev === undefined) delete process.env.LOCALBOT_DATA_DIR;
+      else process.env.LOCALBOT_DATA_DIR = prev;
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("verifyModel accepts the downloaded Small GGUF when present", { timeout: 30000 }, () => {
+    const dest = path.join(process.cwd(), "data/LocalBot/models/qwen2.5-0.5b-instruct-q4_k_m.gguf");
+    if (!fs.existsSync(dest)) return;
+    const v = verifyModel("qwen25-05b-q4");
+    assert.equal(v.ok, true, v.error);
+    assert.equal(v.path, dest);
   });
 });

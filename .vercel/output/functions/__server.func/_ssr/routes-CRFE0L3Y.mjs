@@ -1,13 +1,14 @@
 import { i as __toESM } from "../_runtime.mjs";
+import { a as onboardingCards, n as CATALOG_PIN, r as getCatalogModel, t as CATALOG } from "./catalog-BxVbn8tK.mjs";
 import { n as require_react } from "../_libs/@radix-ui/react-compose-refs+[...].mjs";
 import { v as require_jsx_runtime } from "../_libs/@tanstack/react-router+[...].mjs";
-import { A as ArrowLeft, C as EyeOff, D as Check, E as ChevronRight, O as Ban, S as FilePenLine, T as Copy, _ as Folder, a as Square, b as FileText, c as Settings, d as Paperclip, f as Monitor, g as Globe, h as HardDrive, i as Terminal, k as ArrowRight, l as Plus, m as Inbox, o as Shield, p as Menu, r as Trash2, s as Share2, t as X, u as Pin, v as FolderOpen, w as Ellipsis, x as FileSearch, y as FolderLock } from "../_libs/lucide-react.mjs";
 import { n as TSS_SERVER_FUNCTION, r as getServerFnById, t as createServerFn } from "./ssr.mjs";
+import { A as Ban, C as FileSearch, D as Copy, E as Ellipsis, M as ArrowLeft, O as ChevronRight, S as FileText, T as EyeOff, _ as HardDrive, a as Square, b as FolderOpen, c as Settings, d as Pin, f as Pause, g as Inbox, h as Menu, i as Terminal, j as ArrowRight, k as Check, l as Plus, m as Monitor, o as Shield, p as Paperclip, r as Trash2, s as Share2, t as X, u as Play, v as Globe, w as FilePenLine, x as FolderLock, y as Folder } from "../_libs/lucide-react.mjs";
 import { n as persist, r as create, t as createJSONStorage } from "../_libs/zustand.mjs";
 import { n as clsx, t as cva } from "../_libs/class-variance-authority+clsx.mjs";
 import { t as twMerge } from "../_libs/tailwind-merge.mjs";
 import { t as Slot } from "../_libs/radix-ui__react-slot.mjs";
-//#region node_modules/.nitro/vite/services/ssr/assets/routes-lTqhfhO-.js
+//#region node_modules/.nitro/vite/services/ssr/assets/routes-CRFE0L3Y.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_jsx_runtime = require_jsx_runtime();
 var createSsrRpc = (functionId) => {
@@ -24,182 +25,6 @@ var createSsrRpc = (functionId) => {
 };
 var getAiStatus = createServerFn({ method: "POST" }).handler(createSsrRpc("4d014b7d5695cf271ecb6d606e4830cf820e40735c07c63b45eca84471656734"));
 var runHarnessTurn = createServerFn({ method: "POST" }).validator((input) => input).handler(createSsrRpc("6532b4f18cc5bcc2361d69f45f2f84e2d4d87ad9ed8a519945f97f3260b8e7bc"));
-var CATALOG_PIN = "2026.09-localbot-1";
-var CATALOG = [
-	{
-		id: "gemma4-e2b-q4",
-		tier: "small",
-		name: "Gemma 4 E2B Q4",
-		family: "Gemma 4",
-		repo: "ggml-org/gemma-4-E2B-GGUF",
-		filename: "gemma-4-E2B-Q4_K_M.gguf",
-		sizeBytes: 172032e4,
-		sizeLabel: "1.6 GB",
-		license: "Apache-2.0",
-		gated: false,
-		minRamGb: 8,
-		contextK: 8,
-		paramsLabel: "2B effective",
-		notes: "Fits 8 GB RAM class machines. Default Small card.",
-		sha256: "e2b0c4a91f7d3b6e8a1c5d9f2b4e7a0c3d6f9a2b5e8c1d4f7a0b3c6e9d2f5a8"
-	},
-	{
-		id: "qwen35-4b-q4",
-		tier: "small",
-		name: "Qwen 3.5 4B Q4",
-		family: "Qwen 3.5",
-		repo: "Qwen/Qwen3.5-4B-GGUF",
-		filename: "Qwen3.5-4B-Q4_K_M.gguf",
-		sizeBytes: 2684354560,
-		sizeLabel: "2.5 GB",
-		license: "Apache-2.0",
-		gated: false,
-		minRamGb: 8,
-		contextK: 8,
-		paramsLabel: "4B",
-		notes: "Alternate Small. Slightly heavier than Gemma 4 E2B.",
-		sha256: "4b11d8e2a0c7f3b9e6d1a4c8f2b5e9d3a7c0f4b8e1d5a9c3f6b0e4d8a2c7f1b5"
-	},
-	{
-		id: "gemma4-e4b-q4",
-		tier: "recommended",
-		name: "Gemma 4 E4B Q4",
-		family: "Gemma 4",
-		repo: "ggml-org/gemma-4-E4B-GGUF",
-		filename: "gemma-4-E4B-Q4_K_M.gguf",
-		sizeBytes: 3221225472,
-		sizeLabel: "3.0 GB",
-		license: "Apache-2.0",
-		gated: false,
-		minRamGb: 16,
-		contextK: 8,
-		paramsLabel: "4B effective",
-		notes: "Best default for 16 GB class machines.",
-		sha256: "e4b7a2c9d1f6b0e5a8c3d7f2b6e0a4c9d3f7b1e5a9c2d6f0b4e8a1c5d9f3b7e2"
-	},
-	{
-		id: "qwen35-9b-q4",
-		tier: "recommended",
-		name: "Qwen 3.5 9B Q4",
-		family: "Qwen 3.5",
-		repo: "Qwen/Qwen3.5-9B-GGUF",
-		filename: "Qwen3.5-9B-Q4_K_M.gguf",
-		sizeBytes: 5583457485,
-		sizeLabel: "5.2 GB",
-		license: "Apache-2.0",
-		gated: false,
-		minRamGb: 16,
-		contextK: 8,
-		paramsLabel: "9B",
-		notes: "Stronger Recommended when RAM allows.",
-		sha256: "9b4e1c8a2d6f0b5e9c3a7d1f5b8e2a6c0d4f9b3e7a1c5d8f2b6e0a4c9d3f7b1"
-	},
-	{
-		id: "gemma4-12b-q4",
-		tier: "large",
-		name: "Gemma 4 12B Q4",
-		family: "Gemma 4",
-		repo: "ggml-org/gemma-4-12B-GGUF",
-		filename: "gemma-4-12B-Q4_K_M.gguf",
-		sizeBytes: 7516192768,
-		sizeLabel: "7.0 GB",
-		license: "Apache-2.0",
-		gated: false,
-		minRamGb: 24,
-		contextK: 8,
-		paramsLabel: "12B",
-		notes: "Large card. Only offered when it actually loads with OS headroom.",
-		sha256: "12b9e4c0a7d3f6b1e8c2a5d9f3b7e0a4c8d2f6b9e3a7c1d5f8b2e6a0c4d9f3b7"
-	},
-	{
-		id: "qwen35-27b-q4",
-		tier: "large",
-		name: "Qwen 3.5 27B Q4",
-		family: "Qwen 3.5",
-		repo: "Qwen/Qwen3.5-27B-GGUF",
-		filename: "Qwen3.5-27B-Q4_K_M.gguf",
-		sizeBytes: 16106127360,
-		sizeLabel: "15.0 GB",
-		license: "Apache-2.0",
-		gated: false,
-		minRamGb: 32,
-		contextK: 8,
-		paramsLabel: "27B",
-		notes: "Only for high-RAM / discrete GPU machines.",
-		sha256: "27b0c6e4a9d2f5b8e1c4a7d0f3b6e9c2a5d8f1b4e7a0c3d6f9b2e5a8c1d4f7b0"
-	}
-].filter((m) => !m.gated);
-function getCatalogModel(id) {
-	return CATALOG.find((m) => m.id === id);
-}
-/**
-* requiredMemory ≈ modelFileGB + 2.5GB osHeadroom + 0.5GB per 8k context
-*/
-function requiredMemoryGb(model) {
-	const fileGb = model.sizeBytes / 1024 ** 3;
-	const osHeadroom = 2.5;
-	const contextHeadroom = .5 * (model.contextK / 8);
-	return fileGb + osHeadroom + contextHeadroom;
-}
-function fitModel(model, hardware) {
-	const requiredGb = requiredMemoryGb(model);
-	let availableGb = hardware.availableRamGb;
-	if (hardware.vramGb && hardware.vramGb > 0 && !hardware.appleSilicon) availableGb = hardware.vramGb;
-	if (hardware.appleSilicon) availableGb = hardware.availableRamGb;
-	const fits = requiredGb <= availableGb + 1e-6;
-	const reason = fits ? `Needs about ${requiredGb.toFixed(1)} GB. This machine has ${availableGb.toFixed(1)} GB available.` : `Needs about ${requiredGb.toFixed(1)} GB free memory. This machine has ${availableGb.toFixed(1)} GB available.`;
-	return {
-		modelId: model.id,
-		requiredGb,
-		availableGb,
-		fits,
-		reason,
-		recommended: false
-	};
-}
-function recommendModels(hardware) {
-	const fits = {};
-	for (const m of CATALOG) fits[m.id] = fitModel(m, hardware);
-	const pickBest = (tier) => {
-		const candidates = CATALOG.filter((m) => m.tier === tier && fits[m.id]?.fits);
-		if (candidates.length === 0) return null;
-		if (tier === "small") candidates.sort((a, b) => (fits[a.id]?.requiredGb ?? 99) - (fits[b.id]?.requiredGb ?? 99));
-		else candidates.sort((a, b) => (fits[b.id]?.requiredGb ?? 0) - (fits[a.id]?.requiredGb ?? 0));
-		return candidates[0] ?? null;
-	};
-	let small = pickBest("small");
-	if (!small && hardware.availableRamGb >= 8) small = CATALOG.find((m) => m.tier === "small") ?? null;
-	let recommended = pickBest("recommended");
-	if (!recommended) recommended = pickBest("small");
-	const large = pickBest("large");
-	if (recommended) {
-		const f = fits[recommended.id];
-		if (f) f.recommended = true;
-	}
-	return {
-		small,
-		recommended,
-		large,
-		fits
-	};
-}
-function onboardingCards(hardware) {
-	const rec = recommendModels(hardware);
-	const smallModel = rec.small ?? CATALOG.find((m) => m.tier === "small") ?? null;
-	const recommendedModel = CATALOG.find((m) => m.id === "gemma4-e4b-q4") ?? rec.recommended ?? smallModel;
-	const largeModel = CATALOG.find((m) => m.id === "gemma4-12b-q4") ?? rec.large ?? null;
-	if (smallModel && rec.fits[smallModel.id] && !rec.fits[smallModel.id].fits && !hardware.isMobile) rec.fits[smallModel.id] = {
-		...rec.fits[smallModel.id],
-		fits: true,
-		reason: `Tight fit. Needs about ${rec.fits[smallModel.id].requiredGb.toFixed(1)} GB; this machine reports ${rec.fits[smallModel.id].availableGb.toFixed(1)} GB. Small still loads on CPU.`
-	};
-	return {
-		small: smallModel,
-		recommended: recommendedModel,
-		large: largeModel,
-		fits: rec.fits
-	};
-}
 function cn(...inputs) {
 	return twMerge(clsx(inputs));
 }
@@ -412,7 +237,9 @@ var DEFAULT_SETTINGS = {
 	webSearchEnabled: false,
 	controlThisComputer: false,
 	denseUi: true,
-	companyRootIsShared: false
+	companyRootIsShared: false,
+	allowHostedDemo: false,
+	useExistingOllama: false
 };
 var DEFAULT_UI = {
 	selectedBotId: null,
@@ -439,10 +266,14 @@ function emptySnapshot() {
 		hardware: null,
 		settings: DEFAULT_SETTINGS,
 		runtime: {
-			engine: "hosted-grok-4.5",
-			model: "grok-4.5",
+			engine: "llama.cpp",
+			model: "",
 			aiAvailable: false,
-			lastHeartbeat: null
+			lastHeartbeat: null,
+			ggufPath: null,
+			loopback: null,
+			ramEstimate: "—",
+			badge: "Local model not ready"
 		},
 		activeEmployeeId: null,
 		previewWritesToProjectData: true
@@ -502,6 +333,11 @@ var useLocalBot = create()(persist((set, get) => ({
 	setAiAvailable: (available) => set((s) => ({ runtime: {
 		...s.runtime,
 		aiAvailable: available,
+		lastHeartbeat: nowIso()
+	} })),
+	setRuntime: (patch) => set((s) => ({ runtime: {
+		...s.runtime,
+		...patch,
 		lastHeartbeat: nowIso()
 	} })),
 	bumpDisk: () => set((s) => ({ diskEpoch: s.diskEpoch + 1 })),
@@ -1152,7 +988,7 @@ var useLocalBot = create()(persist((set, get) => ({
 		if (id) get().markRead(id);
 	}
 }), {
-	name: "localbot-state-v2",
+	name: "localbot-state-v3",
 	storage: createJSONStorage(() => memoryStorage),
 	partialize: (s) => ({
 		version: s.version,
@@ -1360,6 +1196,18 @@ function scanBrowserHardware() {
 		webglRenderer: renderer
 	});
 }
+var fsScanServerHardware = createServerFn({ method: "POST" }).handler(createSsrRpc("a10030064aa8cb2d1a66e8c1ba637b73d5b3dc705a6289627c80f7758fc1f92f"));
+var modelDownloadStart = createServerFn({ method: "POST" }).validator((input) => input).handler(createSsrRpc("c6f65c16d8da84d6a4ad2ff8034e14b91f3ebd421fc676c72895f8752bbccfde"));
+var modelDownloadStatus = createServerFn({ method: "POST" }).handler(createSsrRpc("0cfb78988111782633ceeb01ab5f9e0736aa02b2cd724cbbd61bb54dc9b98909"));
+var modelDownloadPause = createServerFn({ method: "POST" }).handler(createSsrRpc("40e6e177fdc1ea80b599d36b38c9289f1b9ed31408636fad28e2df4f98f06f9f"));
+var modelDownloadResume = createServerFn({ method: "POST" }).handler(createSsrRpc("21aeebc0ab0a4911fb4efe3f4690e0b2b215b90c1f7bd5174b9de93b5ae81277"));
+var modelVerify = createServerFn({ method: "POST" }).validator((input) => input).handler(createSsrRpc("aa0cf80feb628d830e818e3bfd93b3aa2bbecce6a5055b7096c5fd2e72464032"));
+var modelList = createServerFn({ method: "POST" }).handler(createSsrRpc("420cd8996fd4a20743089920e3ef7620d1193a44f16c1b84c8dc056db1d497d0"));
+var modelImport = createServerFn({ method: "POST" }).validator((input) => input).handler(createSsrRpc("0c465437edd45d3f2bd2924494b9097eb2b16378c8acc1e1c0af4ce50fe26b81"));
+var modelSetHostedDemo = createServerFn({ method: "POST" }).validator((input) => input).handler(createSsrRpc("216280aab065baa2c1570dec8fec91a193841d36f6d16c0753d315d8170f14ff"));
+var modelSetOllama = createServerFn({ method: "POST" }).validator((input) => input).handler(createSsrRpc("8a65b429183ddd80c22c497da1b0bb7df13f24c14d8fdf07f0f217f9270350ef"));
+var modelEngineStatus = createServerFn({ method: "POST" }).handler(createSsrRpc("1c9e314be70d5595ab05707502096bb9cfe6d4a037e7825b225ae227799fb911"));
+createServerFn({ method: "POST" }).handler(createSsrRpc("1f289b3c13d0e081998b37de1b19fc322edfa4a1fb6a5ca1febc01cc8248b102"));
 var AGENT_COLORS = {
 	sage: {
 		id: "sage",
@@ -1473,13 +1321,13 @@ var WELCOME = [
 	},
 	{
 		id: "stay",
-		title: "Chat is hosted grok-4.5.",
-		body: "This build does not run a local GGUF. Agents think with hosted grok-4.5 when the server has an API key. There is no model file written to disk."
+		title: "Chat is a local model file.",
+		body: "No account. No API key on the default path. The model is a GGUF on this machine. Work files go on disk under the company root."
 	},
 	{
 		id: "grants",
-		title: "Work files go on disk.",
-		body: "The company root is a real directory. Agents only write inside folders you grant. Two people share work only if they point at the same real folder on this machine (or a NAS mounted here)."
+		title: "Agents only touch folders you grant.",
+		body: "The company root is a real directory. Two people share work only if they point at the same real folder on this machine."
 	}
 ];
 function Onboarding() {
@@ -1502,6 +1350,7 @@ function Onboarding() {
 	const [previewData, setPreviewData] = (0, import_react.useState)(true);
 	const [busy, setBusy] = (0, import_react.useState)(false);
 	const [error, setError] = (0, import_react.useState)(null);
+	const [browserGuess, setBrowserGuess] = (0, import_react.useState)(null);
 	const cards = (0, import_react.useMemo)(() => hardware ? onboardingCards(hardware) : null, [hardware]);
 	(0, import_react.useEffect)(() => {
 		fsGetCompanyRoot().then((cfg) => {
@@ -1519,16 +1368,20 @@ function Onboarding() {
 	(0, import_react.useEffect)(() => {
 		if (step !== "scan") return;
 		setScanning(true);
-		const t = window.setTimeout(() => {
-			setHardware(scanBrowserHardware());
+		const guess = scanBrowserHardware();
+		setBrowserGuess(`${guess.totalRamGb} GB (browser guess, source ${guess.ramSource})`);
+		fsScanServerHardware().then((hw) => {
+			setHardware(hw);
 			setScanning(false);
-		}, 1100);
-		return () => window.clearTimeout(t);
+		}).catch(() => {
+			setHardware(guess);
+			setScanning(false);
+		});
 	}, [step, setHardware]);
 	const pickModel = (id) => {
 		setPicked(id);
 		noteCatalog(id);
-		setStep("agent");
+		setStep("download");
 	};
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 		className: "flex min-h-dvh flex-col bg-bg text-fg",
@@ -1554,6 +1407,7 @@ function Onboarding() {
 				}),
 				step === "scan" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ScanStep, {
 					scanning,
+					browserGuess,
 					onContinue: () => setStep("models"),
 					onBack: () => setStep("grants")
 				}),
@@ -1561,6 +1415,11 @@ function Onboarding() {
 					cards,
 					onPick: pickModel,
 					onBack: () => setStep("scan")
+				}),
+				step === "download" && picked && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(DownloadStep, {
+					catalogId: picked,
+					onBack: () => setStep("models"),
+					onReady: () => setStep("agent")
 				}),
 				step === "agent" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AgentStep, {
 					company,
@@ -1590,7 +1449,7 @@ function Onboarding() {
 						setBotJob(t.job);
 						setColor(t.color);
 					},
-					onBack: () => setStep("models"),
+					onBack: () => setStep("download"),
 					onFinish: async () => {
 						setBusy(true);
 						setError(null);
@@ -1601,7 +1460,7 @@ function Onboarding() {
 							botName,
 							botJob,
 							color,
-							modelId: picked ?? "gemma4-e2b-q4",
+							modelId: picked ?? "qwen25-05b-q4",
 							sharedRoot: shared,
 							companyRoot
 						});
@@ -1657,7 +1516,7 @@ function Welcome({ step, onNext, onBack }) {
 		]
 	});
 }
-function ScanStep({ scanning, onContinue, onBack }) {
+function ScanStep({ scanning, browserGuess, onContinue, onBack }) {
 	const hardware = useLocalBot((s) => s.hardware);
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
 		className: "stagger-in flex flex-1 flex-col justify-center py-8",
@@ -1672,7 +1531,7 @@ function ScanStep({ scanning, onContinue, onBack }) {
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 				className: "mt-2 max-w-xl text-sm leading-relaxed text-muted",
-				children: "Browser estimate of RAM and GPU. It does not change chat in this build — chat still uses hosted grok-4.5. Kept for when local models are wired."
+				children: "Server RAM and disk from Node. Catalog recommendations use these numbers, not the browser guess."
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 				className: "mt-8 overflow-hidden rounded-xl bg-surface p-1 shadow-[0_0_0_1px_var(--color-border)]",
@@ -1681,10 +1540,10 @@ function ScanStep({ scanning, onContinue, onBack }) {
 					children: [
 						["OS", scanning ? "…" : hardware?.platformLabel],
 						["CPU cores", scanning ? "…" : String(hardware?.cores ?? "—")],
-						["RAM", scanning ? "…" : hardware ? `${hardware.totalRamGb} GB total · ${hardware.availableRamGb.toFixed(1)} GB free` : "—"],
-						["GPU", scanning ? "…" : hardware?.gpuName ?? (hardware?.appleSilicon ? "Apple Silicon (unified)" : "None detected")],
+						["RAM", scanning ? "…" : hardware ? `${hardware.totalRamGb.toFixed(1)} GB total · ${hardware.availableRamGb.toFixed(1)} GB free (${hardware.ramSource})` : "—"],
+						["GPU / CPU", scanning ? "…" : hardware?.gpuName ?? "None detected"],
 						["Apple Silicon", scanning ? "…" : hardware?.appleSilicon ? "Yes" : "No"],
-						["Free disk", scanning ? "…" : hardware ? `${hardware.freeDiskGb} GB (estimate)` : "—"]
+						["Free disk", scanning ? "…" : hardware ? `${hardware.freeDiskGb.toFixed(0)} GB` : "—"]
 					].map(([k, v]) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						className: "px-4 py-3",
 						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", {
@@ -1696,6 +1555,10 @@ function ScanStep({ scanning, onContinue, onBack }) {
 						})]
 					}, k))
 				})
+			}),
+			browserGuess && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+				className: "mt-3 font-mono text-[11px] text-subtle",
+				children: ["Browser guess: ", browserGuess]
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				className: "mt-8 flex gap-3",
@@ -1739,29 +1602,32 @@ function ModelStep({ cards, onPick, onBack }) {
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", {
 				className: "text-3xl font-medium tracking-tight",
-				children: "Choose a catalog size (placeholder)"
+				children: "Choose a local model"
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 				className: "mt-2 max-w-xl text-sm text-muted",
-				children: "These cards are planned local models. This build does not download a GGUF or run inference locally. Chat uses hosted grok-4.5. Catalog noted."
+				children: "Grey cards need more RAM than this server has, or are not downloadable. Small is the default for this machine."
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 				className: "mt-6 grid gap-3 md:grid-cols-3",
 				children: items.map(({ key, title, model }) => {
 					if (!model) return null;
+					const fit = cards.fits[model.id];
+					const enabled = Boolean(fit?.fits && model.downloadable);
 					return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 						type: "button",
-						onClick: () => onPick(model.id),
-						className: "flex flex-col rounded-xl bg-surface p-4 text-left shadow-[0_0_0_1px_var(--color-border)] transition-[transform,background-color] duration-150 hover:bg-raised",
+						disabled: !enabled,
+						onClick: () => enabled && onPick(model.id),
+						className: `flex flex-col rounded-xl bg-surface p-4 text-left shadow-[0_0_0_1px_var(--color-border)] transition-[transform,background-color] duration-150 ${enabled ? "hover:bg-raised" : "cursor-not-allowed opacity-50"}`,
 						children: [
 							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 								className: "flex items-center justify-between",
 								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 									className: "font-mono text-[10px] tracking-wider text-subtle uppercase",
 									children: title
-								}), key === "recommended" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+								}), key === "recommended" && enabled && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 									className: "rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-medium text-accent",
-									children: "Placeholder"
+									children: "Fits"
 								})]
 							}),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", {
@@ -1778,7 +1644,7 @@ function ModelStep({ cards, onPick, onBack }) {
 							}),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 								className: "mt-3 text-xs leading-relaxed text-muted",
-								children: "Not wired in this build. Stored as a catalog id only."
+								children: enabled ? fit?.reason : fit && !fit.fits ? fit.reason : "Not downloadable in this build."
 							})
 						]
 					}, key);
@@ -1791,6 +1657,138 @@ function ModelStep({ cards, onPick, onBack }) {
 					onClick: onBack,
 					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ArrowLeft, { className: "size-4" }), "Back"]
 				})
+			})
+		]
+	});
+}
+function DownloadStep({ catalogId, onBack, onReady }) {
+	const [status, setStatus] = (0, import_react.useState)(null);
+	const [importPath, setImportPath] = (0, import_react.useState)("");
+	const [msg, setMsg] = (0, import_react.useState)(null);
+	const [ready, setReady] = (0, import_react.useState)(false);
+	(0, import_react.useEffect)(() => {
+		let stop = false;
+		const tick = async () => {
+			const s = await modelDownloadStatus();
+			if (stop) return;
+			setStatus(s);
+			if (s.status === "done") {
+				if ((await modelVerify({ data: { catalogId } })).ok) setReady(true);
+			}
+		};
+		(async () => {
+			const hit = (await modelList()).models.find((m) => m.catalogId === catalogId);
+			if (hit) {
+				if ((await modelVerify({ data: { catalogId } })).ok) {
+					setReady(true);
+					setMsg(`Already on disk · ${hit.path}`);
+					return;
+				}
+			}
+			await modelDownloadStart({ data: { catalogId } });
+			await tick();
+		})();
+		const id = window.setInterval(() => void tick(), 500);
+		return () => {
+			stop = true;
+			window.clearInterval(id);
+		};
+	}, [catalogId]);
+	const pct = status && status.bytesTotal > 0 ? Math.min(100, Math.round(status.bytesDone / status.bytesTotal * 100)) : 0;
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
+		className: "stagger-in flex flex-1 flex-col py-6",
+		children: [
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+				className: "mb-3 font-mono text-[11px] tracking-[0.18em] text-subtle uppercase",
+				children: "Download"
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", {
+				className: "text-3xl font-medium tracking-tight",
+				children: "Get the GGUF"
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+				className: "mt-2 max-w-xl text-sm text-muted",
+				children: "Real bytes from Hugging Face into the models folder. Pause uses HTTP Range. You can also import a .gguf already on this machine."
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "mt-6 rounded-xl bg-surface p-4 shadow-[0_0_0_1px_var(--color-border)]",
+				children: [
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+						className: "h-2 overflow-hidden rounded-full bg-raised",
+						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "h-full bg-accent transition-[width] duration-200",
+							style: { width: `${ready ? 100 : pct}%` }
+						})
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+						className: "mt-3 font-mono text-xs text-muted",
+						children: ready ? "Verified on disk." : status ? `${(status.bytesDone / 1024 ** 2).toFixed(1)} / ${(status.bytesTotal / 1024 ** 2).toFixed(1)} MB · ${status.status}` : "Starting…"
+					}),
+					status?.error && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+						className: "mt-2 text-sm text-danger",
+						children: status.error
+					}),
+					msg && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+						className: "mt-2 font-mono text-xs break-all text-muted",
+						children: msg
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "mt-4 flex flex-wrap gap-2",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Button, {
+							variant: "secondary",
+							size: "sm",
+							onClick: () => void modelDownloadPause(),
+							disabled: status?.status !== "running",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Pause, { className: "size-3.5" }), "Pause"]
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Button, {
+							variant: "secondary",
+							size: "sm",
+							onClick: () => void modelDownloadResume(),
+							disabled: status?.status !== "paused",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Play, { className: "size-3.5" }), "Resume"]
+						})]
+					})
+				]
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+				className: "mt-5 block text-xs font-medium text-muted",
+				children: ["Import GGUF (absolute path on this server)", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Input, {
+					className: "mt-1.5 font-mono text-xs",
+					value: importPath,
+					onChange: (e) => setImportPath(e.target.value),
+					placeholder: "/path/to/model.gguf"
+				})]
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+				className: "mt-2",
+				children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, {
+					variant: "secondary",
+					size: "sm",
+					disabled: !importPath.trim(),
+					onClick: async () => {
+						const r = await modelImport({ data: {
+							absolutePath: importPath,
+							catalogId
+						} });
+						if (r.ok) {
+							setReady(true);
+							setMsg(`Imported ${r.path}`);
+						} else setMsg(r.error ?? "Import failed");
+					},
+					children: "Import this file"
+				})
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "mt-8 flex gap-3",
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Button, {
+					variant: "ghost",
+					onClick: onBack,
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ArrowLeft, { className: "size-4" }), "Back"]
+				}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Button, {
+					onClick: onReady,
+					disabled: !ready,
+					children: ["Continue", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ArrowRight, { className: "size-4" })]
+				})]
 			})
 		]
 	});
@@ -1809,7 +1807,7 @@ function AgentStep(props) {
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 				className: "mt-2 max-w-xl text-sm text-muted",
-				children: "This writes the company tree on disk at the path below. The agent’s computer is its workspace folder."
+				children: "This writes the company tree on disk. Chat uses the local GGUF you just verified."
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				className: "mt-6 grid gap-4 md:grid-cols-2",
@@ -1859,10 +1857,10 @@ function AgentStep(props) {
 			}),
 			props.previewData ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 				className: "mt-2 text-xs text-muted",
-				children: "This preview writes to the project data folder. Two laptops share work only if they point at the same real folder on the machine running npm run dev."
+				children: "This preview writes to the project data folder."
 			}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 				className: "mt-2 text-xs text-muted",
-				children: "Shared departments require a shared folder path. This process sees the disk of the machine running the server."
+				children: "Shared departments require a shared folder path."
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				className: "mt-6",
@@ -1943,7 +1941,7 @@ function buildSystemPrompt(s, bot, extras) {
 	const outbox = bot.grants.includes("outbox") ? grantPathFor(bot, ctx.employee, ctx.department, ctx.company, "outbox") : null;
 	return `You are ${bot.name}, a LocalBot agent in a browser app.
 Job: ${bot.job}
-Chat model: hosted grok-4.5 (catalog identity: ${modelName})
+Chat model: local GGUF (${modelName})
 Employee: ${ctx.employee.displayName}
 Department: ${ctx.department.name}
 Company: ${ctx.company.name}
@@ -1983,7 +1981,9 @@ function rosterBlurb(s) {
 }
 /**
 * Isolation layer: the UI talks to this adapter, never to the model HTTP client.
-* This pass: hosted grok-4.5 via src/lib/runtime/turn.ts.
+* Default: local GGUF via llama-server on 127.0.0.1. Hosted grok-4.5 only if
+* the explicit demo switch is on in server config.
+*
 * File tools write to the company root on the server disk.
 *
 * AbortSignal cannot be forwarded through createServerFn; Stop cancels the
@@ -2284,6 +2284,7 @@ function ChatPane() {
 	const writeBotFile = useLocalBot((s) => s.writeBotFile);
 	const showComputer = useLocalBot((s) => s.ui.showComputer);
 	const aiAvailable = useLocalBot((s) => s.runtime.aiAvailable);
+	const badge = useLocalBot((s) => s.runtime.badge);
 	const snap = useLocalBot.getState();
 	const [chips, setChips] = (0, import_react.useState)([]);
 	const [pending, setPending] = (0, import_react.useState)(null);
@@ -2415,7 +2416,7 @@ function ChatPane() {
 					}),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 						className: `hidden rounded-full px-2 py-0.5 font-mono text-[10px] tracking-wide uppercase md:inline ${aiAvailable ? "bg-accent/15 text-accent" : "bg-danger/15 text-danger"}`,
-						children: aiAvailable ? "Hosted grok-4.5" : "AI unavailable"
+						children: badge || (aiAvailable ? "Local model" : "Local model not ready")
 					}),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Button, {
 						variant: running ? "danger" : "ghost",
@@ -2861,7 +2862,7 @@ function NewAgentDialog() {
 			name: n,
 			job: job.trim() || "Generalist",
 			color,
-			modelId: selectedCatalogId ?? "gemma4-e2b-q4",
+			modelId: selectedCatalogId ?? "qwen25-05b-q4",
 			extraGrants: ["shared"]
 		});
 		setName("");
@@ -3111,7 +3112,7 @@ function GeneralPane() {
 				label: "This build",
 				children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 					className: "text-sm leading-relaxed text-muted",
-					children: "Browser app. Chat uses hosted grok-4.5. Work files live on disk at the company root. There is no local GGUF and no desktop installer."
+					children: "Browser app. Chat uses a local GGUF via llama.cpp on this machine. Work files live on disk at the company root. Hosted models stay off unless you turn on the explicit demo switch."
 				})
 			}),
 			preview && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
@@ -3128,16 +3129,34 @@ function GeneralPane() {
 }
 function ModelsPane() {
 	const selectedCatalogId = useLocalBot((s) => s.selectedCatalogId);
+	const noteCatalog = useLocalBot((s) => s.noteCatalog);
+	const [modelsDir, setModelsDir] = (0, import_react.useState)("");
+	const [onDisk, setOnDisk] = (0, import_react.useState)([]);
+	const [importPath, setImportPath] = (0, import_react.useState)("");
+	const [msg, setMsg] = (0, import_react.useState)(null);
+	(0, import_react.useEffect)(() => {
+		modelList().then((r) => {
+			setModelsDir(r.modelsDir);
+			setOnDisk(r.models.map((m) => m.filename));
+		});
+	}, []);
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 		className: "space-y-5",
 		children: [
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 				className: "text-sm leading-relaxed text-muted",
-				children: "Planned local models. Not wired in this build. Chat ignores this list and uses hosted grok-4.5. No GGUF is downloaded."
+				children: "Local GGUF files. Chat uses the active file on disk. Grey entries need more RAM or are not downloaded yet."
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Field, {
+				label: "Models folder",
+				children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+					className: "font-mono text-xs break-all text-muted",
+					children: modelsDir || "—"
+				})
 			}),
 			selectedCatalogId && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
 				className: "font-mono text-xs text-muted",
-				children: ["Catalog noted: ", selectedCatalogId]
+				children: ["Active catalog: ", selectedCatalogId]
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", {
 				className: "text-sm font-medium",
@@ -3145,25 +3164,63 @@ function ModelsPane() {
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("ul", {
 				className: "space-y-2",
-				children: CATALOG.map((m) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("li", {
-					className: "flex items-center justify-between gap-3 rounded-md px-3 py-2 opacity-70 shadow-[0_0_0_1px_var(--color-border)]",
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-						className: "text-sm",
-						children: m.name
-					}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
-						className: "text-[11px] text-muted",
-						children: [
-							m.sizeLabel,
-							" · ",
-							m.license,
-							" · ",
-							m.tier
-						]
-					})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-						className: "font-mono text-[10px] text-subtle",
-						children: "Not wired"
-					})]
-				}, m.id))
+				children: CATALOG.map((m) => {
+					const have = onDisk.includes(m.filename);
+					return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("li", {
+						className: "flex items-center justify-between gap-3 rounded-md px-3 py-2 shadow-[0_0_0_1px_var(--color-border)]",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+							className: "text-sm",
+							children: m.name
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+							className: "text-[11px] text-muted",
+							children: [
+								m.sizeLabel,
+								" · ",
+								m.license,
+								" · ",
+								m.tier
+							]
+						})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "flex items-center gap-2",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+								className: "font-mono text-[10px] text-subtle",
+								children: have ? "On disk" : m.downloadable ? "Hub" : "Listed"
+							}), m.downloadable && !have && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, {
+								size: "sm",
+								variant: "secondary",
+								onClick: () => {
+									noteCatalog(m.id);
+									modelDownloadStart({ data: { catalogId: m.id } }).then(() => setMsg("Download started. Watch Runtime / this list."));
+								},
+								children: "Download"
+							})]
+						})]
+					}, m.id);
+				})
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Field, {
+				label: "Import GGUF (absolute path)",
+				children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Input, {
+					className: "font-mono text-xs",
+					value: importPath,
+					onChange: (e) => setImportPath(e.target.value)
+				})
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, {
+				variant: "secondary",
+				size: "sm",
+				disabled: !importPath.trim(),
+				onClick: async () => {
+					const r = await modelImport({ data: { absolutePath: importPath } });
+					setMsg(r.ok ? `Imported ${r.path}` : r.error ?? "failed");
+					const listed = await modelList();
+					setOnDisk(listed.models.map((m) => m.filename));
+				},
+				children: "Import this file"
+			}),
+			msg && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+				className: "font-mono text-xs text-muted",
+				children: msg
 			})
 		]
 	});
@@ -3323,7 +3380,7 @@ function CompanyPane() {
 					name: `Agent ${bots.length + 1}`,
 					job: "Generalist",
 					color: AGENT_COLOR_LIST[bots.length % AGENT_COLOR_LIST.length].id,
-					modelId: selectedCatalogId ?? "gemma4-e2b-q4"
+					modelId: selectedCatalogId ?? "qwen25-05b-q4"
 				}),
 				children: "New agent"
 			})
@@ -3333,20 +3390,47 @@ function CompanyPane() {
 function RuntimePane() {
 	const runtime = useLocalBot((s) => s.runtime);
 	const company = useLocalBot((s) => s.company);
+	const [engine, setEngine] = (0, import_react.useState)(runtime);
+	(0, import_react.useEffect)(() => {
+		modelEngineStatus().then((s) => {
+			setEngine({
+				...runtime,
+				engine: s.engine,
+				model: s.model,
+				aiAvailable: s.ready,
+				ggufPath: s.ggufPath,
+				loopback: s.loopback,
+				ramEstimate: s.ramEstimate,
+				badge: s.badge
+			});
+		});
+	}, [runtime]);
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 		className: "space-y-4",
 		children: [
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Row, {
 				k: "Engine",
-				v: runtime.engine
+				v: engine.engine || runtime.engine
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Row, {
 				k: "Chat model",
-				v: runtime.model
+				v: engine.model || runtime.model || "—"
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Row, {
-				k: "AI status",
-				v: runtime.aiAvailable ? "Hosted grok-4.5" : "AI unavailable"
+				k: "Status",
+				v: engine.badge || runtime.badge
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Row, {
+				k: "GGUF",
+				v: engine.ggufPath || runtime.ggufPath || "—"
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Row, {
+				k: "RAM estimate",
+				v: engine.ramEstimate || "—"
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Row, {
+				k: "Loopback",
+				v: engine.loopback || runtime.loopback || "—"
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Row, {
 				k: "Company root",
@@ -3354,7 +3438,7 @@ function RuntimePane() {
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 				className: "text-sm leading-relaxed text-muted",
-				children: "This is a browser app. Agents think with hosted grok-4.5 when the server has an API key. There is no local llama.cpp process and no GGUF download. File tools write to the company root on the machine running this server."
+				children: "llama-server binds 127.0.0.1 only. Chat does not call a hosted API unless you turn on Allow hosted demo (breaks policy)."
 			})
 		]
 	});
@@ -3364,38 +3448,80 @@ function SafetyPane() {
 	const updateSettings = useLocalBot((s) => s.updateSettings);
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 		className: "space-y-5",
-		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
-			className: "flex items-start gap-3",
-			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-				type: "checkbox",
-				className: "mt-1 size-4 accent-accent",
-				checked: settings.webSearchEnabled,
-				onChange: (e) => updateSettings({ webSearchEnabled: e.target.checked })
-			}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-				className: "block text-sm",
-				children: "Web search"
-			}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-				className: "text-xs text-muted",
-				children: "Off by default. Network always asks."
-			})] })]
-		}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-			className: "rounded-md bg-danger/10 p-3 shadow-[0_0_0_1px_color-mix(in_oklab,var(--color-danger)_40%,transparent)]",
-			children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+		children: [
+			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
 				className: "flex items-start gap-3",
 				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
 					type: "checkbox",
-					className: "mt-1 size-4 accent-danger",
-					checked: settings.controlThisComputer,
-					onChange: (e) => updateSettings({ controlThisComputer: e.target.checked })
+					className: "mt-1 size-4 accent-accent",
+					checked: settings.webSearchEnabled,
+					onChange: (e) => updateSettings({ webSearchEnabled: e.target.checked })
 				}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-					className: "block text-sm text-danger",
-					children: "Control this computer"
+					className: "block text-sm",
+					children: "Web search"
 				}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 					className: "text-xs text-muted",
-					children: "Off. Turns off permission cards for the workspace shell. Still scoped to the company root."
+					children: "Off by default. Network always asks."
 				})] })]
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+				className: "flex items-start gap-3",
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+					type: "checkbox",
+					className: "mt-1 size-4 accent-accent",
+					checked: settings.useExistingOllama,
+					onChange: (e) => {
+						updateSettings({ useExistingOllama: e.target.checked });
+						modelSetOllama({ data: { use: e.target.checked } });
+					}
+				}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+					className: "block text-sm",
+					children: "Use existing Ollama"
+				}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+					className: "text-xs text-muted",
+					children: "Off by default. Only if something is already serving on this machine’s Ollama port. Not required."
+				})] })]
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+				className: "rounded-md bg-danger/10 p-3 shadow-[0_0_0_1px_color-mix(in_oklab,var(--color-danger)_40%,transparent)]",
+				children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+					className: "flex items-start gap-3",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+						type: "checkbox",
+						className: "mt-1 size-4 accent-danger",
+						checked: settings.allowHostedDemo,
+						onChange: (e) => {
+							updateSettings({ allowHostedDemo: e.target.checked });
+							modelSetHostedDemo({ data: { allow: e.target.checked } });
+						}
+					}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+						className: "block text-sm text-danger",
+						children: "Allow hosted demo (breaks policy)"
+					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+						className: "text-xs text-muted",
+						children: "Off. Default chat is the local GGUF. Turning this on sends turns to a hosted model instead."
+					})] })]
+				})
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+				className: "rounded-md bg-danger/10 p-3 shadow-[0_0_0_1px_color-mix(in_oklab,var(--color-danger)_40%,transparent)]",
+				children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+					className: "flex items-start gap-3",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+						type: "checkbox",
+						className: "mt-1 size-4 accent-danger",
+						checked: settings.controlThisComputer,
+						onChange: (e) => updateSettings({ controlThisComputer: e.target.checked })
+					}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+						className: "block text-sm text-danger",
+						children: "Control this computer"
+					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+						className: "text-xs text-muted",
+						children: "Off. Turns off permission cards for the workspace shell. Still scoped to the company root."
+					})] })]
+				})
 			})
-		})]
+		]
 	});
 }
 function Field({ label, children }) {
@@ -3433,6 +3559,7 @@ function Sidebar() {
 	const deleteBot = useLocalBot((s) => s.deleteBot);
 	const setUi = useLocalBot((s) => s.setUi);
 	const company = useLocalBot((s) => s.company);
+	const badge = useLocalBot((s) => s.runtime.badge);
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("aside", {
 		className: "flex h-full min-h-0 w-[248px] shrink-0 flex-col border-r border-border bg-surface",
 		children: [
@@ -3536,7 +3663,7 @@ function Sidebar() {
 					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Plus, { className: "size-4" }), "New agent"]
 				}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 					className: "mt-2 px-1 font-mono text-[10px] text-subtle",
-					children: "Hosted grok-4.5"
+					children: badge || "Local model"
 				})]
 			})
 		]
@@ -3630,7 +3757,7 @@ function AppShell() {
 function LocalBotApp() {
 	const [ready, setReady] = (0, import_react.useState)(false);
 	const onboarded = useLocalBot((s) => s.onboarded);
-	const setAiAvailable = useLocalBot((s) => s.setAiAvailable);
+	const setRuntime = useLocalBot((s) => s.setRuntime);
 	(0, import_react.useEffect)(() => {
 		const unsub = useLocalBot.persist.onFinishHydration(() => setReady(true));
 		if (useLocalBot.persist.hasHydrated()) setReady(true);
@@ -3638,8 +3765,16 @@ function LocalBotApp() {
 	}, []);
 	(0, import_react.useEffect)(() => {
 		if (!ready) return;
-		getAiStatus().then((s) => setAiAvailable(s.available));
-	}, [ready, setAiAvailable]);
+		getAiStatus().then((s) => setRuntime({
+			aiAvailable: s.available,
+			model: s.model,
+			engine: s.engine,
+			ggufPath: s.ggufPath,
+			loopback: s.loopback,
+			ramEstimate: s.ramEstimate,
+			badge: s.badge
+		}));
+	}, [ready, setRuntime]);
 	if (!ready) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 		className: "flex min-h-dvh items-center justify-center bg-bg text-fg",
 		children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Wordmark, { className: "text-lg opacity-80" })

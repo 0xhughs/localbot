@@ -8,7 +8,7 @@ import { AppShell } from "./shell";
 export function LocalBotApp() {
   const [ready, setReady] = useState(false);
   const onboarded = useLocalBot((s) => s.onboarded);
-  const setAiAvailable = useLocalBot((s) => s.setAiAvailable);
+  const setRuntime = useLocalBot((s) => s.setRuntime);
 
   useEffect(() => {
     const unsub = useLocalBot.persist.onFinishHydration(() => setReady(true));
@@ -18,8 +18,18 @@ export function LocalBotApp() {
 
   useEffect(() => {
     if (!ready) return;
-    void getAiStatus().then((s) => setAiAvailable(s.available));
-  }, [ready, setAiAvailable]);
+    void getAiStatus().then((s) =>
+      setRuntime({
+        aiAvailable: s.available,
+        model: s.model,
+        engine: s.engine,
+        ggufPath: s.ggufPath,
+        loopback: s.loopback,
+        ramEstimate: s.ramEstimate,
+        badge: s.badge,
+      }),
+    );
+  }, [ready, setRuntime]);
 
   if (!ready) {
     return (

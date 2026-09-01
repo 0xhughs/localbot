@@ -5,11 +5,23 @@ import {
   Check,
   FolderLock,
   HardDrive,
+  Pause,
+  Play,
   Shield,
 } from "lucide-react";
 import { onboardingCards } from "@/lib/catalog";
 import { fsGetCompanyRoot } from "@/lib/fs/server";
 import { scanBrowserHardware } from "@/lib/hardware";
+import {
+  fsScanServerHardware,
+  modelDownloadPause,
+  modelDownloadResume,
+  modelDownloadStart,
+  modelDownloadStatus,
+  modelImport,
+  modelList,
+  modelVerify,
+} from "@/lib/runtime/model-server";
 import { useLocalBot } from "@/lib/store";
 import { AGENT_COLOR_LIST, type AgentColorId, type CatalogModel } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -23,7 +35,7 @@ const TEMPLATES: { name: string; job: string; color: AgentColorId }[] = [
   { name: "Ops", job: "Keep the workspace organized and file the finished work.", color: "pine" },
 ];
 
-type Step = "hello" | "stay" | "grants" | "scan" | "models" | "agent";
+type Step = "hello" | "stay" | "grants" | "scan" | "models" | "download" | "agent";
 
 const WELCOME: { id: Step; title: string; body: string }[] = [
   {
@@ -33,13 +45,13 @@ const WELCOME: { id: Step; title: string; body: string }[] = [
   },
   {
     id: "stay",
-    title: "Chat is hosted grok-4.5.",
-    body: "This build does not run a local GGUF. Agents think with hosted grok-4.5 when the server has an API key. There is no model file written to disk.",
+    title: "Chat is a local model file.",
+    body: "No account. No API key on the default path. The model is a GGUF on this machine. Work files go on disk under the company root.",
   },
   {
     id: "grants",
-    title: "Work files go on disk.",
-    body: "The company root is a real directory. Agents only write inside folders you grant. Two people share work only if they point at the same real folder on this machine (or a NAS mounted here).",
+    title: "Agents only touch folders you grant.",
+    body: "The company root is a real directory. Two people share work only if they point at the same real folder on this machine.",
   },
 ];
 
@@ -64,6 +76,7 @@ export function Onboarding() {
   const [previewData, setPreviewData] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [browserGuess, setBrowserGuess] = useState<string | null>(null);
 
   const cards = useMemo(
     () => (hardware ? onboardingCards(hardware) : null),
@@ -88,17 +101,25 @@ export function Onboarding() {
   useEffect(() => {
     if (step !== "scan") return;
     setScanning(true);
-    const t = window.setTimeout(() => {
-      setHardware(scanBrowserHardware());
-      setScanning(false);
-    }, 1100);
-    return () => window.clearTimeout(t);
+    const guess = scanBrowserHardware();
+    setBrowserGuess(
+      `${guess.totalRamGb} GB (browser guess, source ${guess.ramSource})`,
+    );
+    void fsScanServerHardware()
+      .then((hw) => {
+        setHardware(hw);
+        setScanning(false);
+      })
+      .catch(() => {
+        setHardware(guess);
+        setScanning(false);
+      });
   }, [step, setHardware]);
 
   const pickModel = (id: string) => {
     setPicked(id);
     noteCatalog(id);
-    setStep("agent");
+    setStep("download");
   };
 
   return (
@@ -128,6 +149,7 @@ export function Onboarding() {
         {step === "scan" && (
           <ScanStep
             scanning={scanning}
+            browserGuess={browserGuess}
             onContinue={() => setStep("models")}
             onBack={() => setStep("grants")}
           />
@@ -137,6 +159,13 @@ export function Onboarding() {
             cards={cards}
             onPick={pickModel}
             onBack={() => setStep("scan")}
+          />
+        )}
+        {step === "download" && picked && (
+          <DownloadStep
+            catalogId={picked}
+            onBack={() => setStep("models")}
+            onReady={() => setStep("agent")}
           />
         )}
         {step === "agent" && (
@@ -168,11 +197,11 @@ export function Onboarding() {
               setBotJob(t.job);
               setColor(t.color);
             }}
-            onBack={() => setStep("models")}
+            onBack={() => setStep("download")}
             onFinish={async () => {
               setBusy(true);
               setError(null);
-              const modelId = picked ?? "gemma4-e2b-q4";
+              const modelId = picked ?? "qwen25-05b-q4";
               const result = await completeOnboarding({
                 companyName: company,
                 departmentName: department,
@@ -238,10 +267,12 @@ function Welcome({
 
 function ScanStep({
   scanning,
+  browserGuess,
   onContinue,
   onBack,
 }: {
   scanning: boolean;
+  browserGuess: string | null;
   onContinue: () => void;
   onBack: () => void;
 }) {
@@ -253,8 +284,8 @@ function ScanStep({
       </p>
       <h1 className="text-3xl font-medium tracking-tight">This machine</h1>
       <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted">
-        Browser estimate of RAM and GPU. It does not change chat in this build —
-        chat still uses hosted grok-4.5. Kept for when local models are wired.
+        Server RAM and disk from Node. Catalog recommendations use these numbers,
+        not the browser guess.
       </p>
       <div className="mt-8 overflow-hidden rounded-xl bg-surface p-1 shadow-[0_0_0_1px_var(--color-border)]">
         <dl className="grid grid-cols-1 divide-y divide-border sm:grid-cols-2 sm:divide-x sm:divide-y-0">
@@ -267,23 +298,17 @@ function ScanStep({
                 scanning
                   ? "…"
                   : hardware
-                    ? `${hardware.totalRamGb} GB total · ${hardware.availableRamGb.toFixed(1)} GB free`
+                    ? `${hardware.totalRamGb.toFixed(1)} GB total · ${hardware.availableRamGb.toFixed(1)} GB free (${hardware.ramSource})`
                     : "—",
               ],
-              [
-                "GPU",
-                scanning
-                  ? "…"
-                  : hardware?.gpuName ??
-                    (hardware?.appleSilicon ? "Apple Silicon (unified)" : "None detected"),
-              ],
+              ["GPU / CPU", scanning ? "…" : hardware?.gpuName ?? "None detected"],
               [
                 "Apple Silicon",
                 scanning ? "…" : hardware?.appleSilicon ? "Yes" : "No",
               ],
               [
                 "Free disk",
-                scanning ? "…" : hardware ? `${hardware.freeDiskGb} GB (estimate)` : "—",
+                scanning ? "…" : hardware ? `${hardware.freeDiskGb.toFixed(0)} GB` : "—",
               ],
             ] as const
           ).map(([k, v]) => (
@@ -296,6 +321,11 @@ function ScanStep({
           ))}
         </dl>
       </div>
+      {browserGuess && (
+        <p className="mt-3 font-mono text-[11px] text-subtle">
+          Browser guess: {browserGuess}
+        </p>
+      )}
       <div className="mt-8 flex gap-3">
         <Button variant="ghost" onClick={onBack}>
           <ArrowLeft className="size-4" />
@@ -329,29 +359,34 @@ function ModelStep({
       <p className="mb-3 font-mono text-[11px] tracking-[0.18em] text-subtle uppercase">
         Catalog
       </p>
-      <h1 className="text-3xl font-medium tracking-tight">Choose a catalog size (placeholder)</h1>
+      <h1 className="text-3xl font-medium tracking-tight">Choose a local model</h1>
       <p className="mt-2 max-w-xl text-sm text-muted">
-        These cards are planned local models. This build does not download a GGUF
-        or run inference locally. Chat uses hosted grok-4.5. Catalog noted.
+        Grey cards need more RAM than this server has, or are not downloadable.
+        Small is the default for this machine.
       </p>
       <div className="mt-6 grid gap-3 md:grid-cols-3">
         {items.map(({ key, title, model }) => {
           if (!model) return null;
+          const fit = cards.fits[model.id];
+          const enabled = Boolean(fit?.fits && model.downloadable);
           const rec = key === "recommended";
           return (
             <button
               key={key}
               type="button"
-              onClick={() => onPick(model.id)}
-              className="flex flex-col rounded-xl bg-surface p-4 text-left shadow-[0_0_0_1px_var(--color-border)] transition-[transform,background-color] duration-150 hover:bg-raised"
+              disabled={!enabled}
+              onClick={() => enabled && onPick(model.id)}
+              className={`flex flex-col rounded-xl bg-surface p-4 text-left shadow-[0_0_0_1px_var(--color-border)] transition-[transform,background-color] duration-150 ${
+                enabled ? "hover:bg-raised" : "cursor-not-allowed opacity-50"
+              }`}
             >
               <div className="flex items-center justify-between">
                 <span className="font-mono text-[10px] tracking-wider text-subtle uppercase">
                   {title}
                 </span>
-                {rec && (
+                {rec && enabled && (
                   <span className="rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-medium text-accent">
-                    Placeholder
+                    Fits
                   </span>
                 )}
               </div>
@@ -360,7 +395,11 @@ function ModelStep({
                 {model.sizeLabel} · {model.license}
               </p>
               <p className="mt-3 text-xs leading-relaxed text-muted">
-                Not wired in this build. Stored as a catalog id only.
+                {enabled
+                  ? fit?.reason
+                  : fit && !fit.fits
+                    ? fit.reason
+                    : "Not downloadable in this build."}
               </p>
             </button>
           );
@@ -370,6 +409,145 @@ function ModelStep({
         <Button variant="ghost" onClick={onBack}>
           <ArrowLeft className="size-4" />
           Back
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+function DownloadStep({
+  catalogId,
+  onBack,
+  onReady,
+}: {
+  catalogId: string;
+  onBack: () => void;
+  onReady: () => void;
+}) {
+  const [status, setStatus] = useState<Awaited<ReturnType<typeof modelDownloadStatus>> | null>(null);
+  const [importPath, setImportPath] = useState("");
+  const [msg, setMsg] = useState<string | null>(null);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    let stop = false;
+    const tick = async () => {
+      const s = await modelDownloadStatus();
+      if (stop) return;
+      setStatus(s);
+      if (s.status === "done") {
+        const v = await modelVerify({ data: { catalogId } });
+        if (v.ok) setReady(true);
+      }
+    };
+    void (async () => {
+      const listed = await modelList();
+      const hit = listed.models.find((m) => m.catalogId === catalogId);
+      if (hit) {
+        const v = await modelVerify({ data: { catalogId } });
+        if (v.ok) {
+          setReady(true);
+          setMsg(`Already on disk · ${hit.path}`);
+          return;
+        }
+      }
+      await modelDownloadStart({ data: { catalogId } });
+      await tick();
+    })();
+    const id = window.setInterval(() => void tick(), 500);
+    return () => {
+      stop = true;
+      window.clearInterval(id);
+    };
+  }, [catalogId]);
+
+  const pct =
+    status && status.bytesTotal > 0
+      ? Math.min(100, Math.round((status.bytesDone / status.bytesTotal) * 100))
+      : 0;
+
+  return (
+    <section className="stagger-in flex flex-1 flex-col py-6">
+      <p className="mb-3 font-mono text-[11px] tracking-[0.18em] text-subtle uppercase">
+        Download
+      </p>
+      <h1 className="text-3xl font-medium tracking-tight">Get the GGUF</h1>
+      <p className="mt-2 max-w-xl text-sm text-muted">
+        Real bytes from Hugging Face into the models folder. Pause uses HTTP
+        Range. You can also import a .gguf already on this machine.
+      </p>
+      <div className="mt-6 rounded-xl bg-surface p-4 shadow-[0_0_0_1px_var(--color-border)]">
+        <div className="h-2 overflow-hidden rounded-full bg-raised">
+          <div
+            className="h-full bg-accent transition-[width] duration-200"
+            style={{ width: `${ready ? 100 : pct}%` }}
+          />
+        </div>
+        <p className="mt-3 font-mono text-xs text-muted">
+          {ready
+            ? "Verified on disk."
+            : status
+              ? `${(status.bytesDone / 1024 ** 2).toFixed(1)} / ${(status.bytesTotal / 1024 ** 2).toFixed(1)} MB · ${status.status}`
+              : "Starting…"}
+        </p>
+        {status?.error && <p className="mt-2 text-sm text-danger">{status.error}</p>}
+        {msg && <p className="mt-2 font-mono text-xs break-all text-muted">{msg}</p>}
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => void modelDownloadPause()}
+            disabled={status?.status !== "running"}
+          >
+            <Pause className="size-3.5" />
+            Pause
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => void modelDownloadResume()}
+            disabled={status?.status !== "paused"}
+          >
+            <Play className="size-3.5" />
+            Resume
+          </Button>
+        </div>
+      </div>
+      <label className="mt-5 block text-xs font-medium text-muted">
+        Import GGUF (absolute path on this server)
+        <Input
+          className="mt-1.5 font-mono text-xs"
+          value={importPath}
+          onChange={(e) => setImportPath(e.target.value)}
+          placeholder="/path/to/model.gguf"
+        />
+      </label>
+      <div className="mt-2">
+        <Button
+          variant="secondary"
+          size="sm"
+          disabled={!importPath.trim()}
+          onClick={async () => {
+            const r = await modelImport({ data: { absolutePath: importPath, catalogId } });
+            if (r.ok) {
+              setReady(true);
+              setMsg(`Imported ${r.path}`);
+            } else {
+              setMsg(r.error ?? "Import failed");
+            }
+          }}
+        >
+          Import this file
+        </Button>
+      </div>
+      <div className="mt-8 flex gap-3">
+        <Button variant="ghost" onClick={onBack}>
+          <ArrowLeft className="size-4" />
+          Back
+        </Button>
+        <Button onClick={onReady} disabled={!ready}>
+          Continue
+          <ArrowRight className="size-4" />
         </Button>
       </div>
     </section>
@@ -407,8 +585,8 @@ function AgentStep(props: {
       </p>
       <h1 className="text-3xl font-medium tracking-tight">Create your first agent</h1>
       <p className="mt-2 max-w-xl text-sm text-muted">
-        This writes the company tree on disk at the path below. The agent’s
-        computer is its workspace folder.
+        This writes the company tree on disk. Chat uses the local GGUF you just
+        verified.
       </p>
 
       <div className="mt-6 grid gap-4 md:grid-cols-2">
@@ -445,14 +623,11 @@ function AgentStep(props: {
       </label>
       {props.previewData ? (
         <p className="mt-2 text-xs text-muted">
-          This preview writes to the project data folder. Two laptops share work
-          only if they point at the same real folder on the machine running npm run
-          dev.
+          This preview writes to the project data folder.
         </p>
       ) : (
         <p className="mt-2 text-xs text-muted">
-          Shared departments require a shared folder path. This process sees the
-          disk of the machine running the server.
+          Shared departments require a shared folder path.
         </p>
       )}
 

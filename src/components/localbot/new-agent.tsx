@@ -22,7 +22,7 @@ export function NewAgentDialog() {
       name: n,
       job: job.trim() || "Generalist",
       color,
-      modelId: selectedCatalogId ?? "gemma4-e2b-q4",
+      modelId: selectedCatalogId ?? "qwen25-05b-q4",
       extraGrants: ["shared"],
     });
     setName("");

@@ -7,7 +7,14 @@ Work product lives on **disk** under the configured company root. Browser state 
 Server config:
 
 ```
-{cwd}/data/localbot-config.json    # chosen absolute company root
+{cwd}/data/localbot-config.json    # company root, models dir, active GGUF, demo switches
+```
+
+Models (not under the company root):
+
+```
+{cwd}/data/LocalBot/models/{filename}.gguf
+{cwd}/data/LocalBot/bin/llama-b10749/    # official llama.cpp CPU build
 ```
 
 Company root (default `{cwd}/data/LocalBot/{CompanyName}`):
@@ -38,23 +45,12 @@ Company root (default `{cwd}/data/LocalBot/{CompanyName}`):
 
 `company.json` — company name, catalog pin, default department.
 
-`employee.json` — display name, department, default model.
+`bot.json` — name, job, model id, color, grants.
 
-`bot.json` — name, job, model id, color, grants, createdAt.
+`localbot-config.json` — `companyRoot`, `modelsDir`, `activeModelId`, `activeModelPath`, `allowHostedDemo`, `useExistingOllama`.
 
 ## Grants
 
-| Grant | Path | Default |
-|---|---|---|
-| workspace | `{bot}/workspace/` | yes |
-| output | `{bot}/output/` | yes |
-| outbox | `{employee}/outbox/` | yes |
-| shared | `{department}/shared/` | yes for first agent |
-| company-shared | `{company}/shared/` | no |
-| inbox | `{employee}/inbox/` | no |
+Default first agent: `workspace`, `output`, `shared`, `outbox`. Writes outside the company root or outside grants are denied on the server.
 
-Writes outside the company root throw. Writes outside the bot’s grants return Denied.
-
-Two installs share files only if they use the same real folder on the machine that runs the server.
-
-`@Name` writes `shared/task-*.md` on disk and notifies the other agent in this browser.
+Two people share work only if this process and theirs point at the **same real folder** on the machine running the server.

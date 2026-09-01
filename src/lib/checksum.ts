@@ -20,31 +20,6 @@ async function sha256Hex(data: ArrayBuffer | Uint8Array | string): Promise<strin
     .join("");
 }
 
-export function ggufBlob(params: {
-  id: string;
-  filename: string;
-  sizeBytes: number;
-  sha256: string;
-}): string {
-  const header = "GGUF";
-  const meta = JSON.stringify({
-    localbot: 1,
-    id: params.id,
-    filename: params.filename,
-    sizeBytes: params.sizeBytes,
-    catalogSha256: params.sha256,
-  });
-  return `${header}\n${meta}\n`;
-}
-
-export async function checksumBlob(blob: string): Promise<string> {
-  return sha256Hex(blob);
-}
-
-export async function verifyChecksum(
-  blob: string,
-  expected: string,
-): Promise<{ ok: boolean; actual: string; expected: string }> {
-  const actual = await checksumBlob(blob);
-  return { ok: actual === expected, actual, expected };
+export async function checksumBytes(data: ArrayBuffer | Uint8Array | string): Promise<string> {
+  return sha256Hex(data);
 }

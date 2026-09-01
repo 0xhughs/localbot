@@ -41,6 +41,7 @@ export function ChatPane() {
   const writeBotFile = useLocalBot((s) => s.writeBotFile);
   const showComputer = useLocalBot((s) => s.ui.showComputer);
   const aiAvailable = useLocalBot((s) => s.runtime.aiAvailable);
+  const badge = useLocalBot((s) => s.runtime.badge);
   const snap = useLocalBot.getState();
 
   const [chips, setChips] = useState<ToolChip[]>([]);
@@ -178,7 +179,7 @@ export function ChatPane() {
             aiAvailable ? "bg-accent/15 text-accent" : "bg-danger/15 text-danger"
           }`}
         >
-          {aiAvailable ? "Hosted grok-4.5" : "AI unavailable"}
+          {badge || (aiAvailable ? "Local model" : "Local model not ready")}
         </span>
         <Button
           variant={running ? "danger" : "ghost"}

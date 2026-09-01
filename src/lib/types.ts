@@ -38,6 +38,7 @@ export type CatalogModel = {
   paramsLabel: string;
   notes: string;
   sha256: string;
+  downloadable: boolean;
 };
 
 export type HardwareReport = {
@@ -46,7 +47,7 @@ export type HardwareReport = {
   platformLabel: string;
   totalRamGb: number;
   availableRamGb: number;
-  ramSource: "deviceMemory" | "assumed-desktop" | "assumed-mobile";
+  ramSource: "deviceMemory" | "assumed-desktop" | "assumed-mobile" | "os";
   gpuName: string | null;
   vramGb: number | null;
   appleSilicon: boolean;
@@ -128,6 +129,11 @@ export type DiskEntry = {
 export type DiskConfig = {
   companyRoot: string;
   previewWritesToProjectData: boolean;
+  modelsDir: string;
+  activeModelId: string | null;
+  activeModelPath: string | null;
+  allowHostedDemo: boolean;
+  useExistingOllama: boolean;
 };
 
 export type ChatRole = "user" | "assistant" | "system";
@@ -181,6 +187,10 @@ export type RuntimeStatus = {
   model: string;
   aiAvailable: boolean;
   lastHeartbeat: string | null;
+  ggufPath: string | null;
+  loopback: string | null;
+  ramEstimate: string;
+  badge: string;
 };
 
 export type Settings = {
@@ -189,6 +199,8 @@ export type Settings = {
   controlThisComputer: boolean;
   denseUi: boolean;
   companyRootIsShared: boolean;
+  allowHostedDemo: boolean;
+  useExistingOllama: boolean;
 };
 
 export type UiState = {

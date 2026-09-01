@@ -38,6 +38,7 @@ import type {
   Session,
   Settings,
   UiState,
+  RuntimeStatus,
 } from "./types";
 import { nowIso, posixJoin, uid } from "./utils";
 
@@ -47,6 +48,8 @@ const DEFAULT_SETTINGS: Settings = {
   controlThisComputer: false,
   denseUi: true,
   companyRootIsShared: false,
+  allowHostedDemo: false,
+  useExistingOllama: false,
 };
 
 const DEFAULT_UI: UiState = {
@@ -75,10 +78,14 @@ function emptySnapshot(): AppSnapshot {
     hardware: null,
     settings: DEFAULT_SETTINGS,
     runtime: {
-      engine: "hosted-grok-4.5",
-      model: "grok-4.5",
+      engine: "llama.cpp",
+      model: "",
       aiAvailable: false,
       lastHeartbeat: null,
+      ggufPath: null,
+      loopback: null,
+      ramEstimate: "—",
+      badge: "Local model not ready",
     },
     activeEmployeeId: null,
     previewWritesToProjectData: true,
@@ -95,6 +102,7 @@ type Actions = {
   setHardware: (h: HardwareReport) => void;
   noteCatalog: (catalogId: string) => void;
   setAiAvailable: (available: boolean) => void;
+  setRuntime: (patch: Partial<RuntimeStatus>) => void;
   bumpDisk: () => void;
   completeOnboarding: (input: {
     companyName: string;
@@ -245,6 +253,10 @@ export const useLocalBot = create<LocalBotState>()(
             aiAvailable: available,
             lastHeartbeat: nowIso(),
           },
+        })),
+      setRuntime: (patch) =>
+        set((s) => ({
+          runtime: { ...s.runtime, ...patch, lastHeartbeat: nowIso() },
         })),
       bumpDisk: () => set((s) => ({ diskEpoch: s.diskEpoch + 1 })),
 
@@ -800,7 +812,7 @@ export const useLocalBot = create<LocalBotState>()(
       },
     }),
     {
-      name: "localbot-state-v2",
+      name: "localbot-state-v3",
       storage: createJSONStorage(() => memoryStorage),
       partialize: (s) => ({
         version: s.version,

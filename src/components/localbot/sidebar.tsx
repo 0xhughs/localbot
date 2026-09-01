@@ -26,6 +26,7 @@ export function Sidebar() {
   const deleteBot = useLocalBot((s) => s.deleteBot);
   const setUi = useLocalBot((s) => s.setUi);
   const company = useLocalBot((s) => s.company);
+  const badge = useLocalBot((s) => s.runtime.badge);
 
   return (
     <aside className="flex h-full min-h-0 w-[248px] shrink-0 flex-col border-r border-border bg-surface">
@@ -120,7 +121,7 @@ export function Sidebar() {
           New agent
         </Button>
         <p className="mt-2 px-1 font-mono text-[10px] text-subtle">
-          Hosted grok-4.5
+          {badge || "Local model"}
         </p>
       </div>
     </aside>

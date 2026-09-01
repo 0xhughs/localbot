@@ -2,6 +2,14 @@ import { useEffect, useState, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { CATALOG } from "@/lib/catalog";
 import { fsGetCompanyRoot } from "@/lib/fs/server";
+import {
+  modelDownloadStart,
+  modelEngineStatus,
+  modelImport,
+  modelList,
+  modelSetHostedDemo,
+  modelSetOllama,
+} from "@/lib/runtime/model-server";
 import { useLocalBot } from "@/lib/store";
 import { AGENT_COLOR_LIST, type FolderGrant } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -81,8 +89,9 @@ function GeneralPane() {
       </Field>
       <Field label="This build">
         <p className="text-sm leading-relaxed text-muted">
-          Browser app. Chat uses hosted grok-4.5. Work files live on disk at the
-          company root. There is no local GGUF and no desktop installer.
+          Browser app. Chat uses a local GGUF via llama.cpp on this machine. Work
+          files live on disk at the company root. Hosted models stay off unless you
+          turn on the explicit demo switch.
         </p>
       </Field>
       {preview && (
@@ -99,34 +108,90 @@ function GeneralPane() {
 
 function ModelsPane() {
   const selectedCatalogId = useLocalBot((s) => s.selectedCatalogId);
+  const noteCatalog = useLocalBot((s) => s.noteCatalog);
+  const [modelsDir, setModelsDir] = useState("");
+  const [onDisk, setOnDisk] = useState<string[]>([]);
+  const [importPath, setImportPath] = useState("");
+  const [msg, setMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    void modelList().then((r) => {
+      setModelsDir(r.modelsDir);
+      setOnDisk(r.models.map((m) => m.filename));
+    });
+  }, []);
+
   return (
     <div className="space-y-5">
       <p className="text-sm leading-relaxed text-muted">
-        Planned local models. Not wired in this build. Chat ignores this list and
-        uses hosted grok-4.5. No GGUF is downloaded.
+        Local GGUF files. Chat uses the active file on disk. Grey entries need more
+        RAM or are not downloaded yet.
       </p>
+      <Field label="Models folder">
+        <p className="font-mono text-xs break-all text-muted">{modelsDir || "—"}</p>
+      </Field>
       {selectedCatalogId && (
-        <p className="font-mono text-xs text-muted">
-          Catalog noted: {selectedCatalogId}
-        </p>
+        <p className="font-mono text-xs text-muted">Active catalog: {selectedCatalogId}</p>
       )}
       <h2 className="text-sm font-medium">Catalog</h2>
       <ul className="space-y-2">
-        {CATALOG.map((m) => (
-          <li
-            key={m.id}
-            className="flex items-center justify-between gap-3 rounded-md px-3 py-2 opacity-70 shadow-[0_0_0_1px_var(--color-border)]"
-          >
-            <div>
-              <p className="text-sm">{m.name}</p>
-              <p className="text-[11px] text-muted">
-                {m.sizeLabel} · {m.license} · {m.tier}
-              </p>
-            </div>
-            <span className="font-mono text-[10px] text-subtle">Not wired</span>
-          </li>
-        ))}
+        {CATALOG.map((m) => {
+          const have = onDisk.includes(m.filename);
+          return (
+            <li
+              key={m.id}
+              className="flex items-center justify-between gap-3 rounded-md px-3 py-2 shadow-[0_0_0_1px_var(--color-border)]"
+            >
+              <div>
+                <p className="text-sm">{m.name}</p>
+                <p className="text-[11px] text-muted">
+                  {m.sizeLabel} · {m.license} · {m.tier}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-[10px] text-subtle">
+                  {have ? "On disk" : m.downloadable ? "Hub" : "Listed"}
+                </span>
+                {m.downloadable && !have && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => {
+                      noteCatalog(m.id);
+                      void modelDownloadStart({ data: { catalogId: m.id } }).then(() =>
+                        setMsg("Download started. Watch Runtime / this list."),
+                      );
+                    }}
+                  >
+                    Download
+                  </Button>
+                )}
+              </div>
+            </li>
+          );
+        })}
       </ul>
+      <Field label="Import GGUF (absolute path)">
+        <Input
+          className="font-mono text-xs"
+          value={importPath}
+          onChange={(e) => setImportPath(e.target.value)}
+        />
+      </Field>
+      <Button
+        variant="secondary"
+        size="sm"
+        disabled={!importPath.trim()}
+        onClick={async () => {
+          const r = await modelImport({ data: { absolutePath: importPath } });
+          setMsg(r.ok ? `Imported ${r.path}` : r.error ?? "failed");
+          const listed = await modelList();
+          setOnDisk(listed.models.map((m) => m.filename));
+        }}
+      >
+        Import this file
+      </Button>
+      {msg && <p className="font-mono text-xs text-muted">{msg}</p>}
     </div>
   );
 }
@@ -291,7 +356,7 @@ function CompanyPane() {
             name: `Agent ${bots.length + 1}`,
             job: "Generalist",
             color: AGENT_COLOR_LIST[bots.length % AGENT_COLOR_LIST.length]!.id,
-            modelId: selectedCatalogId ?? "gemma4-e2b-q4",
+            modelId: selectedCatalogId ?? "qwen25-05b-q4",
           })
         }
       >
@@ -304,16 +369,33 @@ function CompanyPane() {
 function RuntimePane() {
   const runtime = useLocalBot((s) => s.runtime);
   const company = useLocalBot((s) => s.company);
+  const [engine, setEngine] = useState(runtime);
+  useEffect(() => {
+    void modelEngineStatus().then((s) => {
+      setEngine({
+        ...runtime,
+        engine: s.engine,
+        model: s.model,
+        aiAvailable: s.ready,
+        ggufPath: s.ggufPath,
+        loopback: s.loopback,
+        ramEstimate: s.ramEstimate,
+        badge: s.badge,
+      });
+    });
+  }, [runtime]);
   return (
     <div className="space-y-4">
-      <Row k="Engine" v={runtime.engine} />
-      <Row k="Chat model" v={runtime.model} />
-      <Row k="AI status" v={runtime.aiAvailable ? "Hosted grok-4.5" : "AI unavailable"} />
+      <Row k="Engine" v={engine.engine || runtime.engine} />
+      <Row k="Chat model" v={engine.model || runtime.model || "—"} />
+      <Row k="Status" v={engine.badge || runtime.badge} />
+      <Row k="GGUF" v={engine.ggufPath || runtime.ggufPath || "—"} />
+      <Row k="RAM estimate" v={engine.ramEstimate || "—"} />
+      <Row k="Loopback" v={engine.loopback || runtime.loopback || "—"} />
       <Row k="Company root" v={company?.root ?? "—"} />
       <p className="text-sm leading-relaxed text-muted">
-        This is a browser app. Agents think with hosted grok-4.5 when the server
-        has an API key. There is no local llama.cpp process and no GGUF download.
-        File tools write to the company root on the machine running this server.
+        llama-server binds 127.0.0.1 only. Chat does not call a hosted API unless
+        you turn on Allow hosted demo (breaks policy).
       </p>
     </div>
   );
@@ -336,6 +418,44 @@ function SafetyPane() {
           <span className="text-xs text-muted">Off by default. Network always asks.</span>
         </span>
       </label>
+      <label className="flex items-start gap-3">
+        <input
+          type="checkbox"
+          className="mt-1 size-4 accent-accent"
+          checked={settings.useExistingOllama}
+          onChange={(e) => {
+            updateSettings({ useExistingOllama: e.target.checked });
+            void modelSetOllama({ data: { use: e.target.checked } });
+          }}
+        />
+        <span>
+          <span className="block text-sm">Use existing Ollama</span>
+          <span className="text-xs text-muted">
+            Off by default. Only if something is already serving on this machine’s
+            Ollama port. Not required.
+          </span>
+        </span>
+      </label>
+      <div className="rounded-md bg-danger/10 p-3 shadow-[0_0_0_1px_color-mix(in_oklab,var(--color-danger)_40%,transparent)]">
+        <label className="flex items-start gap-3">
+          <input
+            type="checkbox"
+            className="mt-1 size-4 accent-danger"
+            checked={settings.allowHostedDemo}
+            onChange={(e) => {
+              updateSettings({ allowHostedDemo: e.target.checked });
+              void modelSetHostedDemo({ data: { allow: e.target.checked } });
+            }}
+          />
+          <span>
+            <span className="block text-sm text-danger">Allow hosted demo (breaks policy)</span>
+            <span className="text-xs text-muted">
+              Off. Default chat is the local GGUF. Turning this on sends turns to a
+              hosted model instead.
+            </span>
+          </span>
+        </label>
+      </div>
       <div className="rounded-md bg-danger/10 p-3 shadow-[0_0_0_1px_color-mix(in_oklab,var(--color-danger)_40%,transparent)]">
         <label className="flex items-start gap-3">
           <input

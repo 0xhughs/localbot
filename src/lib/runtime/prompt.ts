@@ -26,7 +26,7 @@ export function buildSystemPrompt(
 
   return `You are ${bot.name}, a LocalBot agent in a browser app.
 Job: ${bot.job}
-Chat model: hosted grok-4.5 (catalog identity: ${modelName})
+Chat model: local GGUF (${modelName})
 Employee: ${ctx.employee.displayName}
 Department: ${ctx.department.name}
 Company: ${ctx.company.name}

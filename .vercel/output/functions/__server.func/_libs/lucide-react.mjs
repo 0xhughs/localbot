@@ -460,12 +460,43 @@ var Paperclip = createLucideIcon("paperclip", [["path", {
 * This source code is licensed under the ISC license.
 * See the LICENSE file in the root directory of this source tree.
 */
+var Pause = createLucideIcon("pause", [["rect", {
+	x: "14",
+	y: "4",
+	width: "4",
+	height: "16",
+	rx: "1",
+	key: "zuxfzm"
+}], ["rect", {
+	x: "6",
+	y: "4",
+	width: "4",
+	height: "16",
+	rx: "1",
+	key: "1okwgv"
+}]]);
+/**
+* @license lucide-react v0.510.0 - ISC
+*
+* This source code is licensed under the ISC license.
+* See the LICENSE file in the root directory of this source tree.
+*/
 var Pin = createLucideIcon("pin", [["path", {
 	d: "M12 17v5",
 	key: "bb1du9"
 }], ["path", {
 	d: "M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z",
 	key: "1nkz8b"
+}]]);
+/**
+* @license lucide-react v0.510.0 - ISC
+*
+* This source code is licensed under the ISC license.
+* See the LICENSE file in the root directory of this source tree.
+*/
+var Play = createLucideIcon("play", [["polygon", {
+	points: "6 3 20 12 6 21 6 3",
+	key: "1oa8hb"
 }]]);
 /**
 * @license lucide-react v0.510.0 - ISC
@@ -643,4 +674,4 @@ var X = createLucideIcon("x", [["path", {
 	key: "d8bk6v"
 }]]);
 //#endregion
-export { ArrowLeft as A, EyeOff as C, Check as D, ChevronRight as E, Ban as O, FilePenLine as S, Copy as T, Folder as _, Square as a, FileText as b, Settings as c, Paperclip as d, Monitor as f, Globe as g, HardDrive as h, Terminal as i, ArrowRight as k, Plus as l, Inbox as m, TriangleAlert as n, Shield as o, Menu as p, Trash2 as r, Share2 as s, X as t, Pin as u, FolderOpen as v, Ellipsis as w, FileSearch as x, FolderLock as y };
+export { Ban as A, FileSearch as C, Copy as D, Ellipsis as E, ArrowLeft as M, ChevronRight as O, FileText as S, EyeOff as T, HardDrive as _, Square as a, FolderOpen as b, Settings as c, Pin as d, Pause as f, Inbox as g, Menu as h, Terminal as i, ArrowRight as j, Check as k, Plus as l, Monitor as m, TriangleAlert as n, Shield as o, Paperclip as p, Trash2 as r, Share2 as s, X as t, Play as u, Globe as v, FilePenLine as w, FolderLock as x, Folder as y };

@@ -4,6 +4,9 @@ import path from "node:path";
 import type { DiskConfig, DiskEntry } from "../types.ts";
 
 export function dataDir(): string {
+  if (process.env.LOCALBOT_DATA_DIR) {
+    return path.resolve(process.env.LOCALBOT_DATA_DIR);
+  }
   return path.resolve(process.cwd(), "data");
 }
 
@@ -32,35 +35,84 @@ export function isUnderProjectData(p: string): boolean {
   return isUnderDir(dataDir(), p) || path.resolve(p) === dataDir();
 }
 
-export function loadConfig(): DiskConfig {
-  try {
-    const raw = JSON.parse(fs.readFileSync(configPath(), "utf8")) as {
-      companyRoot?: string;
-    };
-    if (raw.companyRoot && typeof raw.companyRoot === "string") {
-      const companyRoot = path.resolve(raw.companyRoot);
-      return {
-        companyRoot,
-        previewWritesToProjectData: isUnderProjectData(companyRoot),
-      };
-    }
-  } catch {
-    /* missing or invalid */
-  }
+export function defaultModelsDir(): string {
+  return path.join(dataDir(), "LocalBot", "models");
+}
+
+export function llamaBinDir(): string {
+  return path.join(dataDir(), "LocalBot", "bin", "llama-b10749");
+}
+
+const DEFAULT_CFG_FIELDS = {
+  activeModelId: null as string | null,
+  activeModelPath: null as string | null,
+  allowHostedDemo: false,
+  useExistingOllama: false,
+};
+
+export function emptyConfig(): DiskConfig {
   const companyRoot = defaultCompanyRoot();
-  return { companyRoot, previewWritesToProjectData: true };
+  return {
+    companyRoot,
+    previewWritesToProjectData: true,
+    modelsDir: defaultModelsDir(),
+    ...DEFAULT_CFG_FIELDS,
+  };
+}
+
+export function loadConfig(): DiskConfig {
+  const fallback = emptyConfig();
+  try {
+    const raw = JSON.parse(fs.readFileSync(configPath(), "utf8")) as Partial<DiskConfig>;
+    const companyRoot = raw.companyRoot
+      ? path.resolve(raw.companyRoot)
+      : fallback.companyRoot;
+    const modelsDir = raw.modelsDir ? path.resolve(raw.modelsDir) : defaultModelsDir();
+    return {
+      companyRoot,
+      previewWritesToProjectData: isUnderProjectData(companyRoot),
+      modelsDir,
+      activeModelId: raw.activeModelId ?? null,
+      activeModelPath: raw.activeModelPath ? path.resolve(raw.activeModelPath) : null,
+      allowHostedDemo: Boolean(raw.allowHostedDemo),
+      useExistingOllama: Boolean(raw.useExistingOllama),
+    };
+  } catch {
+    return fallback;
+  }
+}
+
+export function patchConfig(patch: Partial<DiskConfig>): DiskConfig {
+  const cur = loadConfig();
+  const companyRoot = path.resolve(
+    (patch.companyRoot ?? cur.companyRoot).trim() || defaultCompanyRoot(),
+  );
+  const modelsDir = path.resolve(patch.modelsDir ?? cur.modelsDir ?? defaultModelsDir());
+  const next: DiskConfig = {
+    companyRoot,
+    previewWritesToProjectData: isUnderProjectData(companyRoot),
+    modelsDir,
+    activeModelId: patch.activeModelId !== undefined ? patch.activeModelId : cur.activeModelId,
+    activeModelPath:
+      patch.activeModelPath !== undefined
+        ? patch.activeModelPath
+          ? path.resolve(patch.activeModelPath)
+          : null
+        : cur.activeModelPath,
+    allowHostedDemo:
+      patch.allowHostedDemo !== undefined ? patch.allowHostedDemo : cur.allowHostedDemo,
+    useExistingOllama:
+      patch.useExistingOllama !== undefined ? patch.useExistingOllama : cur.useExistingOllama,
+  };
+  fs.mkdirSync(dataDir(), { recursive: true });
+  fs.mkdirSync(next.modelsDir, { recursive: true });
+  fs.mkdirSync(next.companyRoot, { recursive: true });
+  fs.writeFileSync(configPath(), JSON.stringify(next, null, 2) + "\n", "utf8");
+  return next;
 }
 
 export function saveConfig(companyRoot: string): DiskConfig {
-  const abs = path.resolve(companyRoot.trim() || defaultCompanyRoot());
-  fs.mkdirSync(dataDir(), { recursive: true });
-  fs.mkdirSync(abs, { recursive: true });
-  const cfg: DiskConfig = {
-    companyRoot: abs,
-    previewWritesToProjectData: isUnderProjectData(abs),
-  };
-  fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2) + "\n", "utf8");
-  return cfg;
+  return patchConfig({ companyRoot });
 }
 
 export function assertInsideRoot(companyRoot: string, target: string): string {
