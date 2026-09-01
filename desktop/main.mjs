@@ -1,26 +1,62 @@
-import { app, BrowserWindow, Menu, ipcMain, shell } from "electron";
+import { app, BrowserWindow, Menu, ipcMain, shell, dialog } from "electron";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { readActiveModelPath, spawnLlamaServer, stopLlamaServer } from "./llama.mjs";
+import {
+  DEV_UI_URL,
+  MISSING_UI_MESSAGE,
+  SIDECAR_HOST,
+  SIDECAR_PORT,
+  SIDECAR_URL,
+  isPackagedMode,
+  resolveUiLoad,
+  sidecarScriptPath,
+  sidecarServerEntry,
+  unpackAsarPath,
+} from "./packaged.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
-const UI = process.env.LOCALBOT_UI_URL || "http://127.0.0.1:8080/";
 
 app.setName("LocalBot");
 
 let uiChild = null;
+let sidecarChild = null;
 let startedUi = false;
+
+function packaged() {
+  return isPackagedMode({ packaged: app.isPackaged, env: process.env });
+}
 
 function applyPaths() {
   process.env.LOCALBOT_ELECTRON = "1";
   process.env.LOCALBOT_DATA_DIR = path.join(app.getPath("appData"), "LocalBot");
   process.env.LOCALBOT_DOCUMENTS_DIR = app.getPath("documents");
+  if (packaged()) process.env.LOCALBOT_PACKAGED = "1";
   fs.mkdirSync(process.env.LOCALBOT_DATA_DIR, { recursive: true });
   fs.mkdirSync(path.join(process.env.LOCALBOT_DATA_DIR, "models"), { recursive: true });
   fs.mkdirSync(path.join(process.env.LOCALBOT_DATA_DIR, "bin"), { recursive: true });
+}
+
+function packagedServerDir() {
+  if (process.env.LOCALBOT_SERVER_DIR) return process.env.LOCALBOT_SERVER_DIR;
+  if (packaged()) return path.join(process.resourcesPath, "localbot-server");
+  return path.join(root, ".output");
+}
+
+function resolveSidecarScript() {
+  if (packaged()) {
+    const extra = sidecarScriptPath({
+      packaged: true,
+      resourcesPath: process.resourcesPath,
+    });
+    if (fs.existsSync(extra)) return extra;
+    const unpacked = unpackAsarPath(path.join(here, "sidecar.mjs"));
+    if (fs.existsSync(unpacked)) return unpacked;
+  }
+  return path.join(here, "sidecar.mjs");
 }
 
 async function up(url, ms) {
@@ -28,7 +64,7 @@ async function up(url, ms) {
   while (Date.now() - start < ms) {
     try {
       const res = await fetch(url, { signal: AbortSignal.timeout(800) });
-      if (res.ok) return true;
+      if (res.ok || res.status < 500) return true;
     } catch {
       /* retry */
     }
@@ -37,8 +73,65 @@ async function up(url, ms) {
   return false;
 }
 
-async function ensureUi() {
-  if (await up(UI, 1200)) return;
+function failMissingUi(message = MISSING_UI_MESSAGE) {
+  dialog.showErrorBox("LocalBot", message);
+  app.quit();
+}
+
+async function startSidecar() {
+  const serverDir = packagedServerDir();
+  const entry = sidecarServerEntry(serverDir);
+  const script = resolveSidecarScript();
+  if (!entry || !fs.existsSync(entry) || !fs.existsSync(script)) {
+    failMissingUi();
+    return false;
+  }
+  if (await up(SIDECAR_URL, 800)) return true;
+
+  const env = {
+    ...process.env,
+    ELECTRON_RUN_AS_NODE: "1",
+    LOCALBOT_SERVER_DIR: serverDir,
+    LOCALBOT_ELECTRON: "1",
+    LOCALBOT_PACKAGED: "1",
+    LOCALBOT_DATA_DIR: process.env.LOCALBOT_DATA_DIR,
+    LOCALBOT_DOCUMENTS_DIR: process.env.LOCALBOT_DOCUMENTS_DIR,
+    NITRO_HOST: SIDECAR_HOST,
+    HOST: SIDECAR_HOST,
+    NITRO_PORT: String(SIDECAR_PORT),
+    PORT: String(SIDECAR_PORT),
+  };
+  sidecarChild = spawn(process.execPath, [script], {
+    cwd: serverDir,
+    stdio: "pipe",
+    windowsHide: true,
+    env,
+  });
+  sidecarChild.stderr?.on("data", (buf) => {
+    const t = String(buf);
+    if (t.trim()) console.error("[sidecar]", t.trim());
+  });
+  sidecarChild.on("exit", () => {
+    sidecarChild = null;
+  });
+  const ok = await up(SIDECAR_URL, 45000);
+  if (!ok) {
+    sidecarChild?.kill();
+    sidecarChild = null;
+    failMissingUi("LocalBot UI server failed to start.");
+    return false;
+  }
+  return true;
+}
+
+async function ensureDevUi() {
+  const decided = resolveUiLoad({
+    packaged: false,
+    uiUrlEnv: process.env.LOCALBOT_UI_URL || "",
+    sidecarReady: false,
+  });
+  const url = decided.url || DEV_UI_URL;
+  if (await up(url, 1200)) return url;
   startedUi = true;
   uiChild = spawn("npm", ["run", "dev"], {
     cwd: root,
@@ -50,10 +143,11 @@ async function ensureUi() {
       LOCALBOT_DOCUMENTS_DIR: process.env.LOCALBOT_DOCUMENTS_DIR,
     },
   });
-  const ok = await up(UI, 60000);
+  const ok = await up(url, 60000);
   if (!ok) {
     throw new Error("LocalBot UI did not start. Try npm run dev, then npm run desktop.");
   }
+  return url;
 }
 
 function buildMenu(win) {
@@ -74,7 +168,7 @@ function buildMenu(win) {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
-async function createWindow() {
+async function createWindow(uiUrl) {
   const win = new BrowserWindow({
     width: 1280,
     height: 820,
@@ -119,7 +213,7 @@ async function createWindow() {
   ipcMain.on("localbot:close", () => win.close());
 
   win.once("ready-to-show", () => win.show());
-  await win.loadURL(UI);
+  await win.loadURL(uiUrl);
 }
 
 async function maybeStartLlama() {
@@ -129,26 +223,42 @@ async function maybeStartLlama() {
   try {
     await spawnLlamaServer({ dataDir, modelPath });
   } catch {
-    /* UI server will retry on first chat */
+    /* sidecar / first chat will retry */
+  }
+}
+
+function stopChildren() {
+  stopLlamaServer();
+  if (sidecarChild) {
+    sidecarChild.kill();
+    sidecarChild = null;
+  }
+  if (startedUi && uiChild) {
+    uiChild.kill();
+    uiChild = null;
   }
 }
 
 app.whenReady().then(async () => {
   applyPaths();
-  await ensureUi();
-  await createWindow();
+  const isPkg = packaged();
+  if (isPkg) {
+    const ready = await startSidecar();
+    if (!ready) return;
+    const load = resolveUiLoad({ packaged: true, sidecarReady: true });
+    await createWindow(load.url);
+  } else {
+    const url = await ensureDevUi();
+    await createWindow(url);
+  }
   void maybeStartLlama();
 });
 
 app.on("window-all-closed", () => {
-  stopLlamaServer();
-  if (startedUi && uiChild) {
-    uiChild.kill();
-    uiChild = null;
-  }
+  stopChildren();
   app.quit();
 });
 
 app.on("before-quit", () => {
-  stopLlamaServer();
+  stopChildren();
 });

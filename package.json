@@ -1,6 +1,9 @@
 {
   "name": "app-builder-workspace",
   "private": true,
+  "version": "0.1.0",
+  "description": "LocalBot — local agents on this computer",
+  "author": "LocalBot",
   "productName": "LocalBot",
   "main": "desktop/main.mjs",
   "sideEffects": false,
@@ -20,6 +23,7 @@
     "check:auth": "node scripts/check-auth-invariant.mjs",
     "test": "node --test 'scripts/**/*.test.mjs' && node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/auth/gate-identity.test.ts src/lib/localbot.test.ts",
     "desktop": "node desktop/launch.mjs",
+    "build:desktop": "node scripts/build-desktop.mjs",
     "lint": "eslint .",
     "format": "prettier --write ."
   },
@@ -84,6 +88,7 @@
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^5.2.0",
     "electron": "^36.3.1",
+    "electron-builder": "^26.15.3",
     "eslint": "^9.20.0",
     "eslint-config-prettier": "^10.1.1",
     "eslint-plugin-prettier": "^5.2.6",
@@ -97,5 +102,60 @@
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.56.1",
     "vite": "^8.2.0"
+  },
+  "build": {
+    "appId": "com.localbot.app",
+    "productName": "LocalBot",
+    "copyright": "LocalBot",
+    "directories": {
+      "output": "dist/desktop"
+    },
+    "files": [
+      "desktop/**/*.mjs",
+      "catalog/**/*.json",
+      "package.json",
+      "!**/node_modules/**"
+    ],
+    "extraResources": [
+      {
+        "from": ".output",
+        "to": "localbot-server"
+      },
+      {
+        "from": "dist/desktop-sidecar",
+        "to": "localbot-sidecar"
+      }
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "desktop/**/*.mjs"
+    ],
+    "npmRebuild": false,
+    "electronDist": "node_modules/electron/dist",
+    "electronVersion": "36.3.1",
+    "extraMetadata": {
+      "main": "desktop/main.mjs"
+    },
+    "mac": {
+      "target": [
+        "dir"
+      ],
+      "identity": null,
+      "category": "public.app-category.productivity"
+    },
+    "win": {
+      "target": [
+        "dir"
+      ]
+    },
+    "linux": {
+      "target": [
+        "dir"
+      ],
+      "category": "Utility",
+      "executableName": "LocalBot",
+      "icon": "public/__grok/icon-180.png"
+    },
+    "publish": null
   }
 }

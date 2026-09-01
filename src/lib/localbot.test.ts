@@ -24,6 +24,15 @@ import { classifyToolCall, pathAllowed } from "./permissions.ts";
 import { mascotIdForTemplate } from "./mascots.ts";
 import { executeTurn } from "./runtime/execute-turn.ts";
 import { llamaAssetFor, llamaAssetMap, llamaTarget } from "./runtime/llama-platform.ts";
+import {
+  DEV_UI_URL,
+  SIDECAR_URL,
+  isPackagedMode,
+  resolveUiLoad,
+  sidecarScriptPath,
+  sidecarServerEntry,
+  unpackAsarPath,
+} from "../../desktop/packaged.mjs";
 import { importGguf, streamHubDownload, verifyModel } from "./runtime/models.ts";
 import { runLocalTurn } from "./runtime/local-engine.ts";
 import { assertLoopbackOnly, describeBind, LOOPBACK_HOST, LOOPBACK_PORT } from "../runtime/loopback.ts";
@@ -363,6 +372,55 @@ describe("electron data dirs", () => {
       if (prevDoc === undefined) delete process.env.LOCALBOT_DOCUMENTS_DIR;
       else process.env.LOCALBOT_DOCUMENTS_DIR = prevDoc;
     }
+  });
+});
+
+describe("packaged desktop mode", () => {
+  it("does not fall back to the Vite dev URL and does not spawn npm", () => {
+    assert.equal(isPackagedMode({ packaged: true }), true);
+    assert.equal(isPackagedMode({ packaged: false, env: { LOCALBOT_PACKAGED: "1" } }), true);
+    assert.equal(isPackagedMode({ packaged: false, env: {} }), false);
+
+    const ready = resolveUiLoad({ packaged: true, sidecarReady: true, uiUrlEnv: DEV_UI_URL });
+    assert.equal(ready.ok, true);
+    assert.equal(ready.kind, "sidecar");
+    assert.equal(ready.spawnsNpmDev, false);
+    assert.equal(ready.url, SIDECAR_URL);
+    assert.equal(ready.url?.includes("8080"), false);
+
+    const missing = resolveUiLoad({ packaged: true, sidecarReady: false, uiUrlEnv: DEV_UI_URL });
+    assert.equal(missing.ok, false);
+    assert.equal(missing.url, null);
+    assert.equal(missing.spawnsNpmDev, false);
+    assert.match(String(missing.error), /build:desktop/);
+
+    const src = fs.readFileSync(path.join(process.cwd(), "desktop/main.mjs"), "utf8");
+    assert.match(src, /startSidecar/);
+    assert.match(src, /if \(isPkg\)/);
+    const pkgBranch = src.slice(src.indexOf("if (isPkg)"));
+    assert.equal(pkgBranch.includes("npm run dev"), false);
+    assert.equal(pkgBranch.includes('spawn("npm"'), false);
+
+    assert.equal(
+      sidecarServerEntry("/tmp/localbot-server"),
+      "/tmp/localbot-server/server/index.mjs",
+    );
+
+    assert.equal(
+      sidecarScriptPath({ packaged: true, resourcesPath: "/app/resources" }),
+      "/app/resources/localbot-sidecar/sidecar.mjs",
+    );
+    assert.equal(
+      unpackAsarPath("/x/resources/app.asar/desktop/sidecar.mjs"),
+      "/x/resources/app.asar.unpacked/desktop/sidecar.mjs",
+    );
+    assert.equal(unpackAsarPath("/workspace/desktop/sidecar.mjs"), "/workspace/desktop/sidecar.mjs");
+
+    const pkgJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8"));
+    const extras = JSON.stringify(pkgJson.build?.extraResources ?? []);
+    assert.match(extras, /localbot-server/);
+    assert.match(extras, /localbot-sidecar/);
+    assert.equal(pkgJson.build?.asarUnpack?.includes("desktop/**/*.mjs"), true);
   });
 });
 

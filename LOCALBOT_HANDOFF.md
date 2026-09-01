@@ -1,9 +1,19 @@
 # LOCALBOT_HANDOFF.md
 
+## Update after package pass
+2026-09-01
+- Packaged binary path: `dist/desktop/linux-unpacked/LocalBot` (this OS). macOS `dist/desktop/mac/LocalBot.app`. Windows `dist/desktop/win-unpacked/LocalBot.exe`.
+- Packaged mode runs npm run dev? no. Electron's Node starts `resources/localbot-sidecar/sidecar.mjs` (copied out of asar so ESM import works), which loads the Nitro `node-server` build from `resources/localbot-server` on `127.0.0.1:18790`.
+- Employee needs Node installed? no
+- llama.cpp targets still: darwin-arm64, darwin-x64, win32-x64, linux-x64
+- signed dmg/exe: still NOT BUILT
+- This preview host has no libgtk-3, so the unpacked Linux binary cannot paint here. `npm run build:desktop` still writes `linux-unpacked`.
+
 ## Update after desktop pass
 2026-09-01
 - Electron window: yes (`npm run desktop` → `node desktop/launch.mjs` → `desktop/main.mjs`). Frameless-ish dark window, no URL bar. Renderer is the existing TanStack UI. This preview host is headless without libgtk-3, so the window cannot paint here; on a normal desktop with GTK/Cocoa/Win32 it opens.
-- npm run desktop: the command that works
+- npm run desktop: the command that works for **dev** (may start Vite)
+- npm run build:desktop: unsigned unpacked app
 - llama.cpp targets implemented: darwin-arm64, darwin-x64, win32-x64 (cpu zip), linux-x64 (ubuntu tarball) via `catalog/llama-assets.json`
 - mascots: Writer / Researcher / Ops (`src/components/localbot/mascots/`)
 - signed dmg/exe: NOT BUILT
@@ -72,11 +82,16 @@ Binds `0.0.0.0:8080`. llama-server binds **only** `127.0.0.1:18789`.
 ### Production / packaged build
 
 ```bash
-npm run build
-npm run preview:restart  # built output on 127.0.0.1:8081
+npm run build                 # Vercel web build (preview / deploy)
+npm run build:desktop         # unsigned unpacked Electron app for this OS
 ```
 
-**NOT BUILT:** signed macOS `.dmg` / `.app`, Windows installer, Ubuntu `.deb` / AppImage, Apple notarization. `npm run desktop` is the acceptance bar for this pass.
+Packaged binary (this Linux host): `dist/desktop/linux-unpacked/LocalBot`
+
+That binary starts Electron's Node sidecar (`desktop/sidecar.mjs` → Nitro `node-server` on `127.0.0.1:18790`). It does **not** run `npm run dev`. The employee does **not** need Node on PATH.
+
+**NOT BUILT:** signed macOS `.dmg`, Apple notarization, Windows EV-signed installer, Ubuntu `.deb` / AppImage store listing.
+
 
 ### Where data is stored
 
@@ -232,7 +247,8 @@ Disk grant tests kept. Added: server RAM (`ramSource: "os"`), Large disabled on 
 
 | Requirement | Status | Evidence |
 |---|---|---|
-| Desktop app window | **WORKS** | Electron `npm run desktop`. No URL bar. Unsigned. This host cannot paint without GTK 3. |
+| Desktop app window | **WORKS** | Electron `npm run desktop` (dev) and `npm run build:desktop` (unsigned unpacked). No URL bar. This host cannot paint without GTK 3. |
+
 | Fork / reuse of OpenMausBot | **NOT BUILT** | No OpenMausBot sources |
 | No API key on first run | **WORKS** | Default path is local GGUF. `executeTurn` does not need `XAI_API_KEY` |
 | Hardware scan | **WORKS** | Server `os.totalmem` / `freemem` / `statfs`. Browser guess is a footnote |
@@ -248,7 +264,7 @@ Disk grant tests kept. Added: server RAM (`ramSource: "os"`), Large disabled on 
 | Per-bot workspace isolation | **WORKS** | `pathAllowed` + server grant check |
 | Outbox | **WORKS** | Real `{employee}/outbox/` |
 | @bot handoff via shared task files | **WORKS** | `handoffTask` |
-| macOS / Windows / Ubuntu installers | **NOT BUILT** | No signed packager this pass |
+| macOS / Windows / Ubuntu installers | **PARTIAL** | Unsigned `--dir` unpacked app via electron-builder. Signed `.dmg` / `.exe` / `.deb` **NOT BUILT**. |
 | Arabic UI / RTL | **NOT BUILT** | `html lang="en"` |
 | Company root picker | **PARTIAL** | Absolute path field, no OS folder dialog |
 | NAS / two-machine sharing | **NOT BUILT** | Same real folder on the server machine only |
