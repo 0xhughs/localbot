@@ -9,7 +9,7 @@ export function NewAgentDialog() {
   const open = useLocalBot((s) => s.ui.newAgentOpen);
   const setUi = useLocalBot((s) => s.setUi);
   const createBot = useLocalBot((s) => s.createBot);
-  const models = useLocalBot((s) => s.models);
+  const selectedCatalogId = useLocalBot((s) => s.selectedCatalogId);
   const bots = useLocalBot((s) => s.bots);
   const [name, setName] = useState("");
   const [job, setJob] = useState("");
@@ -18,11 +18,11 @@ export function NewAgentDialog() {
 
   const submit = () => {
     const n = name.trim() || `Agent ${bots.length + 1}`;
-    createBot({
+    void createBot({
       name: n,
       job: job.trim() || "Generalist",
       color,
-      modelId: models[0]?.catalogId ?? "gemma4-e2b-q4",
+      modelId: selectedCatalogId ?? "gemma4-e2b-q4",
       extraGrants: ["shared"],
     });
     setName("");

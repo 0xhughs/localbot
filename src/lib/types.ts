@@ -65,26 +65,6 @@ export type ModelFit = {
   recommended: boolean;
 };
 
-export type DownloadedModel = {
-  id: string;
-  catalogId: string;
-  filename: string;
-  path: string;
-  sizeBytes: number;
-  sha256: string;
-  downloadedAt: string;
-  source: "catalog" | "import";
-};
-
-export type DownloadJob = {
-  catalogId: string;
-  status: "running" | "paused" | "verifying" | "done" | "error";
-  progress: number;
-  error?: string;
-  startedAt: string;
-  pausedAt?: string;
-};
-
 export type Company = {
   id: string;
   name: string;
@@ -138,14 +118,16 @@ export type Bot = {
   createdAt: string;
 };
 
-export type FsKind = "file" | "dir";
-
-export type FsNode = {
+export type DiskEntry = {
   path: string;
-  kind: FsKind;
-  content: string;
-  mtime: number;
+  name: string;
+  kind: "file" | "dir";
   size: number;
+};
+
+export type DiskConfig = {
+  companyRoot: string;
+  previewWritesToProjectData: boolean;
 };
 
 export type ChatRole = "user" | "assistant" | "system";
@@ -195,11 +177,9 @@ export type Session = {
 };
 
 export type RuntimeStatus = {
-  bindHost: string;
-  bindPort: number;
-  ready: boolean;
   engine: string;
-  mode: "standard" | "minimal";
+  model: string;
+  aiAvailable: boolean;
   lastHeartbeat: string | null;
 };
 
@@ -207,7 +187,6 @@ export type Settings = {
   darkMode: boolean;
   webSearchEnabled: boolean;
   controlThisComputer: boolean;
-  useExistingOllama: boolean;
   denseUi: boolean;
   companyRootIsShared: boolean;
 };
@@ -226,19 +205,17 @@ export type UiState = {
 };
 
 export type AppSnapshot = {
-  version: 1;
+  version: 2;
   onboarded: boolean;
-  localbotHome: string;
   company: Company | null;
   departments: Department[];
   employees: Employee[];
   bots: Bot[];
-  models: DownloadedModel[];
-  files: Record<string, FsNode>;
+  selectedCatalogId: string | null;
   sessions: Record<string, Session>;
   hardware: HardwareReport | null;
-  download: DownloadJob | null;
   settings: Settings;
   runtime: RuntimeStatus;
   activeEmployeeId: string | null;
+  previewWritesToProjectData: boolean;
 };

@@ -117,6 +117,13 @@ const TOOLS = [
   },
 ] as const;
 
+export const getAiStatus = createServerFn({ method: "POST" }).handler(async () => {
+  return {
+    available: Boolean(process.env.XAI_API_KEY),
+    model: "grok-4.5" as const,
+  };
+});
+
 export const runHarnessTurn = createServerFn({ method: "POST" })
   .validator((input: TurnInput) => input)
   .handler(async ({ data }): Promise<TurnOutput> => {
@@ -151,6 +158,8 @@ export const runHarnessTurn = createServerFn({ method: "POST" })
       return { role: m.role, content: m.content };
     });
 
+    // AbortSignal cannot be forwarded through createServerFn; the client
+    // Stop button cancels between tool rounds only.
     const res = await fetch("https://api.x.ai/v1/chat/completions", {
       method: "POST",
       headers: {

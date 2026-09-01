@@ -1,15 +1,29 @@
 import { i as __toESM } from "../_runtime.mjs";
 import { n as require_react } from "../_libs/@radix-ui/react-compose-refs+[...].mjs";
 import { v as require_jsx_runtime } from "../_libs/@tanstack/react-router+[...].mjs";
-import { A as Ban, C as FileSearch, D as Copy, E as Ellipsis, M as ArrowLeft, O as ChevronRight, S as FileText, T as EyeOff, _ as HardDrive, a as Square, b as FolderOpen, c as Settings, d as Pin, f as Pause, g as Inbox, h as Menu, i as Terminal, j as ArrowRight, k as Check, l as Plus, m as Monitor, o as Shield, p as Paperclip, r as Trash2, s as Share2, t as X, u as Play, v as Globe, w as FilePenLine, x as FolderLock, y as Folder } from "../_libs/lucide-react.mjs";
+import { A as ArrowLeft, C as EyeOff, D as Check, E as ChevronRight, O as Ban, S as FilePenLine, T as Copy, _ as Folder, a as Square, b as FileText, c as Settings, d as Paperclip, f as Monitor, g as Globe, h as HardDrive, i as Terminal, k as ArrowRight, l as Plus, m as Inbox, o as Shield, p as Menu, r as Trash2, s as Share2, t as X, u as Pin, v as FolderOpen, w as Ellipsis, x as FileSearch, y as FolderLock } from "../_libs/lucide-react.mjs";
 import { n as TSS_SERVER_FUNCTION, r as getServerFnById, t as createServerFn } from "./ssr.mjs";
 import { n as persist, r as create, t as createJSONStorage } from "../_libs/zustand.mjs";
 import { n as clsx, t as cva } from "../_libs/class-variance-authority+clsx.mjs";
 import { t as twMerge } from "../_libs/tailwind-merge.mjs";
 import { t as Slot } from "../_libs/radix-ui__react-slot.mjs";
-//#region node_modules/.nitro/vite/services/ssr/assets/routes-CMYd0Yg3.js
+//#region node_modules/.nitro/vite/services/ssr/assets/routes-lTqhfhO-.js
 var import_react = /* @__PURE__ */ __toESM(require_react());
 var import_jsx_runtime = require_jsx_runtime();
+var createSsrRpc = (functionId) => {
+	const url = "/_serverFn/" + functionId;
+	const serverFnMeta = { id: functionId };
+	const fn = async (...args) => {
+		return (await getServerFnById(functionId, { origin: "server" }))(...args);
+	};
+	return Object.assign(fn, {
+		url,
+		serverFnMeta,
+		[TSS_SERVER_FUNCTION]: true
+	});
+};
+var getAiStatus = createServerFn({ method: "POST" }).handler(createSsrRpc("4d014b7d5695cf271ecb6d606e4830cf820e40735c07c63b45eca84471656734"));
+var runHarnessTurn = createServerFn({ method: "POST" }).validator((input) => input).handler(createSsrRpc("6532b4f18cc5bcc2361d69f45f2f84e2d4d87ad9ed8a519945f97f3260b8e7bc"));
 var CATALOG_PIN = "2026.09-localbot-1";
 var CATALOG = [
 	{
@@ -186,25 +200,6 @@ function onboardingCards(hardware) {
 		fits: rec.fits
 	};
 }
-async function sha256Hex(data) {
-	const bytes = typeof data === "string" ? new TextEncoder().encode(data) : data instanceof Uint8Array ? data : new Uint8Array(data);
-	if (typeof crypto === "undefined" || !crypto.subtle) throw new Error("SHA-256 is not available in this environment");
-	const buf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-	const digest = await crypto.subtle.digest("SHA-256", buf);
-	return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-function ggufBlob(params) {
-	return `GGUF\n${JSON.stringify({
-		localbot: 1,
-		id: params.id,
-		filename: params.filename,
-		sizeBytes: params.sizeBytes,
-		catalogSha256: params.sha256
-	})}\n`;
-}
-async function checksumBlob(blob) {
-	return sha256Hex(blob);
-}
 function cn(...inputs) {
 	return twMerge(clsx(inputs));
 }
@@ -241,11 +236,9 @@ function posixJoin(...parts) {
 	else out.push(p);
 	return "/" + out.join("/");
 }
-function posixDirname(path) {
-	const n = posixJoin(path);
-	const i = n.lastIndexOf("/");
-	if (i <= 0) return "/";
-	return n.slice(0, i) || "/";
+function normalizePath(path) {
+	if (!path) return "/";
+	return posixJoin(path.startsWith("/") ? path : `/${path}`);
 }
 function posixBasename(path) {
 	const n = posixJoin(path);
@@ -257,166 +250,6 @@ function isUnder(path, root) {
 	const r = posixJoin(root);
 	if (p === r) return true;
 	return p.startsWith(r.endsWith("/") ? r : r + "/");
-}
-function normalizePath(path) {
-	if (!path) return "/";
-	return posixJoin(path.startsWith("/") ? path : `/${path}`);
-}
-function ensureDir(vfs, path, mtime = Date.now()) {
-	const n = normalizePath(path);
-	if (n === "/") {
-		if (!vfs["/"]) return {
-			...vfs,
-			"/": {
-				path: "/",
-				kind: "dir",
-				content: "",
-				mtime,
-				size: 0
-			}
-		};
-		return vfs;
-	}
-	let next = vfs;
-	const parts = n.split("/").filter(Boolean);
-	let cur = "";
-	next = ensureDir(next, "/", mtime);
-	for (const part of parts) {
-		cur = `${cur}/${part}`;
-		if (!next[cur] || next[cur].kind !== "dir") next = {
-			...next,
-			[cur]: {
-				path: cur,
-				kind: "dir",
-				content: "",
-				mtime,
-				size: 0
-			}
-		};
-	}
-	return next;
-}
-function writeFile(vfs, path, content, mtime = Date.now()) {
-	const n = normalizePath(path);
-	if (n === "/") throw new Error("Cannot write file at /");
-	let next = ensureDir(vfs, posixDirname(n), mtime);
-	if (next[n]?.kind === "dir") throw new Error(`Cannot overwrite directory: ${n}`);
-	next = {
-		...next,
-		[n]: {
-			path: n,
-			kind: "file",
-			content,
-			mtime,
-			size: new TextEncoder().encode(content).length
-		}
-	};
-	return next;
-}
-function readFile(vfs, path) {
-	const n = normalizePath(path);
-	const node = vfs[n];
-	if (!node) throw new Error(`No such file: ${n}`);
-	if (node.kind !== "file") throw new Error(`Not a file: ${n}`);
-	return node.content;
-}
-function exists(vfs, path) {
-	return Boolean(vfs[normalizePath(path)]);
-}
-function isDir(vfs, path) {
-	return vfs[normalizePath(path)]?.kind === "dir";
-}
-function isFile(vfs, path) {
-	return vfs[normalizePath(path)]?.kind === "file";
-}
-function listDir(vfs, path) {
-	const n = normalizePath(path);
-	const dir = vfs[n];
-	if (!dir || dir.kind !== "dir") throw new Error(`Not a directory: ${n}`);
-	const prefix = n === "/" ? "/" : n + "/";
-	return Object.values(vfs).filter((node) => {
-		if (node.path === n) return false;
-		if (!node.path.startsWith(prefix)) return false;
-		const rest = node.path.slice(prefix.length);
-		return rest.length > 0 && !rest.includes("/");
-	}).sort((a, b) => {
-		if (a.kind !== b.kind) return a.kind === "dir" ? -1 : 1;
-		return a.path.localeCompare(b.path);
-	});
-}
-function removeNode(vfs, path) {
-	const n = normalizePath(path);
-	if (n === "/") throw new Error("Cannot delete /");
-	const next = { ...vfs };
-	const prefix = n + "/";
-	for (const key of Object.keys(next)) if (key === n || key.startsWith(prefix)) delete next[key];
-	return next;
-}
-function moveTree(vfs, from, to) {
-	const src = normalizePath(from);
-	const dst = normalizePath(to);
-	if (src === dst) return vfs;
-	if (isUnder(dst, src) && dst !== src) throw new Error("Cannot move a folder into itself");
-	const prefix = src + "/";
-	let next = { ...vfs };
-	const moving = Object.values(vfs).filter((n) => n.path === src || n.path.startsWith(prefix));
-	if (moving.length === 0) throw new Error(`Nothing to move: ${src}`);
-	next = ensureDir(next, posixDirname(dst));
-	for (const node of moving) {
-		const rel = node.path === src ? "" : node.path.slice(prefix.length);
-		const np = rel ? `${dst}/${rel}` : dst;
-		next[np] = {
-			...node,
-			path: np
-		};
-	}
-	for (const node of moving) delete next[node.path];
-	return next;
-}
-function strReplace(vfs, path, oldString, newString) {
-	const current = readFile(vfs, path);
-	if (!current.includes(oldString)) throw new Error(`Pattern not found in ${normalizePath(path)}`);
-	return writeFile(vfs, path, current.replace(oldString, newString));
-}
-function writeJson(vfs, path, value) {
-	return writeFile(vfs, path, JSON.stringify(value, null, 2) + "\n");
-}
-function prettyTree(vfs, root, max = 80) {
-	const n = normalizePath(root);
-	const prefix = n === "/" ? "/" : n + "/";
-	const nodes = Object.values(vfs).filter((node) => node.path === n || node.path.startsWith(prefix)).sort((a, b) => a.path.localeCompare(b.path));
-	const lines = [];
-	for (const node of nodes) {
-		if (lines.length >= max) {
-			lines.push("  …");
-			break;
-		}
-		const rel = node.path === n ? posixBasename(n) || "/" : node.path.slice(prefix.length);
-		const depth = rel === posixBasename(n) || rel === "/" ? 0 : rel.split("/").length;
-		const name = posixBasename(node.path) + (node.kind === "dir" ? "/" : "");
-		lines.push(`${"  ".repeat(Math.max(0, depth - (node.path === n ? 0 : 0)))}${name}`);
-	}
-	const better = [];
-	for (const node of nodes.slice(0, max)) {
-		const rel = node.path === n ? "" : node.path.slice(prefix.length);
-		const depth = rel === "" ? 0 : rel.split("/").length;
-		const name = (rel === "" ? posixBasename(n) || node.path : posixBasename(node.path)) + (node.kind === "dir" ? "/" : "");
-		better.push(`${"  ".repeat(depth)}${name}`);
-	}
-	if (nodes.length > max) better.push("  …");
-	return better.join("\n");
-}
-function filePreview(vfs, path, max = 4e3) {
-	const node = vfs[normalizePath(path)];
-	if (!node) return "";
-	if (node.kind === "dir") return "";
-	if (node.content.length <= max) return node.content;
-	return node.content.slice(0, max) + "\n…";
-}
-var DEFAULT_HOME = "/LocalBot";
-var DEFAULT_COMPANY_ROOT = "/Documents/LocalBot";
-function companyRootPath(companyName, rootBase = DEFAULT_COMPANY_ROOT) {
-	return posixJoin(rootBase, companyName.trim() || "Studio");
 }
 function departmentPath(companyRoot, deptName) {
 	return posixJoin(companyRoot, "departments", deptName);
@@ -437,202 +270,47 @@ function grantPathFor(bot, employee, department, company, grant) {
 		case "outbox": return posixJoin(employee.path, "outbox");
 	}
 }
-function seedHome(vfs, home = DEFAULT_HOME) {
-	let next = vfs;
-	for (const p of [
-		home,
-		posixJoin(home, "models"),
-		posixJoin(home, "sessions"),
-		posixJoin(home, "logs")
-	]) next = ensureDir(next, p);
-	return next;
+function allowedRootsFor(bot, employee, department, company) {
+	return bot.grants.map((g) => grantPathFor(bot, employee, department, company, g));
 }
-function seedCompanyTree(args) {
-	const { company, department, employee, bots } = args;
-	let vfs = args.vfs;
-	vfs = ensureDir(vfs, company.root);
-	vfs = writeJson(vfs, posixJoin(company.root, "company.json"), {
-		name: company.name,
-		catalogPin: company.catalogPin,
-		defaultDepartment: department.name
-	});
-	vfs = ensureDir(vfs, posixJoin(company.root, "shared"));
-	vfs = ensureDir(vfs, posixJoin(company.root, "departments"));
-	vfs = ensureDir(vfs, department.path);
-	vfs = writeJson(vfs, posixJoin(department.path, "department.json"), { name: department.name });
-	vfs = ensureDir(vfs, posixJoin(department.path, "shared"));
-	vfs = ensureDir(vfs, posixJoin(department.path, "people"));
-	vfs = ensureDir(vfs, employee.path);
-	vfs = writeJson(vfs, posixJoin(employee.path, "employee.json"), {
-		displayName: employee.displayName,
-		department: department.name,
-		defaultModel: employee.defaultModelId
-	});
-	vfs = ensureDir(vfs, posixJoin(employee.path, "inbox"));
-	vfs = ensureDir(vfs, posixJoin(employee.path, "outbox"));
-	vfs = ensureDir(vfs, posixJoin(employee.path, "bots"));
-	for (const bot of bots) vfs = seedBotFolder(vfs, bot, department, employee);
-	return vfs;
+/** Map a model-supplied path onto the company tree. Bare names land in workspace. */
+function resolveAgentFilePath(requested, bot, employee, department, company) {
+	const n = normalizePath(requested);
+	const root = normalizePath(company.root);
+	if (n === root || isUnder(n, root)) return n;
+	const rel = n.replace(/^\//, "");
+	if (rel === "workspace" || rel.startsWith("workspace/")) return posixJoin(bot.path, rel);
+	if (rel === "output" || rel.startsWith("output/")) return posixJoin(bot.path, rel);
+	if (rel === "memory" || rel.startsWith("memory/")) return posixJoin(bot.path, rel);
+	if (rel === "shared" || rel.startsWith("shared/")) return posixJoin(department.path, rel);
+	if (rel === "outbox" || rel.startsWith("outbox/")) return posixJoin(employee.path, rel);
+	if (rel === "inbox" || rel.startsWith("inbox/")) return posixJoin(employee.path, rel);
+	return posixJoin(bot.workspacePath, rel);
 }
-function seedBotFolder(vfs, bot, department, employee) {
-	let next = vfs;
-	next = ensureDir(next, bot.path);
-	next = ensureDir(next, posixJoin(bot.path, "memory"));
-	next = ensureDir(next, posixJoin(bot.path, "workspace"));
-	next = ensureDir(next, posixJoin(bot.path, "output"));
-	next = writeJson(next, posixJoin(bot.path, "bot.json"), {
-		name: bot.name,
-		job: bot.job,
-		modelId: bot.modelId,
-		color: bot.color,
-		grants: bot.grants,
-		createdAt: bot.createdAt
-	});
-	next = writeFile(next, posixJoin(bot.path, "AGENTS.md"), `# ${bot.name}\n\n${bot.job}\n\n${bot.standingInstructions}\n`);
-	next = writeFile(next, posixJoin(bot.path, "memory", "notes.md"), `# Memory\n\nStanding context for ${bot.name}.\n`);
-	next = writeFile(next, posixJoin(department.path, "shared", ".keep"), `Department shared folder for ${department.name}.\nAny granted bot may read and write here.\n`);
-	next = writeFile(next, posixJoin(employee.path, "outbox", ".keep"), `Finished deliverables for ${employee.displayName} land here.\n`);
-	return next;
+function remapUnderRoot(oldRoot, newRoot, target) {
+	const o = normalizePath(oldRoot);
+	const n = normalizePath(target);
+	if (n === o) return normalizePath(newRoot);
+	if (n.startsWith(o + "/")) return posixJoin(newRoot, n.slice(o.length));
+	return n;
 }
-function writeModelBlob(vfs, home, model, blob) {
-	const dir = posixJoin(home, "models");
-	let next = ensureDir(vfs, dir);
-	next = writeFile(next, model.path, blob);
-	next = writeJson(next, posixJoin(dir, `${model.catalogId}.json`), {
-		id: model.catalogId,
-		filename: model.filename,
-		sha256: model.sha256,
-		sizeBytes: model.sizeBytes,
-		downloadedAt: model.downloadedAt
-	});
-	return next;
-}
-function fail(vfs, msg) {
-	return {
-		stdout: "",
-		stderr: msg,
-		code: 1,
-		vfs
-	};
-}
-function ok(vfs, stdout) {
-	return {
-		stdout,
-		stderr: "",
-		code: 0,
-		vfs
-	};
-}
-function tokenize(command) {
-	const out = [];
-	let cur = "";
-	let quote = null;
-	for (let i = 0; i < command.length; i++) {
-		const ch = command[i];
-		if (quote) {
-			if (ch === quote) quote = null;
-			else cur += ch;
-			continue;
-		}
-		if (ch === "'" || ch === "\"") {
-			quote = ch;
-			continue;
-		}
-		if (/\s/.test(ch)) {
-			if (cur) out.push(cur);
-			cur = "";
-			continue;
-		}
-		cur += ch;
-	}
-	if (cur) out.push(cur);
-	return out;
-}
-function runVirtualShell(vfs, cwd, command, sandboxRoot) {
-	const tokens = tokenize(command.trim());
-	if (tokens.length === 0) return ok(vfs, "");
-	const [cmd, ...args] = tokens;
-	const resolve = (p) => {
-		const abs = p.startsWith("/") ? normalizePath(p) : posixJoin(cwd, p);
-		if (!abs.startsWith(normalizePath(sandboxRoot))) throw new Error(`Refusing path outside sandbox: ${abs}`);
-		return abs;
-	};
-	try {
-		switch (cmd) {
-			case "pwd": return ok(vfs, cwd);
-			case "ls": {
-				const flagLong = args.includes("-l") || args.includes("-la") || args.includes("-al");
-				const target = args.find((a) => !a.startsWith("-")) ?? ".";
-				const path = resolve(target);
-				if (!exists(vfs, path)) return fail(vfs, `ls: ${target}: no such file`);
-				if (isFile(vfs, path)) return ok(vfs, posixBasename(path));
-				const entries = listDir(vfs, path);
-				if (!flagLong) return ok(vfs, entries.map((e) => posixBasename(e.path) + (e.kind === "dir" ? "/" : "")).join("\n"));
-				return ok(vfs, entries.map((e) => `${e.kind === "dir" ? "d" : "-"}  ${String(e.size).padStart(6)}  ${posixBasename(e.path)}`).join("\n"));
-			}
-			case "cat": {
-				if (!args[0]) return fail(vfs, "cat: missing file");
-				const path = resolve(args[0]);
-				if (!isFile(vfs, path)) return fail(vfs, `cat: ${args[0]}: not a file`);
-				return ok(vfs, readFile(vfs, path));
-			}
-			case "mkdir": {
-				const p = args.filter((a) => a !== "-p")[0];
-				if (!p) return fail(vfs, "mkdir: missing operand");
-				return ok(ensureDir(vfs, resolve(p)), "");
-			}
-			case "touch": {
-				if (!args[0]) return fail(vfs, "touch: missing file");
-				const path = resolve(args[0]);
-				if (exists(vfs, path) && isFile(vfs, path)) return ok(writeFile(vfs, path, readFile(vfs, path)), "");
-				return ok(writeFile(vfs, path, ""), "");
-			}
-			case "rm": {
-				const recursive = args.includes("-r") || args.includes("-rf") || args.includes("-fr");
-				const target = args.find((a) => !a.startsWith("-"));
-				if (!target) return fail(vfs, "rm: missing operand");
-				const path = resolve(target);
-				if (!exists(vfs, path)) return fail(vfs, `rm: ${target}: no such file`);
-				if (isDir(vfs, path) && !recursive) return fail(vfs, `rm: ${target}: is a directory`);
-				return ok(removeNode(vfs, path), "");
-			}
-			case "echo": {
-				const redir = args.indexOf(">");
-				const append = args.indexOf(">>");
-				if (redir >= 0 && args[redir + 1]) {
-					const text = args.slice(0, redir).join(" ") + "\n";
-					return ok(writeFile(vfs, resolve(args[redir + 1]), text), "");
-				}
-				if (append >= 0 && args[append + 1]) {
-					const path = resolve(args[append + 1]);
-					return ok(writeFile(vfs, path, (isFile(vfs, path) ? readFile(vfs, path) : "") + (args.slice(0, append).join(" ") + "\n")), "");
-				}
-				return ok(vfs, args.join(" "));
-			}
-			case "mv":
-			case "cp": {
-				if (args.length < 2) return fail(vfs, `${cmd}: missing operand`);
-				const src = resolve(args[0]);
-				const dst = resolve(args[1]);
-				if (!isFile(vfs, src)) return fail(vfs, `${cmd}: ${args[0]}: not a file`);
-				let next = writeFile(vfs, dst, readFile(vfs, src));
-				if (cmd === "mv") next = removeNode(next, src);
-				return ok(next, "");
-			}
-			case "head": {
-				const file = args.find((a) => !a.startsWith("-"));
-				if (!file) return fail(vfs, "head: missing file");
-				const path = resolve(file);
-				const nFlag = args.find((a) => a.startsWith("-n"));
-				const n = nFlag ? Number(nFlag.replace("-n", "") || args[args.indexOf(nFlag) + 1]) : 10;
-				return ok(vfs, readFile(vfs, path).split("\n").slice(0, Number.isFinite(n) ? n : 10).join("\n"));
-			}
-			default: return fail(vfs, `${cmd}: command not available in the workspace shell. Use read_file / write_file / list_dir.`);
-		}
-	} catch (err) {
-		return fail(vfs, err instanceof Error ? err.message : String(err));
-	}
-}
+var fsGetCompanyRoot = createServerFn({ method: "POST" }).handler(createSsrRpc("11857cc008c32a0141f9ebfffa9ce5384d5fea775130cefdbef972ae6603405f"));
+var fsSetCompanyRoot = createServerFn({ method: "POST" }).validator((input) => input).handler(createSsrRpc("a56685740e9d84f84e4b0c69ed6ac965de2d8bb265b32495470135422431bb18"));
+var fsList = createServerFn({ method: "POST" }).validator((input) => input).handler(createSsrRpc("2e81004d9c157d79dcd862c83ab950685065a5fcff9a8e8194734eebb3e985ae"));
+var fsRead = createServerFn({ method: "POST" }).validator((input) => input).handler(createSsrRpc("7d1e3233596efa615b20640ed4065b14038fb7ac8de34a64e963a93c0ab2dbfd"));
+var fsWrite = createServerFn({ method: "POST" }).validator((input) => input).handler(createSsrRpc("b977a74c3349a02ed3377147a0dc0c34994631b8b57c284a89cff7aa90b49228"));
+createServerFn({ method: "POST" }).validator((input) => input).handler(createSsrRpc("0fa999f4c5f50f97f50e396c72d22bac509e66fe9a51a0668a0866c0788bcc3e"));
+var fsDelete = createServerFn({ method: "POST" }).validator((input) => input).handler(createSsrRpc("1e164447cf5fb3b60e111085cb9d388b506dd4773dd0fc655d62f0794e230e88"));
+createServerFn({ method: "POST" }).validator((input) => input).handler(createSsrRpc("7bd77591bf0ceac531fbc9d547755d3ba0595a450a9ee9aef216d83e71d41d71"));
+createServerFn({ method: "POST" }).validator((input) => input).handler(createSsrRpc("7f0c95b4d4230c67a1ee8278822c7daa6e0b5727086c1751d102f0d387bf7f3d"));
+var fsReplace = createServerFn({ method: "POST" }).validator((input) => input).handler(createSsrRpc("c6f58459f422d316538337864eb436e437c4ea69158d8d21fdb0a7142606da48"));
+var fsMove = createServerFn({ method: "POST" }).validator((input) => input).handler(createSsrRpc("4347559c4b74a5838aebefc5f983e45487402e7d6ffd715cfb0cf04562b19b9d"));
+var fsTree = createServerFn({ method: "POST" }).validator((input) => input).handler(createSsrRpc("5875d83adb820146b198e6ccc54ed8cb37e894f263a7b32db594774f6fe6323f"));
+var fsRunCommand = createServerFn({ method: "POST" }).validator((input) => input).handler(createSsrRpc("a99cc9c9f05221311156adc2a5933b187cd1ae643e18705a1937324f8ba0247c"));
+var fsSeedCompanyTree = createServerFn({ method: "POST" }).validator((input) => input).handler(createSsrRpc("3f9c85ded0c85b11ad85670089fd879179da2f48f457656eba9fdafb31750187"));
+var fsSeedBot = createServerFn({ method: "POST" }).validator((input) => input).handler(createSsrRpc("7b60d75daa39e4a11a3ec50382dc778da66240eae85482fc038975b8e18c8822"));
+var fsSeedDepartment = createServerFn({ method: "POST" }).validator((input) => input).handler(createSsrRpc("7779bcdf5afea5c7528cfb1c0cc4c7f2d5a50a7d74a75f7be5fbcd6853f4b670"));
+var fsSeedEmployee = createServerFn({ method: "POST" }).validator((input) => input).handler(createSsrRpc("dfb0a5cde55326e99915ceb245bd0283168759002f29a58000602ca49f147b8d"));
 var SHELL_NAMES = /* @__PURE__ */ new Set([
 	"run_command",
 	"shell",
@@ -729,27 +407,10 @@ function denyMessage(cls) {
 function grantKey(cls) {
 	return `${cls.kind}:${cls.path ?? cls.detail}`;
 }
-/**
-* LocalBot inference and harness bind loopback only.
-* The preview web server is a separate process and is not this bind.
-*/
-var LOOPBACK_HOST = "127.0.0.1";
-var LOOPBACK_PORT = 18789;
-`${LOOPBACK_HOST}${LOOPBACK_PORT}`;
-function describeBind(host = LOOPBACK_HOST, port = LOOPBACK_PORT) {
-	return {
-		host,
-		port,
-		loopbackOnly: host === "127.0.0.1" || host === "localhost" || host === "::1",
-		lanBind: host === "0.0.0.0" || host === "::" || host === "*",
-		url: `http://${host}:${port}/v1`
-	};
-}
 var DEFAULT_SETTINGS = {
 	darkMode: true,
 	webSearchEnabled: false,
 	controlThisComputer: false,
-	useExistingOllama: false,
 	denseUi: true,
 	companyRootIsShared: false
 };
@@ -767,28 +428,24 @@ var DEFAULT_UI = {
 };
 function emptySnapshot() {
 	return {
-		version: 1,
+		version: 2,
 		onboarded: false,
-		localbotHome: DEFAULT_HOME,
 		company: null,
 		departments: [],
 		employees: [],
 		bots: [],
-		models: [],
-		files: {},
+		selectedCatalogId: null,
 		sessions: {},
 		hardware: null,
-		download: null,
 		settings: DEFAULT_SETTINGS,
 		runtime: {
-			bindHost: LOOPBACK_HOST,
-			bindPort: LOOPBACK_PORT,
-			ready: false,
-			engine: "embedded-llama.cpp",
-			mode: "standard",
+			engine: "hosted-grok-4.5",
+			model: "grok-4.5",
+			aiAvailable: false,
 			lastHeartbeat: null
 		},
-		activeEmployeeId: null
+		activeEmployeeId: null,
+		previewWritesToProjectData: true
 	};
 }
 function sessionOf(botId) {
@@ -815,10 +472,20 @@ var memoryStorage = {
 		localStorage.removeItem(k);
 	}
 };
+function ctxRoots(s, botId) {
+	const ctx = resolveBot(s, botId);
+	if (!ctx) return null;
+	return {
+		...ctx,
+		companyRoot: ctx.company.root,
+		allowedRoots: allowedRootsFor(ctx.bot, ctx.employee, ctx.department, ctx.company)
+	};
+}
 var useLocalBot = create()(persist((set, get) => ({
 	...emptySnapshot(),
 	ui: DEFAULT_UI,
 	hydrated: false,
+	diskEpoch: 0,
 	setHydrated: (v) => set({ hydrated: v }),
 	setUi: (patch) => set({ ui: {
 		...get().ui,
@@ -827,90 +494,33 @@ var useLocalBot = create()(persist((set, get) => ({
 	resetAll: () => set({
 		...emptySnapshot(),
 		ui: { ...DEFAULT_UI },
-		hydrated: true
+		hydrated: true,
+		diskEpoch: 0
 	}),
 	setHardware: (h) => set({ hardware: h }),
-	setDownload: (job) => set({ download: job }),
-	completeDownload: async (catalogId) => {
-		const model = getCatalogModel(catalogId);
-		if (!model) throw new Error("Unknown model");
-		const blob = ggufBlob({
-			id: model.id,
-			filename: model.filename,
-			sizeBytes: model.sizeBytes,
-			sha256: model.sha256
-		});
-		const digest = await checksumBlob(blob);
-		const record = {
-			id: uid("mdl"),
-			catalogId: model.id,
-			filename: model.filename,
-			path: posixJoin(get().localbotHome, "models", model.filename),
-			sizeBytes: model.sizeBytes,
-			sha256: digest,
-			downloadedAt: nowIso(),
-			source: "catalog"
-		};
-		set((s) => ({
-			models: [...s.models.filter((m) => m.catalogId !== model.id), record],
-			files: writeModelBlob(seedHome(s.files, s.localbotHome), s.localbotHome, record, blob),
-			download: {
-				catalogId: model.id,
-				status: "done",
-				progress: 1,
-				startedAt: s.download?.startedAt ?? nowIso()
-			},
-			runtime: {
-				...s.runtime,
-				ready: true,
-				lastHeartbeat: nowIso()
-			}
-		}));
-		return record;
-	},
-	importGguf: async (filename, bytes) => {
-		const blob = ggufBlob({
-			id: `import-${filename}`,
-			filename,
-			sizeBytes: bytes,
-			sha256: "import"
-		});
-		const digest = await checksumBlob(blob);
-		const record = {
-			id: uid("mdl"),
-			catalogId: `import:${filename}`,
-			filename,
-			path: posixJoin(get().localbotHome, "models", filename),
-			sizeBytes: bytes,
-			sha256: digest,
-			downloadedAt: nowIso(),
-			source: "import"
-		};
-		set((s) => ({
-			models: [...s.models, record],
-			files: writeModelBlob(seedHome(s.files, s.localbotHome), s.localbotHome, record, blob),
-			runtime: {
-				...s.runtime,
-				ready: true,
-				lastHeartbeat: nowIso()
-			}
-		}));
-		return record;
-	},
-	completeOnboarding: (input) => {
+	noteCatalog: (catalogId) => set({ selectedCatalogId: catalogId }),
+	setAiAvailable: (available) => set((s) => ({ runtime: {
+		...s.runtime,
+		aiAvailable: available,
+		lastHeartbeat: nowIso()
+	} })),
+	bumpDisk: () => set((s) => ({ diskEpoch: s.diskEpoch + 1 })),
+	completeOnboarding: async (input) => {
 		const companyName = slugName(input.companyName);
 		const deptName = slugName(input.departmentName);
 		const empName = slugName(input.employeeName);
 		const botName = slugName(input.botName);
-		const root = companyRootPath(companyName, DEFAULT_COMPANY_ROOT);
-		const deptP = departmentPath(root, deptName);
-		const empP = employeePath(deptP, empName);
-		const bP = botPath(empP, botName);
+		const root = input.companyRoot.trim();
+		if (!root) return {
+			ok: false,
+			error: "Company root path is required."
+		};
+		const cfg = await fsSetCompanyRoot({ data: { absolutePath: root } });
 		const now = nowIso();
 		const company = {
 			id: uid("co"),
 			name: companyName,
-			root,
+			root: cfg.companyRoot,
 			defaultDepartmentId: "",
 			catalogPin: CATALOG_PIN,
 			createdAt: now
@@ -919,7 +529,7 @@ var useLocalBot = create()(persist((set, get) => ({
 			id: uid("dept"),
 			companyId: company.id,
 			name: deptName,
-			path: deptP,
+			path: departmentPath(company.root, deptName),
 			createdAt: now
 		};
 		company.defaultDepartmentId = department.id;
@@ -927,10 +537,11 @@ var useLocalBot = create()(persist((set, get) => ({
 			id: uid("emp"),
 			departmentId: department.id,
 			displayName: empName,
-			path: empP,
+			path: employeePath(department.path, empName),
 			defaultModelId: input.modelId,
 			createdAt: now
 		};
+		const bP = botPath(employee.path, botName);
 		const bot = {
 			id: uid("bot"),
 			employeeId: employee.id,
@@ -954,42 +565,42 @@ var useLocalBot = create()(persist((set, get) => ({
 			unread: 0,
 			createdAt: now
 		};
-		let files = {};
-		files = seedHome(files, DEFAULT_HOME);
-		files = seedCompanyTree({
-			vfs: files,
+		const seeded = await fsSeedCompanyTree({ data: {
+			companyRoot: company.root,
 			company,
 			department,
 			employee,
 			bots: [bot]
-		});
+		} });
+		if (!seeded.ok) return seeded;
 		set({
 			onboarded: true,
-			localbotHome: DEFAULT_HOME,
 			company,
 			departments: [department],
 			employees: [employee],
 			bots: [bot],
-			files,
+			selectedCatalogId: input.modelId,
 			sessions: { [bot.id]: sessionOf(bot.id) },
 			activeEmployeeId: employee.id,
+			previewWritesToProjectData: cfg.previewWritesToProjectData,
 			settings: {
 				...get().settings,
 				companyRootIsShared: input.sharedRoot
 			},
 			runtime: {
 				...get().runtime,
-				ready: get().models.length > 0,
 				lastHeartbeat: now
 			},
 			ui: {
 				...DEFAULT_UI,
 				selectedBotId: bot.id,
 				showComputer: true
-			}
+			},
+			diskEpoch: get().diskEpoch + 1
 		});
+		return { ok: true };
 	},
-	createBot: (input) => {
+	createBot: async (input) => {
 		const s = get();
 		const employee = s.employees.find((e) => e.id === s.activeEmployeeId) ?? s.employees[0];
 		const department = s.departments.find((d) => d.id === employee?.departmentId);
@@ -1020,9 +631,14 @@ var useLocalBot = create()(persist((set, get) => ({
 			unread: 0,
 			createdAt: now
 		};
+		await fsSeedBot({ data: {
+			companyRoot: s.company.root,
+			bot,
+			department,
+			employee
+		} });
 		set({
 			bots: [...s.bots, bot],
-			files: seedBotFolder(s.files, bot, department, employee),
 			sessions: {
 				...s.sessions,
 				[bot.id]: sessionOf(bot.id)
@@ -1031,7 +647,8 @@ var useLocalBot = create()(persist((set, get) => ({
 				...s.ui,
 				selectedBotId: bot.id,
 				newAgentOpen: false
-			}
+			},
+			diskEpoch: s.diskEpoch + 1
 		});
 		return bot;
 	},
@@ -1049,7 +666,7 @@ var useLocalBot = create()(persist((set, get) => ({
 			id: b.id
 		} : b) }));
 	},
-	duplicateBot: (id) => {
+	duplicateBot: async (id) => {
 		const src = get().bots.find((b) => b.id === id);
 		if (!src) return null;
 		return get().createBot({
@@ -1068,53 +685,64 @@ var useLocalBot = create()(persist((set, get) => ({
 		...b,
 		pinned
 	} : b) })),
-	deleteBot: (id) => {
+	deleteBot: async (id) => {
 		const s = get();
 		const bot = s.bots.find((b) => b.id === id);
-		const files = bot ? removeNode(s.files, bot.path) : s.files;
+		if (bot && s.company) await fsDelete({ data: {
+			path: bot.path,
+			companyRoot: s.company.root
+		} });
 		const sessions = { ...s.sessions };
 		delete sessions[id];
 		const remaining = s.bots.filter((b) => b.id !== id);
 		set({
 			bots: remaining,
-			files,
 			sessions,
+			diskEpoch: s.diskEpoch + 1,
 			ui: {
 				...s.ui,
 				selectedBotId: s.ui.selectedBotId === id ? remaining[0]?.id ?? null : s.ui.selectedBotId
 			}
 		});
 	},
-	setBotGrants: (id, grants) => {
-		set((s) => {
-			const bot = s.bots.find((b) => b.id === id);
-			if (!bot) return s;
-			const files = writeFile(s.files, posixJoin(bot.path, "bot.json"), JSON.stringify({
+	setBotGrants: async (id, grants) => {
+		const s = get();
+		const bot = s.bots.find((b) => b.id === id);
+		if (!bot || !s.company) return;
+		await fsWrite({ data: {
+			companyRoot: s.company.root,
+			path: posixJoin(bot.path, "bot.json"),
+			content: JSON.stringify({
 				name: bot.name,
 				job: bot.job,
 				modelId: bot.modelId,
 				color: bot.color,
 				grants,
 				createdAt: bot.createdAt
-			}, null, 2) + "\n");
-			return {
-				bots: s.bots.map((b) => b.id === id ? {
-					...b,
-					grants
-				} : b),
-				files
-			};
+			}, null, 2) + "\n"
+		} });
+		set({
+			bots: s.bots.map((b) => b.id === id ? {
+				...b,
+				grants
+			} : b),
+			diskEpoch: s.diskEpoch + 1
 		});
 	},
-	moveBotToEmployee: (botId, employeeId) => {
+	moveBotToEmployee: async (botId, employeeId) => {
 		const s = get();
 		const bot = s.bots.find((b) => b.id === botId);
 		const employee = s.employees.find((e) => e.id === employeeId);
 		const department = s.departments.find((d) => d.id === employee?.departmentId);
-		if (!bot || !employee || !department) return;
+		if (!bot || !employee || !department || !s.company) return;
 		const dest = botPath(employee.path, bot.name);
+		await fsMove({ data: {
+			from: bot.path,
+			to: dest,
+			companyRoot: s.company.root
+		} });
 		set({
-			files: moveTree(s.files, bot.path, dest),
+			diskEpoch: s.diskEpoch + 1,
 			bots: s.bots.map((b) => b.id === botId ? {
 				...b,
 				employeeId,
@@ -1142,7 +770,7 @@ var useLocalBot = create()(persist((set, get) => ({
 		...b,
 		unread: b.unread + 1
 	} : b) })),
-	createDepartment: (name) => {
+	createDepartment: async (name) => {
 		const s = get();
 		if (!s.company) throw new Error("No company");
 		const deptName = slugName(name);
@@ -1153,29 +781,17 @@ var useLocalBot = create()(persist((set, get) => ({
 			path: departmentPath(s.company.root, deptName),
 			createdAt: nowIso()
 		};
-		let files = s.files;
-		files = seedCompanyTree({
-			vfs: files,
-			company: s.company,
-			department,
-			employee: {
-				id: "tmp",
-				departmentId: department.id,
-				displayName: "_",
-				path: employeePath(department.path, "_"),
-				defaultModelId: null,
-				createdAt: nowIso()
-			},
-			bots: []
-		});
-		files = removeNode(files, employeePath(department.path, "_"));
+		await fsSeedDepartment({ data: {
+			companyRoot: s.company.root,
+			department
+		} });
 		set({
 			departments: [...s.departments, department],
-			files
+			diskEpoch: s.diskEpoch + 1
 		});
 		return department;
 	},
-	createEmployee: (departmentId, displayName) => {
+	createEmployee: async (departmentId, displayName) => {
 		const s = get();
 		const department = s.departments.find((d) => d.id === departmentId);
 		if (!department || !s.company) throw new Error("Missing department");
@@ -1184,19 +800,17 @@ var useLocalBot = create()(persist((set, get) => ({
 			departmentId,
 			displayName: slugName(displayName),
 			path: employeePath(department.path, slugName(displayName)),
-			defaultModelId: s.models[0]?.catalogId ?? null,
+			defaultModelId: s.selectedCatalogId,
 			createdAt: nowIso()
 		};
-		const files = seedCompanyTree({
-			vfs: s.files,
-			company: s.company,
+		await fsSeedEmployee({ data: {
+			companyRoot: s.company.root,
 			department,
-			employee,
-			bots: []
-		});
+			employee
+		} });
 		set({
 			employees: [...s.employees, employee],
-			files
+			diskEpoch: s.diskEpoch + 1
 		});
 		return employee;
 	},
@@ -1208,6 +822,70 @@ var useLocalBot = create()(persist((set, get) => ({
 		...s.company,
 		name: slugName(name)
 	} } : s),
+	applyCompanyRoot: async (absolutePath) => {
+		try {
+			const cfg = await fsSetCompanyRoot({ data: { absolutePath } });
+			const s = get();
+			if (!s.company) {
+				set({ previewWritesToProjectData: cfg.previewWritesToProjectData });
+				return {
+					ok: true,
+					root: cfg.companyRoot
+				};
+			}
+			const oldRoot = s.company.root;
+			const newRoot = cfg.companyRoot;
+			const remap = (p) => remapUnderRoot(oldRoot, newRoot, p);
+			set({
+				company: {
+					...s.company,
+					root: newRoot
+				},
+				departments: s.departments.map((d) => ({
+					...d,
+					path: remap(d.path)
+				})),
+				employees: s.employees.map((e) => ({
+					...e,
+					path: remap(e.path)
+				})),
+				bots: s.bots.map((b) => ({
+					...b,
+					path: remap(b.path),
+					workspacePath: remap(b.workspacePath),
+					outputPath: remap(b.outputPath),
+					memoryPath: remap(b.memoryPath)
+				})),
+				previewWritesToProjectData: cfg.previewWritesToProjectData,
+				diskEpoch: s.diskEpoch + 1
+			});
+			return {
+				ok: true,
+				root: cfg.companyRoot
+			};
+		} catch (err) {
+			return {
+				ok: false,
+				error: err instanceof Error ? err.message : String(err)
+			};
+		}
+	},
+	seedFoldersHere: async () => {
+		const s = get();
+		if (!s.company || !s.departments[0] || !s.employees[0]) return {
+			ok: false,
+			error: "Finish onboarding first."
+		};
+		const seeded = await fsSeedCompanyTree({ data: {
+			companyRoot: s.company.root,
+			company: s.company,
+			department: s.departments[0],
+			employee: s.employees[0],
+			bots: s.bots.filter((b) => b.employeeId === s.employees[0].id)
+		} });
+		if (seeded.ok) set({ diskEpoch: s.diskEpoch + 1 });
+		return seeded;
+	},
 	appendMessage: (botId, msg) => {
 		const message = {
 			id: msg.id ?? uid("msg"),
@@ -1296,124 +974,119 @@ var useLocalBot = create()(persist((set, get) => ({
 		} };
 	}),
 	hasChatGrant: (botId, key) => Boolean(get().sessions[botId]?.chatGrants[key]),
-	applyVfs: (mut) => set((s) => ({ files: mut(s.files) })),
-	writeBotFile: (botId, path, content) => {
-		const ctx = resolveBot(get(), botId);
+	writeBotFile: async (botId, path, content) => {
+		const ctx = ctxRoots(get(), botId);
 		if (!ctx) return {
 			ok: false,
 			error: "Unknown agent"
 		};
-		const n = normalizePath(path);
+		const n = resolveAgentFilePath(path, ctx.bot, ctx.employee, ctx.department, ctx.company);
 		if (!pathAllowed(n, ctx.bot, ctx.employee, ctx.department, ctx.company)) return {
 			ok: false,
 			error: `Denied: ${n} is outside this agent's grants.`
 		};
-		set((s) => ({ files: writeFile(s.files, n, content) }));
-		return { ok: true };
+		const r = await fsWrite({ data: {
+			path: n,
+			content,
+			companyRoot: ctx.companyRoot,
+			allowedRoots: ctx.allowedRoots
+		} });
+		if (r.ok) get().bumpDisk();
+		return r;
 	},
-	readBotFile: (botId, path) => {
-		const ctx = resolveBot(get(), botId);
+	readBotFile: async (botId, path) => {
+		const ctx = ctxRoots(get(), botId);
 		if (!ctx) return {
 			ok: false,
 			error: "Unknown agent"
 		};
-		const n = normalizePath(path);
+		const n = resolveAgentFilePath(path, ctx.bot, ctx.employee, ctx.department, ctx.company);
 		if (!pathAllowed(n, ctx.bot, ctx.employee, ctx.department, ctx.company)) return {
 			ok: false,
 			error: `Denied: ${n} is outside this agent's grants.`
 		};
-		try {
-			return {
-				ok: true,
-				content: readFile(get().files, n)
-			};
-		} catch (err) {
-			return {
-				ok: false,
-				error: err instanceof Error ? err.message : String(err)
-			};
-		}
+		return fsRead({ data: {
+			path: n,
+			companyRoot: ctx.companyRoot,
+			allowedRoots: ctx.allowedRoots
+		} });
 	},
-	listBotDir: (botId, path) => {
-		const ctx = resolveBot(get(), botId);
+	listBotDir: async (botId, path) => {
+		const ctx = ctxRoots(get(), botId);
 		if (!ctx) return {
 			ok: false,
 			error: "Unknown agent"
 		};
-		const n = normalizePath(path);
+		const n = resolveAgentFilePath(path, ctx.bot, ctx.employee, ctx.department, ctx.company);
 		if (!pathAllowed(n, ctx.bot, ctx.employee, ctx.department, ctx.company)) return {
 			ok: false,
 			error: `Denied: ${n} is outside this agent's grants.`
 		};
-		try {
-			return {
-				ok: true,
-				listing: prettyTree(get().files, n, 80)
-			};
-		} catch (err) {
-			return {
-				ok: false,
-				error: err instanceof Error ? err.message : String(err)
-			};
-		}
+		return fsTree({ data: {
+			path: n,
+			companyRoot: ctx.companyRoot,
+			allowedRoots: ctx.allowedRoots,
+			max: 80
+		} });
 	},
-	replaceBotFile: (botId, path, oldString, newString) => {
-		const ctx = resolveBot(get(), botId);
+	replaceBotFile: async (botId, path, oldString, newString) => {
+		const ctx = ctxRoots(get(), botId);
 		if (!ctx) return {
 			ok: false,
 			error: "Unknown agent"
 		};
-		const n = normalizePath(path);
+		const n = resolveAgentFilePath(path, ctx.bot, ctx.employee, ctx.department, ctx.company);
 		if (!pathAllowed(n, ctx.bot, ctx.employee, ctx.department, ctx.company)) return {
 			ok: false,
 			error: `Denied: ${n} is outside this agent's grants.`
 		};
-		try {
-			set((s) => ({ files: strReplace(s.files, n, oldString, newString) }));
-			return { ok: true };
-		} catch (err) {
-			return {
-				ok: false,
-				error: err instanceof Error ? err.message : String(err)
-			};
-		}
+		const r = await fsReplace({ data: {
+			path: n,
+			oldString,
+			newString,
+			companyRoot: ctx.companyRoot,
+			allowedRoots: ctx.allowedRoots
+		} });
+		if (r.ok) get().bumpDisk();
+		return r;
 	},
-	deleteBotFile: (botId, path) => {
-		const ctx = resolveBot(get(), botId);
+	deleteBotFile: async (botId, path) => {
+		const ctx = ctxRoots(get(), botId);
 		if (!ctx) return {
 			ok: false,
 			error: "Unknown agent"
 		};
-		const n = normalizePath(path);
+		const n = resolveAgentFilePath(path, ctx.bot, ctx.employee, ctx.department, ctx.company);
 		if (!pathAllowed(n, ctx.bot, ctx.employee, ctx.department, ctx.company)) return {
 			ok: false,
 			error: `Denied: ${n} is outside this agent's grants.`
 		};
-		if (!exists(get().files, n)) return {
-			ok: false,
-			error: `No such file: ${n}`
-		};
-		set((s) => ({ files: removeNode(s.files, n) }));
-		return { ok: true };
+		const r = await fsDelete({ data: {
+			path: n,
+			companyRoot: ctx.companyRoot,
+			allowedRoots: ctx.allowedRoots
+		} });
+		if (r.ok) get().bumpDisk();
+		return r;
 	},
-	shellBot: (botId, command) => {
-		const ctx = resolveBot(get(), botId);
+	shellBot: async (botId, command) => {
+		const ctx = ctxRoots(get(), botId);
 		if (!ctx) return {
 			ok: false,
 			error: "Unknown agent"
 		};
-		const result = runVirtualShell(get().files, ctx.bot.workspacePath, command, ctx.company.root);
-		set({ files: result.vfs });
-		return {
-			ok: true,
-			stdout: result.stdout,
-			stderr: result.stderr,
-			code: result.code
-		};
+		const r = await fsRunCommand({ data: {
+			command,
+			cwd: ctx.bot.workspacePath,
+			companyRoot: ctx.companyRoot,
+			allowedRoots: ctx.allowedRoots
+		} });
+		if (r.ok) get().bumpDisk();
+		return r;
 	},
-	handoffTask: (fromBotId, toBotName, task) => {
+	handoffTask: async (fromBotId, toBotName, task) => {
 		const s = get();
-		const from = resolveBot(s, fromBotId);
+		const from = ctxRoots(s, fromBotId);
 		if (!from) return {
 			ok: false,
 			error: "Unknown agent"
@@ -1431,8 +1104,13 @@ var useLocalBot = create()(persist((set, get) => ({
 		const shared = grantPathFor(from.bot, from.employee, from.department, from.company, "shared");
 		const filename = `task-${Date.now()}-${from.bot.name}-to-${to.name}.md`;
 		const path = posixJoin(shared, filename);
-		const body = `# Handoff from ${from.bot.name} to ${to.name}\n\n${task}\n`;
-		const files = writeFile(s.files, path, body);
+		const wrote = await fsWrite({ data: {
+			path,
+			content: `# Handoff from ${from.bot.name} to ${to.name}\n\n${task}\n`,
+			companyRoot: from.companyRoot,
+			allowedRoots: from.allowedRoots
+		} });
+		if (!wrote.ok) return wrote;
 		const toSess = s.sessions[to.id] ?? sessionOf(to.id);
 		const notice = {
 			id: uid("msg"),
@@ -1442,7 +1120,7 @@ var useLocalBot = create()(persist((set, get) => ({
 			createdAt: nowIso()
 		};
 		set({
-			files,
+			diskEpoch: s.diskEpoch + 1,
 			sessions: {
 				...s.sessions,
 				[to.id]: {
@@ -1465,11 +1143,6 @@ var useLocalBot = create()(persist((set, get) => ({
 		...s.settings,
 		...patch
 	} })),
-	setRuntimeReady: (ready) => set((s) => ({ runtime: {
-		...s.runtime,
-		ready,
-		lastHeartbeat: nowIso()
-	} })),
 	selectBot: (id) => {
 		set((s) => ({ ui: {
 			...s.ui,
@@ -1479,28 +1152,29 @@ var useLocalBot = create()(persist((set, get) => ({
 		if (id) get().markRead(id);
 	}
 }), {
-	name: "localbot-state-v1",
+	name: "localbot-state-v2",
 	storage: createJSONStorage(() => memoryStorage),
 	partialize: (s) => ({
 		version: s.version,
 		onboarded: s.onboarded,
-		localbotHome: s.localbotHome,
 		company: s.company,
 		departments: s.departments,
 		employees: s.employees,
 		bots: s.bots,
-		models: s.models,
-		files: s.files,
+		selectedCatalogId: s.selectedCatalogId,
 		sessions: Object.fromEntries(Object.entries(s.sessions).map(([id, sess]) => [id, {
 			...sess,
 			running: false,
 			stopRequested: false
 		}])),
 		hardware: s.hardware,
-		download: s.download,
 		settings: s.settings,
-		runtime: s.runtime,
-		activeEmployeeId: s.activeEmployeeId
+		runtime: {
+			...s.runtime,
+			aiAvailable: false
+		},
+		activeEmployeeId: s.activeEmployeeId,
+		previewWritesToProjectData: s.previewWritesToProjectData
 	})
 }));
 function resolveBot(s, botId) {
@@ -1794,29 +1468,26 @@ var TEMPLATES = [
 var WELCOME = [
 	{
 		id: "hello",
-		title: "Your agents, on this computer.",
-		body: "LocalBot is a personal workspace. You pick a local model, create named agents, and talk to them like contacts. Each one has its own memory and its own folder."
+		title: "Your agents, in this browser.",
+		body: "LocalBot is a web app. You create named agents and talk to them like contacts. Each one has its own workspace folder on the machine running this server."
 	},
 	{
 		id: "stay",
-		title: "Work stays here.",
-		body: "There is no cloud account and no key on the default path. The model is a file on disk. Sessions, logs, and memory live in your LocalBot home."
+		title: "Chat is hosted grok-4.5.",
+		body: "This build does not run a local GGUF. Agents think with hosted grok-4.5 when the server has an API key. There is no model file written to disk."
 	},
 	{
 		id: "grants",
-		title: "Agents only touch folders you grant.",
-		body: "The default computer is the agent’s workspace — not your whole home directory. Shell, deletes, network, and anything outside the company root always ask first."
+		title: "Work files go on disk.",
+		body: "The company root is a real directory. Agents only write inside folders you grant. Two people share work only if they point at the same real folder on this machine (or a NAS mounted here)."
 	}
 ];
 function Onboarding() {
 	const [step, setStep] = (0, import_react.useState)("hello");
 	const hardware = useLocalBot((s) => s.hardware);
 	const setHardware = useLocalBot((s) => s.setHardware);
-	const setDownload = useLocalBot((s) => s.setDownload);
-	const download = useLocalBot((s) => s.download);
-	const completeDownload = useLocalBot((s) => s.completeDownload);
+	const noteCatalog = useLocalBot((s) => s.noteCatalog);
 	const completeOnboarding = useLocalBot((s) => s.completeOnboarding);
-	const models = useLocalBot((s) => s.models);
 	const [scanning, setScanning] = (0, import_react.useState)(false);
 	const [picked, setPicked] = (0, import_react.useState)(null);
 	const [company, setCompany] = (0, import_react.useState)("Studio");
@@ -1826,7 +1497,25 @@ function Onboarding() {
 	const [botName, setBotName] = (0, import_react.useState)("Writer");
 	const [botJob, setBotJob] = (0, import_react.useState)(TEMPLATES[0].job);
 	const [color, setColor] = (0, import_react.useState)("sage");
+	const [companyRoot, setCompanyRoot] = (0, import_react.useState)("");
+	const [rootTouched, setRootTouched] = (0, import_react.useState)(false);
+	const [previewData, setPreviewData] = (0, import_react.useState)(true);
+	const [busy, setBusy] = (0, import_react.useState)(false);
+	const [error, setError] = (0, import_react.useState)(null);
 	const cards = (0, import_react.useMemo)(() => hardware ? onboardingCards(hardware) : null, [hardware]);
+	(0, import_react.useEffect)(() => {
+		fsGetCompanyRoot().then((cfg) => {
+			setPreviewData(cfg.previewWritesToProjectData);
+			if (!rootTouched) setCompanyRoot(cfg.defaultRoot);
+		});
+	}, [rootTouched]);
+	(0, import_react.useEffect)(() => {
+		if (rootTouched) return;
+		fsGetCompanyRoot().then((cfg) => {
+			const base = cfg.defaultRoot.replace(/[/\\][^/\\]+$/, "");
+			setCompanyRoot(`${base}/${company.trim() || "Studio"}`);
+		});
+	}, [company, rootTouched]);
 	(0, import_react.useEffect)(() => {
 		if (step !== "scan") return;
 		setScanning(true);
@@ -1836,15 +1525,10 @@ function Onboarding() {
 		}, 1100);
 		return () => window.clearTimeout(t);
 	}, [step, setHardware]);
-	const goDownload = (id) => {
+	const pickModel = (id) => {
 		setPicked(id);
-		setDownload({
-			catalogId: id,
-			status: "running",
-			progress: 0,
-			startedAt: (/* @__PURE__ */ new Date()).toISOString()
-		});
-		setStep("download");
+		noteCatalog(id);
+		setStep("agent");
 	};
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 		className: "flex min-h-dvh flex-col bg-bg text-fg",
@@ -1875,17 +1559,8 @@ function Onboarding() {
 				}),
 				step === "models" && cards && hardware && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ModelStep, {
 					cards,
-					onPick: goDownload,
+					onPick: pickModel,
 					onBack: () => setStep("scan")
-				}),
-				step === "download" && picked && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(DownloadStep, {
-					catalogId: picked,
-					job: download,
-					setJob: setDownload,
-					onDone: async () => {
-						if (!models.some((m) => m.catalogId === picked)) await completeDownload(picked);
-						setStep("agent");
-					}
 				}),
 				step === "agent" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AgentStep, {
 					company,
@@ -1902,24 +1577,36 @@ function Onboarding() {
 					setBotJob,
 					color,
 					setColor,
+					companyRoot,
+					setCompanyRoot: (v) => {
+						setRootTouched(true);
+						setCompanyRoot(v);
+					},
+					previewData,
+					busy,
+					error,
 					onTemplate: (t) => {
 						setBotName(t.name);
 						setBotJob(t.job);
 						setColor(t.color);
 					},
 					onBack: () => setStep("models"),
-					onFinish: () => {
-						const modelId = picked ?? useLocalBot.getState().models[0]?.catalogId ?? "gemma4-e2b-q4";
-						completeOnboarding({
+					onFinish: async () => {
+						setBusy(true);
+						setError(null);
+						const result = await completeOnboarding({
 							companyName: company,
 							departmentName: department,
 							employeeName: employee,
 							botName,
 							botJob,
 							color,
-							modelId,
-							sharedRoot: shared
+							modelId: picked ?? "gemma4-e2b-q4",
+							sharedRoot: shared,
+							companyRoot
 						});
+						setBusy(false);
+						if (!result.ok) setError(result.error);
 					}
 				})
 			]
@@ -1985,7 +1672,7 @@ function ScanStep({ scanning, onContinue, onBack }) {
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 				className: "mt-2 max-w-xl text-sm leading-relaxed text-muted",
-				children: "LocalBot sizes the model catalog from RAM, GPU, and disk — never by asking you to guess."
+				children: "Browser estimate of RAM and GPU. It does not change chat in this build — chat still uses hosted grok-4.5. Kept for when local models are wired."
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 				className: "mt-8 overflow-hidden rounded-xl bg-surface p-1 shadow-[0_0_0_1px_var(--color-border)]",
@@ -1997,7 +1684,7 @@ function ScanStep({ scanning, onContinue, onBack }) {
 						["RAM", scanning ? "…" : hardware ? `${hardware.totalRamGb} GB total · ${hardware.availableRamGb.toFixed(1)} GB free` : "—"],
 						["GPU", scanning ? "…" : hardware?.gpuName ?? (hardware?.appleSilicon ? "Apple Silicon (unified)" : "None detected")],
 						["Apple Silicon", scanning ? "…" : hardware?.appleSilicon ? "Yes" : "No"],
-						["Free disk", scanning ? "…" : hardware ? `${hardware.freeDiskGb} GB` : "—"]
+						["Free disk", scanning ? "…" : hardware ? `${hardware.freeDiskGb} GB (estimate)` : "—"]
 					].map(([k, v]) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						className: "px-4 py-3",
 						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", {
@@ -2010,10 +1697,6 @@ function ScanStep({ scanning, onContinue, onBack }) {
 					}, k))
 				})
 			}),
-			hardware?.ramSource === "assumed-desktop" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-				className: "mt-3 text-xs leading-relaxed text-muted",
-				children: "Browsers cap reported RAM at 8 GB. This looks like a desktop, so LocalBot treats it as a 16 GB class machine for recommendations."
-			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				className: "mt-8 flex gap-3",
 				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Button, {
@@ -2023,7 +1706,7 @@ function ScanStep({ scanning, onContinue, onBack }) {
 				}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Button, {
 					onClick: onContinue,
 					disabled: scanning || !hardware,
-					children: ["See models", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ArrowRight, { className: "size-4" })]
+					children: ["See catalog", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ArrowRight, { className: "size-4" })]
 				})]
 			})
 		]
@@ -2056,32 +1739,29 @@ function ModelStep({ cards, onPick, onBack }) {
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", {
 				className: "text-3xl font-medium tracking-tight",
-				children: "Pick a model"
+				children: "Choose a catalog size (placeholder)"
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 				className: "mt-2 max-w-xl text-sm text-muted",
-				children: "Ungated GGUF files only. Grey cards will not load on this machine."
+				children: "These cards are planned local models. This build does not download a GGUF or run inference locally. Chat uses hosted grok-4.5. Catalog noted."
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 				className: "mt-6 grid gap-3 md:grid-cols-3",
 				children: items.map(({ key, title, model }) => {
 					if (!model) return null;
-					const fit = cards.fits[model.id];
-					const disabled = !fit?.fits;
 					return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 						type: "button",
-						disabled,
 						onClick: () => onPick(model.id),
-						className: "flex flex-col rounded-xl bg-surface p-4 text-left shadow-[0_0_0_1px_var(--color-border)] transition-[transform,background-color] duration-150 hover:bg-raised disabled:cursor-not-allowed disabled:opacity-40",
+						className: "flex flex-col rounded-xl bg-surface p-4 text-left shadow-[0_0_0_1px_var(--color-border)] transition-[transform,background-color] duration-150 hover:bg-raised",
 						children: [
 							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 								className: "flex items-center justify-between",
 								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 									className: "font-mono text-[10px] tracking-wider text-subtle uppercase",
 									children: title
-								}), key === "recommended" && fit?.fits && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+								}), key === "recommended" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 									className: "rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-medium text-accent",
-									children: "Best fit"
+									children: "Placeholder"
 								})]
 							}),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", {
@@ -2098,7 +1778,7 @@ function ModelStep({ cards, onPick, onBack }) {
 							}),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 								className: "mt-3 text-xs leading-relaxed text-muted",
-								children: fit?.reason
+								children: "Not wired in this build. Stored as a catalog id only."
 							})
 						]
 					}, key);
@@ -2111,105 +1791,6 @@ function ModelStep({ cards, onPick, onBack }) {
 					onClick: onBack,
 					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ArrowLeft, { className: "size-4" }), "Back"]
 				})
-			})
-		]
-	});
-}
-function DownloadStep({ catalogId, job, setJob, onDone }) {
-	const paused = job?.status === "paused";
-	(0, import_react.useEffect)(() => {
-		let p = useLocalBot.getState().download?.progress ?? 0;
-		let finished = false;
-		const tick = window.setInterval(() => {
-			if (finished) return;
-			const cur = useLocalBot.getState().download;
-			if (!cur || cur.catalogId !== catalogId) return;
-			if (cur.status === "paused") return;
-			if (cur.status === "done" || cur.status === "verifying") return;
-			p = Math.min(1, p + .04 + Math.random() * .025);
-			if (p >= 1) {
-				finished = true;
-				window.clearInterval(tick);
-				setJob({
-					...cur,
-					status: "verifying",
-					progress: 1
-				});
-				window.setTimeout(() => {
-					onDone();
-				}, 400);
-				return;
-			}
-			setJob({
-				...cur,
-				status: "running",
-				progress: p
-			});
-		}, 80);
-		return () => window.clearInterval(tick);
-	}, [catalogId]);
-	const pct = Math.round((job?.progress ?? 0) * 100);
-	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
-		className: "stagger-in flex flex-1 flex-col justify-center py-8",
-		children: [
-			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-				className: "mb-3 font-mono text-[11px] tracking-[0.18em] text-subtle uppercase",
-				children: "Models"
-			}),
-			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", {
-				className: "text-3xl font-medium tracking-tight",
-				children: "Downloading GGUF"
-			}),
-			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-				className: "mt-2 text-sm text-muted",
-				children: "Saved under LocalBot home / models. Checksum verified before the file is marked ready."
-			}),
-			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-				className: "mt-8 rounded-xl bg-surface p-5 shadow-[0_0_0_1px_var(--color-border)]",
-				children: [
-					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-						className: "flex items-center justify-between text-sm",
-						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-							className: "font-mono text-xs text-muted",
-							children: catalogId
-						}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-							className: "tabular-nums text-fg",
-							children: [pct, "%"]
-						})]
-					}),
-					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-						className: "mt-3 h-2 overflow-hidden rounded-full bg-raised",
-						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-							className: "h-full rounded-full bg-accent transition-[width] duration-150",
-							style: { width: `${pct}%` }
-						})
-					}),
-					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-						className: "mt-3 text-xs text-muted",
-						children: job?.status === "verifying" ? "Verifying checksum…" : paused ? "Paused" : "Writing into ~/.localbot/models"
-					}),
-					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-						className: "mt-4",
-						children: paused ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Button, {
-							variant: "secondary",
-							size: "sm",
-							onClick: () => job && setJob({
-								...job,
-								status: "running"
-							}),
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Play, { className: "size-3.5" }), "Resume"]
-						}) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Button, {
-							variant: "secondary",
-							size: "sm",
-							disabled: job?.status === "verifying",
-							onClick: () => job && setJob({
-								...job,
-								status: "paused"
-							}),
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Pause, { className: "size-3.5" }), "Pause"]
-						})
-					})
-				]
 			})
 		]
 	});
@@ -2228,7 +1809,7 @@ function AgentStep(props) {
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 				className: "mt-2 max-w-xl text-sm text-muted",
-				children: "This writes the company tree on disk. The agent’s computer is its workspace folder."
+				children: "This writes the company tree on disk at the path below. The agent’s computer is its workspace folder."
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				className: "mt-6 grid gap-4 md:grid-cols-2",
@@ -2264,16 +1845,24 @@ function AgentStep(props) {
 							className: "size-4 accent-accent",
 							checked: props.shared,
 							onChange: (e) => props.setShared(e.target.checked)
-						}), "Company root is a shared drive"]
+						}), "This path is a shared drive"]
 					})
 				]
 			}),
-			props.shared ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+				className: "mt-4 block text-xs font-medium text-muted",
+				children: ["Company root (absolute path)", /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Input, {
+					className: "mt-1.5 font-mono text-xs",
+					value: props.companyRoot,
+					onChange: (e) => props.setCompanyRoot(e.target.value)
+				})]
+			}),
+			props.previewData ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 				className: "mt-2 text-xs text-muted",
-				children: "Point both installs at the same folder. LocalBot does not sync on its own — the folder is the bus."
+				children: "This preview writes to the project data folder. Two laptops share work only if they point at the same real folder on the machine running npm run dev."
 			}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 				className: "mt-2 text-xs text-muted",
-				children: "Shared departments require a shared folder path."
+				children: "Shared departments require a shared folder path. This process sees the disk of the machine running the server."
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				className: "mt-6",
@@ -2323,67 +1912,45 @@ function AgentStep(props) {
 				})]
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-				className: "mt-5 font-mono text-[11px] leading-relaxed text-subtle",
-				children: `/Documents/LocalBot/${props.company || "Studio"}/departments/${props.department || "Operations"}/people/${props.employee || "You"}/bots/${props.botName || "Writer"}/`
+				className: "mt-5 font-mono text-[11px] leading-relaxed text-subtle break-all",
+				children: `${props.companyRoot || "(set a path)"}/departments/${props.department || "Operations"}/people/${props.employee || "You"}/bots/${props.botName || "Writer"}/`
+			}),
+			props.error && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+				className: "mt-2 text-sm text-danger",
+				children: props.error
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				className: "mt-8 flex gap-3",
 				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Button, {
 					variant: "ghost",
 					onClick: props.onBack,
+					disabled: props.busy,
 					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ArrowLeft, { className: "size-4" }), "Back"]
 				}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Button, {
-					onClick: props.onFinish,
-					disabled: !props.botName.trim(),
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Check, { className: "size-4" }), "Open chat"]
+					onClick: () => void props.onFinish(),
+					disabled: !props.botName.trim() || !props.companyRoot.trim() || props.busy,
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Check, { className: "size-4" }), props.busy ? "Creating folders…" : "Open chat"]
 				})]
 			})
 		]
 	});
 }
-var createSsrRpc = (functionId) => {
-	const url = "/_serverFn/" + functionId;
-	const serverFnMeta = { id: functionId };
-	const fn = async (...args) => {
-		return (await getServerFnById(functionId, { origin: "server" }))(...args);
-	};
-	return Object.assign(fn, {
-		url,
-		serverFnMeta,
-		[TSS_SERVER_FUNCTION]: true
-	});
-};
-var runHarnessTurn = createServerFn({ method: "POST" }).validator((input) => input).handler(createSsrRpc("6532b4f18cc5bcc2361d69f45f2f84e2d4d87ad9ed8a519945f97f3260b8e7bc"));
-function buildSystemPrompt(s, bot) {
+function buildSystemPrompt(s, bot, extras) {
 	const ctx = resolveBot(s, bot.id);
 	if (!ctx) return "You are a LocalBot agent.";
 	const modelName = getCatalogModel(bot.modelId)?.name ?? bot.modelId;
-	let memory = "";
-	try {
-		memory = readFile(s.files, `${bot.memoryPath}/notes.md`);
-	} catch {
-		memory = "";
-	}
-	let standing = "";
-	try {
-		standing = readFile(s.files, `${bot.path}/AGENTS.md`);
-	} catch {
-		standing = bot.standingInstructions;
-	}
 	const shared = bot.grants.includes("shared") ? grantPathFor(bot, ctx.employee, ctx.department, ctx.company, "shared") : null;
 	const outbox = bot.grants.includes("outbox") ? grantPathFor(bot, ctx.employee, ctx.department, ctx.company, "outbox") : null;
-	const tree = prettyTree(s.files, bot.path, 60);
-	const sharedTree = shared ? prettyTree(s.files, shared, 40) : "(not granted)";
-	return `You are ${bot.name}, a LocalBot agent running on the employee's computer.
+	return `You are ${bot.name}, a LocalBot agent in a browser app.
 Job: ${bot.job}
-Local model (identity): ${modelName}
+Chat model: hosted grok-4.5 (catalog identity: ${modelName})
 Employee: ${ctx.employee.displayName}
 Department: ${ctx.department.name}
 Company: ${ctx.company.name}
 
 You do real work by calling tools. Prefer write_file / str_replace / list_dir over talking about work. When the user asks you to create something, actually write it into output/ or workspace/. Put finished deliverables in output/ AND copy a final version into the employee outbox when it is granted.
 
-Paths you may use:
+Paths you may use (absolute paths on the machine running this server):
 - workspace: ${bot.workspacePath}
 - output: ${bot.outputPath}
 - memory: ${bot.memoryPath}
@@ -2391,19 +1958,20 @@ ${shared ? `- department shared: ${shared}` : "- department shared: not granted"
 ${outbox ? `- outbox: ${outbox}` : ""}
 
 Current workspace tree:
-${tree}
+${extras.tree}
 
 Shared folder:
-${sharedTree}
+${extras.sharedTree}
 
 Standing instructions:
-${standing}
+${extras.standing}
 
 Memory:
-${memory}
+${extras.memory}
 
 Rules:
 - Never claim you cannot write files. You can. Use tools.
+- Bare filenames like hello.md go in your workspace. Use the absolute workspace/output paths above.
 - Never ask the user to paste file contents you can read yourself.
 - Keep replies concise. After tools, summarize what you wrote and where.
 - If another agent is mentioned with @Name, the UI will write a handoff file. You may also write a task note into the shared folder.
@@ -2414,9 +1982,12 @@ function rosterBlurb(s) {
 	return s.bots.filter((b) => !b.hidden).map((b) => `@${b.name} — ${b.job}`).join("\n");
 }
 /**
-* Isolation layer: the UI talks to this adapter, never to model plugins.
-* Desktop builds point the model plugin at http://127.0.0.1:18789/v1.
-* This web workspace uses the same event shape.
+* Isolation layer: the UI talks to this adapter, never to the model HTTP client.
+* This pass: hosted grok-4.5 via src/lib/runtime/turn.ts.
+* File tools write to the company root on the server disk.
+*
+* AbortSignal cannot be forwarded through createServerFn; Stop cancels the
+* client loop between rounds only.
 */
 function parseArgs(raw) {
 	try {
@@ -2425,42 +1996,42 @@ function parseArgs(raw) {
 		return {};
 	}
 }
-function executeTool(botId, call) {
+async function executeTool(botId, call) {
 	const s = useLocalBot.getState();
 	switch (call.name) {
 		case "read_file": {
 			const path = String(call.args.path ?? "");
-			const r = s.readBotFile(botId, path);
+			const r = await s.readBotFile(botId, path);
 			return r.ok ? r.content : r.error;
 		}
 		case "write_file": {
 			const path = String(call.args.path ?? "");
 			const content = String(call.args.content ?? "");
-			const r = s.writeBotFile(botId, path, content);
+			const r = await s.writeBotFile(botId, path, content);
 			return r.ok ? `Wrote ${path} (${content.length} chars)` : r.error;
 		}
 		case "str_replace": {
 			const path = String(call.args.path ?? "");
-			const r = s.replaceBotFile(botId, path, String(call.args.old_string ?? ""), String(call.args.new_string ?? ""));
+			const r = await s.replaceBotFile(botId, path, String(call.args.old_string ?? ""), String(call.args.new_string ?? ""));
 			return r.ok ? `Edited ${path}` : r.error;
 		}
 		case "list_dir": {
 			const path = String(call.args.path ?? "");
-			const r = s.listBotDir(botId, path);
+			const r = await s.listBotDir(botId, path);
 			return r.ok ? r.listing : r.error;
 		}
 		case "delete_file": {
 			const path = String(call.args.path ?? "");
-			const r = s.deleteBotFile(botId, path);
+			const r = await s.deleteBotFile(botId, path);
 			return r.ok ? `Deleted ${path}` : r.error;
 		}
 		case "run_command": {
 			const command = String(call.args.command ?? "");
-			const r = s.shellBot(botId, command);
+			const r = await s.shellBot(botId, command);
 			if (!r.ok) return r.error;
 			return [r.stdout, r.stderr].filter(Boolean).join("\n") || `(exit ${r.code})`;
 		}
-		case "web_search": return "Network is gated. Enable web search in Settings to use this tool on the desktop runtime.";
+		case "web_search": return "Network is gated. Enable web search in Settings to use this tool.";
 		default: return `Unknown tool: ${call.name}`;
 	}
 }
@@ -2475,9 +2046,39 @@ async function runAgentLoop(opts) {
 		role: m.role,
 		content: m.content
 	}));
+	const snap = useLocalBot.getState();
+	const shared = ctx.bot.grants.includes("shared") ? grantPathFor(ctx.bot, ctx.employee, ctx.department, ctx.company, "shared") : null;
+	const [memoryRes, standingRes, treeRes, sharedRes] = await Promise.all([
+		fsRead({ data: {
+			path: `${ctx.bot.memoryPath}/notes.md`,
+			companyRoot: ctx.company.root
+		} }),
+		fsRead({ data: {
+			path: `${ctx.bot.path}/AGENTS.md`,
+			companyRoot: ctx.company.root
+		} }),
+		fsTree({ data: {
+			path: ctx.bot.path,
+			companyRoot: ctx.company.root,
+			max: 60
+		} }),
+		shared ? fsTree({ data: {
+			path: shared,
+			companyRoot: ctx.company.root,
+			max: 40
+		} }) : Promise.resolve({
+			ok: true,
+			listing: "(not granted)"
+		})
+	]);
 	const messages = [{
 		role: "system",
-		content: buildSystemPrompt(useLocalBot.getState(), ctx.bot) + `\n\nOther agents:\n${rosterBlurb(useLocalBot.getState())}`
+		content: buildSystemPrompt(snap, ctx.bot, {
+			memory: memoryRes.ok ? memoryRes.content : "",
+			standing: standingRes.ok ? standingRes.content : ctx.bot.standingInstructions,
+			tree: treeRes.ok ? treeRes.listing : "(unavailable)",
+			sharedTree: sharedRes.ok ? sharedRes.listing : "(unavailable)"
+		}) + `\n\nOther agents:\n${rosterBlurb(snap)}`
 	}, ...history];
 	let rounds = 0;
 	while (rounds < 6) {
@@ -2496,7 +2097,6 @@ async function runAgentLoop(opts) {
 				role: "assistant",
 				content: turn.content.trim()
 			});
-			persistTranscript(opts.botId);
 			return { stopped: false };
 		}
 		messages.push({
@@ -2518,7 +2118,6 @@ async function runAgentLoop(opts) {
 		role: "assistant",
 		content: "Stopped after too many tool rounds. Ask me to continue."
 	});
-	persistTranscript(opts.botId);
 	return { stopped: false };
 }
 async function handleOneTool(botId, tc, events) {
@@ -2572,29 +2171,10 @@ async function handleOneTool(botId, tc, events) {
 		events.onChipUpdate(chipId, { status: "denied" });
 		return denyMessage(cls);
 	}
-	const output = executeTool(botId, call);
+	const output = await executeTool(botId, call);
 	const denied = output.startsWith("Denied");
 	events.onChipUpdate(chipId, { status: denied ? "denied" : "ok" });
 	return output;
-}
-function persistTranscript(botId) {
-	const s = useLocalBot.getState();
-	const bot = s.bots.find((b) => b.id === botId);
-	if (!bot) return;
-	const sess = s.sessions[botId];
-	if (!sess) return;
-	const path = `${s.localbotHome}/sessions/${botId}/transcript.json`;
-	const body = JSON.stringify({
-		botId,
-		name: bot.name,
-		updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
-		messages: sess.messages.map((m) => ({
-			role: m.role,
-			content: m.content,
-			createdAt: m.createdAt
-		}))
-	}, null, 2);
-	s.applyVfs((vfs) => writeFile(vfs, path, body));
 }
 function renderInline(text, keyPrefix) {
 	const parts = [];
@@ -2703,6 +2283,7 @@ function ChatPane() {
 	const handoffTask = useLocalBot((s) => s.handoffTask);
 	const writeBotFile = useLocalBot((s) => s.writeBotFile);
 	const showComputer = useLocalBot((s) => s.ui.showComputer);
+	const aiAvailable = useLocalBot((s) => s.runtime.aiAvailable);
 	const snap = useLocalBot.getState();
 	const [chips, setChips] = (0, import_react.useState)([]);
 	const [pending, setPending] = (0, import_react.useState)(null);
@@ -2726,7 +2307,6 @@ function ChatPane() {
 		className: "flex flex-1 items-center justify-center text-sm text-muted",
 		children: "Select an agent"
 	});
-	const model = getCatalogModel(bot.modelId);
 	const running = Boolean(session?.running);
 	const ctx = resolveBot(snap, bot.id);
 	const send = async (text) => {
@@ -2740,7 +2320,7 @@ function ChatPane() {
 		const mentions = [...trimmed.matchAll(/@([A-Za-z0-9_-]+)/g)].map((m) => m[1]);
 		for (const name of mentions) {
 			if (name.toLowerCase() === bot.name.toLowerCase()) continue;
-			const result = handoffTask(bot.id, name, trimmed);
+			const result = await handoffTask(bot.id, name, trimmed);
 			if (result.ok) appendMessage(bot.id, {
 				role: "system",
 				content: `Handed work to ${name} via ${result.path}`,
@@ -2800,7 +2380,7 @@ function ChatPane() {
 	const onAttach = async (file) => {
 		const text = await file.text();
 		const path = `${bot.workspacePath}/${file.name}`;
-		const r = writeBotFile(bot.id, path, text);
+		const r = await writeBotFile(bot.id, path, text);
 		appendMessage(bot.id, {
 			role: "system",
 			content: r.ok ? `Attached ${file.name} into workspace.` : `Could not attach ${file.name}: ${r.error}`
@@ -2828,14 +2408,14 @@ function ChatPane() {
 								className: "shimmer-text font-mono text-[10px] tracking-wider uppercase",
 								children: "Working"
 							})]
-						}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 							className: "truncate text-[11px] text-muted",
-							children: [
-								bot.job,
-								" · ",
-								model?.name ?? bot.modelId
-							]
+							children: bot.job
 						})]
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+						className: `hidden rounded-full px-2 py-0.5 font-mono text-[10px] tracking-wide uppercase md:inline ${aiAvailable ? "bg-accent/15 text-accent" : "bg-danger/15 text-danger"}`,
+						children: aiAvailable ? "Hosted grok-4.5" : "AI unavailable"
 					}),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Button, {
 						variant: running ? "danger" : "ghost",
@@ -3052,7 +2632,6 @@ function MentionHint() {
 }
 function ComputerPane() {
 	const selected = useLocalBot((s) => s.ui.selectedBotId);
-	const files = useLocalBot((s) => s.files);
 	const bots = useLocalBot((s) => s.bots);
 	const bot = bots.find((b) => b.id === selected) ?? null;
 	const previewPath = useLocalBot((s) => s.ui.previewPath);
@@ -3060,6 +2639,7 @@ function ComputerPane() {
 	const employees = useLocalBot((s) => s.employees);
 	const departments = useLocalBot((s) => s.departments);
 	const show = useLocalBot((s) => s.ui.showComputer);
+	const diskEpoch = useLocalBot((s) => s.diskEpoch);
 	const ctx = bot && company ? resolveBot({
 		bots,
 		employees,
@@ -3096,32 +2676,35 @@ function ComputerPane() {
 					/* @__PURE__ */ (0, import_jsx_runtime.jsx)(TreeSection, {
 						title: "workspace",
 						root: bot.workspacePath,
+						companyRoot: company.root,
+						epoch: diskEpoch,
 						icon: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FolderOpen, { className: "size-3.5" })
 					}),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsx)(TreeSection, {
 						title: "output",
 						root: bot.outputPath,
+						companyRoot: company.root,
+						epoch: diskEpoch,
 						icon: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FileText, { className: "size-3.5" })
 					}),
 					shared && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(TreeSection, {
 						title: "shared",
 						root: shared,
+						companyRoot: company.root,
+						epoch: diskEpoch,
 						icon: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Share2, { className: "size-3.5" })
 					}),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsx)(TreeSection, {
 						title: "outbox",
 						root: outbox,
+						companyRoot: company.root,
+						epoch: diskEpoch,
 						icon: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Inbox, { className: "size-3.5" })
 					}),
-					previewPath && files[normalizePath(previewPath)]?.kind === "file" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-						className: "mt-3 rounded-md bg-bg p-2 shadow-[0_0_0_1px_var(--color-border)]",
-						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-							className: "mb-1 truncate font-mono text-[10px] text-subtle",
-							children: posixBasename(previewPath)
-						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", {
-							className: "max-h-48 overflow-auto font-mono text-[11px] leading-relaxed text-muted whitespace-pre-wrap",
-							children: filePreview(files, previewPath, 2500)
-						})]
+					previewPath && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(DiskPreview, {
+						path: previewPath,
+						companyRoot: company.root,
+						epoch: diskEpoch
 					})
 				]
 			}),
@@ -3137,7 +2720,7 @@ function ComputerPane() {
 		]
 	});
 }
-function TreeSection({ title, root, icon }) {
+function TreeSection({ title, root, companyRoot, epoch, icon }) {
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 		className: "mb-3",
 		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
@@ -3145,40 +2728,61 @@ function TreeSection({ title, root, icon }) {
 			children: [icon, title]
 		}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FileTree, {
 			path: root,
+			companyRoot,
+			epoch,
 			depth: 0
 		})]
 	});
 }
-function FileTree({ path, depth }) {
-	const files = useLocalBot((s) => s.files);
+function FileTree({ path, companyRoot, epoch, depth }) {
 	const setUi = useLocalBot((s) => s.setUi);
 	const preview = useLocalBot((s) => s.ui.previewPath);
-	const [open, setOpen] = (0, import_react.useState)(depth < 2);
-	const n = normalizePath(path);
-	const node = files[n];
-	const children = (0, import_react.useMemo)(() => {
-		try {
-			return node?.kind === "dir" ? listDir(files, n) : [];
-		} catch {
-			return [];
-		}
+	const [open, setOpen] = (0, import_react.useState)(depth < 1);
+	const [children, setChildren] = (0, import_react.useState)(null);
+	const [missing, setMissing] = (0, import_react.useState)(false);
+	const [isFile, setIsFile] = (0, import_react.useState)(false);
+	(0, import_react.useEffect)(() => {
+		let cancelled = false;
+		fsList({ data: {
+			path,
+			companyRoot
+		} }).then((r) => {
+			if (cancelled) return;
+			if (r.ok) {
+				setChildren(r.entries);
+				setIsFile(false);
+				setMissing(false);
+				return;
+			}
+			if (/Not a directory/i.test(r.error)) {
+				setIsFile(true);
+				setMissing(false);
+				setChildren([]);
+				return;
+			}
+			setMissing(true);
+			setChildren([]);
+		});
+		return () => {
+			cancelled = true;
+		};
 	}, [
-		files,
-		n,
-		node?.kind
+		path,
+		companyRoot,
+		epoch
 	]);
-	if (!node) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+	if (missing) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 		className: "px-2 py-1 text-[11px] text-subtle",
 		children: "Folder not created yet."
 	});
-	if (node.kind === "file") return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+	if (isFile) return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 		type: "button",
-		onClick: () => setUi({ previewPath: n }),
-		className: `flex w-full items-center gap-1.5 rounded-sm px-2 py-1 text-left text-[12px] ${preview === n ? "bg-raised text-fg" : "text-muted hover:bg-hover hover:text-fg"}`,
+		onClick: () => setUi({ previewPath: path }),
+		className: `flex w-full items-center gap-1.5 rounded-sm px-2 py-1 text-left text-[12px] ${preview === path ? "bg-raised text-fg" : "text-muted hover:bg-hover hover:text-fg"}`,
 		style: { paddingLeft: 8 + depth * 10 },
 		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(FileText, { className: "size-3 shrink-0" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 			className: "truncate",
-			children: posixBasename(n)
+			children: posixBasename(path)
 		})]
 	});
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
@@ -3191,19 +2795,61 @@ function FileTree({ path, depth }) {
 			open ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FolderOpen, { className: "size-3" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Folder, { className: "size-3" }),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 				className: "truncate",
-				children: posixBasename(n)
+				children: posixBasename(path)
 			})
 		]
-	}), open && children.map((c) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FileTree, {
+	}), open && (children ?? []).map((c) => c.kind === "file" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+		type: "button",
+		onClick: () => setUi({ previewPath: c.path }),
+		className: `flex w-full items-center gap-1.5 rounded-sm px-2 py-1 text-left text-[12px] ${preview === c.path ? "bg-raised text-fg" : "text-muted hover:bg-hover hover:text-fg"}`,
+		style: { paddingLeft: 8 + (depth + 1) * 10 },
+		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(FileText, { className: "size-3 shrink-0" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+			className: "truncate",
+			children: c.name
+		})]
+	}, c.path) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(FileTree, {
 		path: c.path,
+		companyRoot,
+		epoch,
 		depth: depth + 1
 	}, c.path))] });
+}
+function DiskPreview({ path, companyRoot, epoch }) {
+	const [text, setText] = (0, import_react.useState)("");
+	(0, import_react.useEffect)(() => {
+		let cancelled = false;
+		fsRead({ data: {
+			path,
+			companyRoot
+		} }).then((r) => {
+			if (cancelled) return;
+			setText(r.ok ? r.content.slice(0, 2500) : "");
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, [
+		path,
+		companyRoot,
+		epoch
+	]);
+	if (!text) return null;
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+		className: "mt-3 rounded-md bg-bg p-2 shadow-[0_0_0_1px_var(--color-border)]",
+		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+			className: "mb-1 truncate font-mono text-[10px] text-subtle",
+			children: posixBasename(path)
+		}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("pre", {
+			className: "max-h-48 overflow-auto font-mono text-[11px] leading-relaxed text-muted whitespace-pre-wrap",
+			children: text
+		})]
+	});
 }
 function NewAgentDialog() {
 	const open = useLocalBot((s) => s.ui.newAgentOpen);
 	const setUi = useLocalBot((s) => s.setUi);
 	const createBot = useLocalBot((s) => s.createBot);
-	const models = useLocalBot((s) => s.models);
+	const selectedCatalogId = useLocalBot((s) => s.selectedCatalogId);
 	const bots = useLocalBot((s) => s.bots);
 	const [name, setName] = (0, import_react.useState)("");
 	const [job, setJob] = (0, import_react.useState)("");
@@ -3215,7 +2861,7 @@ function NewAgentDialog() {
 			name: n,
 			job: job.trim() || "Generalist",
 			color,
-			modelId: models[0]?.catalogId ?? "gemma4-e2b-q4",
+			modelId: selectedCatalogId ?? "gemma4-e2b-q4",
 			extraGrants: ["shared"]
 		});
 		setName("");
@@ -3443,6 +3089,7 @@ function GeneralPane() {
 	const employee = useLocalBot((s) => s.employees[0]);
 	const renameCompany = useLocalBot((s) => s.renameCompany);
 	const resetAll = useLocalBot((s) => s.resetAll);
+	const preview = useLocalBot((s) => s.previewWritesToProjectData);
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 		className: "space-y-5",
 		children: [
@@ -3461,15 +3108,15 @@ function GeneralPane() {
 				})
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Field, {
-				label: "LocalBot home",
+				label: "This build",
 				children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-					className: "font-mono text-xs text-muted",
-					children: "~/.localbot · app config, models, sessions, logs"
+					className: "text-sm leading-relaxed text-muted",
+					children: "Browser app. Chat uses hosted grok-4.5. Work files live on disk at the company root. There is no local GGUF and no desktop installer."
 				})
 			}),
-			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-				className: "text-sm leading-relaxed text-muted",
-				children: "Uninstalling LocalBot does not delete the company root. Your files stay on disk."
+			preview && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+				className: "text-xs leading-relaxed text-muted",
+				children: "This preview writes to the project data folder."
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, {
 				variant: "danger",
@@ -3480,65 +3127,17 @@ function GeneralPane() {
 	});
 }
 function ModelsPane() {
-	const models = useLocalBot((s) => s.models);
-	const hardware = useLocalBot((s) => s.hardware);
-	const setHardware = useLocalBot((s) => s.setHardware);
-	const completeDownload = useLocalBot((s) => s.completeDownload);
-	const importGguf = useLocalBot((s) => s.importGguf);
-	const updateBot = useLocalBot((s) => s.updateBot);
-	const selected = useLocalBot((s) => s.ui.selectedBotId);
-	const fileRef = (0, import_react.useRef)(null);
-	const cards = onboardingCards(hardware ?? scanBrowserHardware());
+	const selectedCatalogId = useLocalBot((s) => s.selectedCatalogId);
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 		className: "space-y-5",
 		children: [
-			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-				className: "flex items-center justify-between",
-				children: [
-					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", {
-						className: "text-sm font-medium",
-						children: "Downloaded"
-					}),
-					/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, {
-						variant: "secondary",
-						size: "sm",
-						onClick: () => fileRef.current?.click(),
-						children: "Import GGUF"
-					}),
-					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-						ref: fileRef,
-						type: "file",
-						accept: ".gguf",
-						className: "hidden",
-						onChange: (e) => {
-							const f = e.target.files?.[0];
-							if (f) importGguf(f.name, f.size);
-							e.target.value = "";
-						}
-					})
-				]
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+				className: "text-sm leading-relaxed text-muted",
+				children: "Planned local models. Not wired in this build. Chat ignores this list and uses hosted grok-4.5. No GGUF is downloaded."
 			}),
-			models.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-				className: "text-sm text-muted",
-				children: "No models yet."
-			}),
-			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("ul", {
-				className: "space-y-2",
-				children: models.map((m) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("li", {
-					className: "flex items-center justify-between rounded-md bg-raised px-3 py-2 shadow-[0_0_0_1px_var(--color-border)]",
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-						className: "text-sm",
-						children: getCatalogModel(m.catalogId)?.name ?? m.filename
-					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-						className: "font-mono text-[11px] text-subtle",
-						children: m.filename
-					})] }), selected && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, {
-						size: "sm",
-						variant: "secondary",
-						onClick: () => updateBot(selected, { modelId: m.catalogId }),
-						children: "Use on agent"
-					})]
-				}, m.id))
+			selectedCatalogId && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+				className: "font-mono text-xs text-muted",
+				children: ["Catalog noted: ", selectedCatalogId]
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", {
 				className: "text-sm font-medium",
@@ -3546,36 +3145,25 @@ function ModelsPane() {
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("ul", {
 				className: "space-y-2",
-				children: CATALOG.map((m) => {
-					const fit = cards.fits[m.id];
-					const have = models.some((d) => d.catalogId === m.id);
-					return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("li", {
-						className: "flex items-center justify-between gap-3 rounded-md px-3 py-2 shadow-[0_0_0_1px_var(--color-border)]",
-						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-							className: "text-sm",
-							children: m.name
-						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-							className: "text-[11px] text-muted",
-							children: fit?.reason
-						})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, {
-							size: "sm",
-							variant: "secondary",
-							disabled: !fit?.fits || have,
-							onClick: () => void completeDownload(m.id),
-							children: have ? "Ready" : fit?.fits ? "Download" : "Won't fit"
-						})]
-					}, m.id);
-				})
-			}),
-			/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, {
-				variant: "ghost",
-				size: "sm",
-				onClick: () => setHardware(scanBrowserHardware()),
-				children: "Re-scan hardware"
-			}),
-			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-				className: "text-xs text-muted",
-				children: "Ollama is not required. If it is already running on a desktop install, Settings can attach to it as an advanced option."
+				children: CATALOG.map((m) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("li", {
+					className: "flex items-center justify-between gap-3 rounded-md px-3 py-2 opacity-70 shadow-[0_0_0_1px_var(--color-border)]",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+						className: "text-sm",
+						children: m.name
+					}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+						className: "text-[11px] text-muted",
+						children: [
+							m.sizeLabel,
+							" · ",
+							m.license,
+							" · ",
+							m.tier
+						]
+					})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+						className: "font-mono text-[10px] text-subtle",
+						children: "Not wired"
+					})]
+				}, m.id))
 			})
 		]
 	});
@@ -3592,16 +3180,73 @@ function CompanyPane() {
 	const createDepartment = useLocalBot((s) => s.createDepartment);
 	const createEmployee = useLocalBot((s) => s.createEmployee);
 	const moveBotToEmployee = useLocalBot((s) => s.moveBotToEmployee);
-	const models = useLocalBot((s) => s.models);
+	const applyCompanyRoot = useLocalBot((s) => s.applyCompanyRoot);
+	const seedFoldersHere = useLocalBot((s) => s.seedFoldersHere);
+	const selectedCatalogId = useLocalBot((s) => s.selectedCatalogId);
+	const preview = useLocalBot((s) => s.previewWritesToProjectData);
+	const [path, setPath] = (0, import_react.useState)(company?.root ?? "");
+	const [msg, setMsg] = (0, import_react.useState)(null);
+	(0, import_react.useEffect)(() => {
+		setPath(company?.root ?? "");
+		fsGetCompanyRoot().then((cfg) => {
+			if (!company?.root) setPath(cfg.companyRoot);
+		});
+	}, [company?.root]);
+	const copyPath = async () => {
+		try {
+			await navigator.clipboard.writeText(path);
+			setMsg("Path copied.");
+		} catch {
+			setMsg(path);
+		}
+	};
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 		className: "space-y-5",
 		children: [
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Field, {
-				label: "Company root",
-				children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-					className: "font-mono text-xs leading-relaxed text-muted",
-					children: company?.root ?? "—"
+				label: "Company root (absolute path)",
+				children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Input, {
+					className: "font-mono text-xs",
+					value: path,
+					onChange: (e) => setPath(e.target.value)
 				})
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "flex flex-wrap gap-2",
+				children: [
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, {
+						variant: "secondary",
+						size: "sm",
+						onClick: async () => {
+							const r = await applyCompanyRoot(path);
+							setMsg(r.ok ? `Using ${r.root}` : r.error);
+						},
+						children: "Use this path"
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, {
+						variant: "secondary",
+						size: "sm",
+						onClick: async () => {
+							const r = await seedFoldersHere();
+							setMsg(r.ok ? "Folders created on disk." : r.error);
+						},
+						children: "Create folders here"
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, {
+						variant: "ghost",
+						size: "sm",
+						onClick: () => void copyPath(),
+						children: "Reveal path"
+					})
+				]
+			}),
+			preview && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+				className: "text-xs text-muted",
+				children: "This preview writes to the project data folder."
+			}),
+			msg && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+				className: "font-mono text-xs text-muted",
+				children: msg
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
 				className: "flex items-center gap-2 text-sm",
@@ -3612,21 +3257,21 @@ function CompanyPane() {
 					onChange: (e) => setCompanyRootShared(e.target.checked)
 				}), "This path is a shared drive"]
 			}),
-			!settings.companyRootIsShared && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 				className: "text-xs text-muted",
-				children: "Shared departments require a shared folder path. Employee Two on another laptop will not see Employee One until both installs point at the same company root."
+				children: "Two people see the same files only if this process and theirs point at the same real folder (NAS / Drive / shared disk) on the machine running the server. This checkbox only changes the copy."
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				className: "flex flex-wrap gap-2",
 				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, {
 					variant: "secondary",
 					size: "sm",
-					onClick: () => createDepartment("Research"),
+					onClick: () => void createDepartment("Research"),
 					children: "Add department"
 				}), departments[0] && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, {
 					variant: "secondary",
 					size: "sm",
-					onClick: () => createEmployee(departments[0].id, "Teammate"),
+					onClick: () => void createEmployee(departments[0].id, "Teammate"),
 					children: "Add employee"
 				})]
 			}),
@@ -3644,7 +3289,7 @@ function CompanyPane() {
 					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("select", {
 						className: "h-8 rounded-sm bg-bg px-2 text-xs text-fg shadow-[0_0_0_1px_var(--color-border)]",
 						value: bot.employeeId,
-						onChange: (e) => moveBotToEmployee(bot.id, e.target.value),
+						onChange: (e) => void moveBotToEmployee(bot.id, e.target.value),
 						children: employees.map((e) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
 							value: e.id,
 							children: e.displayName
@@ -3674,11 +3319,11 @@ function CompanyPane() {
 			}, bot.id)),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Button, {
 				size: "sm",
-				onClick: () => createBot({
+				onClick: () => void createBot({
 					name: `Agent ${bots.length + 1}`,
 					job: "Generalist",
 					color: AGENT_COLOR_LIST[bots.length % AGENT_COLOR_LIST.length].id,
-					modelId: models[0]?.catalogId ?? "gemma4-e2b-q4"
+					modelId: selectedCatalogId ?? "gemma4-e2b-q4"
 				}),
 				children: "New agent"
 			})
@@ -3687,8 +3332,7 @@ function CompanyPane() {
 }
 function RuntimePane() {
 	const runtime = useLocalBot((s) => s.runtime);
-	const bind = describeBind(runtime.bindHost, runtime.bindPort);
-	const models = useLocalBot((s) => s.models);
+	const company = useLocalBot((s) => s.company);
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 		className: "space-y-4",
 		children: [
@@ -3697,36 +3341,20 @@ function RuntimePane() {
 				v: runtime.engine
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Row, {
-				k: "Mode",
-				v: runtime.mode
+				k: "Chat model",
+				v: runtime.model
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Row, {
-				k: "Bind",
-				v: `${bind.host}:${bind.port}`
+				k: "AI status",
+				v: runtime.aiAvailable ? "Hosted grok-4.5" : "AI unavailable"
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Row, {
-				k: "Loopback only",
-				v: bind.loopbackOnly ? "Yes" : "NO — blocked"
-			}),
-			/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Row, {
-				k: "LAN bind",
-				v: bind.lanBind ? "Yes" : "No"
-			}),
-			/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Row, {
-				k: "OpenAI base",
-				v: bind.url
-			}),
-			/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Row, {
-				k: "Status",
-				v: runtime.ready || models.length > 0 ? "Ready" : "Waiting for a model"
-			}),
-			/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Row, {
-				k: "Provider keys",
-				v: "None on the default path"
+				k: "Company root",
+				v: company?.root ?? "—"
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 				className: "text-sm leading-relaxed text-muted",
-				children: "UI talks to the LocalBot runtime. The runtime talks to the harness adapter. The adapter talks to the local OpenAI-compatible endpoint. The UI never calls the model directly."
+				children: "This is a browser app. Agents think with hosted grok-4.5 when the server has an API key. There is no local llama.cpp process and no GGUF download. File tools write to the company root on the machine running this server."
 			})
 		]
 	});
@@ -3736,56 +3364,38 @@ function SafetyPane() {
 	const updateSettings = useLocalBot((s) => s.updateSettings);
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 		className: "space-y-5",
-		children: [
-			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+			className: "flex items-start gap-3",
+			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+				type: "checkbox",
+				className: "mt-1 size-4 accent-accent",
+				checked: settings.webSearchEnabled,
+				onChange: (e) => updateSettings({ webSearchEnabled: e.target.checked })
+			}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+				className: "block text-sm",
+				children: "Web search"
+			}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+				className: "text-xs text-muted",
+				children: "Off by default. Network always asks."
+			})] })]
+		}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+			className: "rounded-md bg-danger/10 p-3 shadow-[0_0_0_1px_color-mix(in_oklab,var(--color-danger)_40%,transparent)]",
+			children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
 				className: "flex items-start gap-3",
 				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
 					type: "checkbox",
-					className: "mt-1 size-4 accent-accent",
-					checked: settings.webSearchEnabled,
-					onChange: (e) => updateSettings({ webSearchEnabled: e.target.checked })
+					className: "mt-1 size-4 accent-danger",
+					checked: settings.controlThisComputer,
+					onChange: (e) => updateSettings({ controlThisComputer: e.target.checked })
 				}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-					className: "block text-sm",
-					children: "Web search"
+					className: "block text-sm text-danger",
+					children: "Control this computer"
 				}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 					className: "text-xs text-muted",
-					children: "Off by default. Network always asks."
+					children: "Off. Turns off permission cards for the workspace shell. Still scoped to the company root."
 				})] })]
-			}),
-			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
-				className: "flex items-start gap-3",
-				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-					type: "checkbox",
-					className: "mt-1 size-4 accent-accent",
-					checked: settings.useExistingOllama,
-					onChange: (e) => updateSettings({ useExistingOllama: e.target.checked })
-				}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-					className: "block text-sm",
-					children: "Use existing Ollama"
-				}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-					className: "text-xs text-muted",
-					children: "Advanced. Not the default, and not required."
-				})] })]
-			}),
-			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-				className: "rounded-md bg-danger/10 p-3 shadow-[0_0_0_1px_color-mix(in_oklab,var(--color-danger)_40%,transparent)]",
-				children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
-					className: "flex items-start gap-3",
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-						type: "checkbox",
-						className: "mt-1 size-4 accent-danger",
-						checked: settings.controlThisComputer,
-						onChange: (e) => updateSettings({ controlThisComputer: e.target.checked })
-					}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-						className: "block text-sm text-danger",
-						children: "Control this computer"
-					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-						className: "text-xs text-muted",
-						children: "Off. Turns off permission cards for shell. Full host control is not the default profile."
-					})] })]
-				})
 			})
-		]
+		})]
 	});
 }
 function Field({ label, children }) {
@@ -3807,7 +3417,7 @@ function Row({ k, v }) {
 			className: "text-xs text-muted",
 			children: k
 		}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-			className: "font-mono text-xs text-fg",
+			className: "max-w-[70%] text-right font-mono text-xs break-all text-fg",
 			children: v
 		})]
 	});
@@ -3823,7 +3433,6 @@ function Sidebar() {
 	const deleteBot = useLocalBot((s) => s.deleteBot);
 	const setUi = useLocalBot((s) => s.setUi);
 	const company = useLocalBot((s) => s.company);
-	const models = useLocalBot((s) => s.models);
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("aside", {
 		className: "flex h-full min-h-0 w-[248px] shrink-0 flex-col border-r border-border bg-surface",
 		children: [
@@ -3898,7 +3507,7 @@ function Sidebar() {
 										]
 									}),
 									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)(MenuItem, {
-										onClick: () => duplicateBot(bot.id),
+										onClick: () => void duplicateBot(bot.id),
 										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Copy, { className: "size-3.5" }), " Duplicate"]
 									}),
 									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)(MenuItem, {
@@ -3906,7 +3515,7 @@ function Sidebar() {
 										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(EyeOff, { className: "size-3.5" }), " Hide"]
 									}),
 									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)(MenuItem, {
-										onClick: () => deleteBot(bot.id),
+										onClick: () => void deleteBot(bot.id),
 										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Trash2, { className: "size-3.5" }), " Delete"]
 									})
 								]
@@ -3927,7 +3536,7 @@ function Sidebar() {
 					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Plus, { className: "size-4" }), "New agent"]
 				}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 					className: "mt-2 px-1 font-mono text-[10px] text-subtle",
-					children: models[0] ? getCatalogModel(models[0].catalogId)?.name ?? "Local model ready" : "No model"
+					children: "Hosted grok-4.5"
 				})]
 			})
 		]
@@ -4021,11 +3630,16 @@ function AppShell() {
 function LocalBotApp() {
 	const [ready, setReady] = (0, import_react.useState)(false);
 	const onboarded = useLocalBot((s) => s.onboarded);
+	const setAiAvailable = useLocalBot((s) => s.setAiAvailable);
 	(0, import_react.useEffect)(() => {
 		const unsub = useLocalBot.persist.onFinishHydration(() => setReady(true));
 		if (useLocalBot.persist.hasHydrated()) setReady(true);
 		return unsub;
 	}, []);
+	(0, import_react.useEffect)(() => {
+		if (!ready) return;
+		getAiStatus().then((s) => setAiAvailable(s.available));
+	}, [ready, setAiAvailable]);
 	if (!ready) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 		className: "flex min-h-dvh items-center justify-center bg-bg text-fg",
 		children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Wordmark, { className: "text-lg opacity-80" })

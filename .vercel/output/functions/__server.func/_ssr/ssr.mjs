@@ -88,7 +88,7 @@ var HEADERS = { TSS_SHELL: "X-TSS_SHELL" };
 * the dev styles URL for route-scoped CSS collection.
 */
 async function getStartManifest(matchedRoutes) {
-	const { tsrStartManifest } = await import("../_tanstack-start-manifest_v-8fBiX3lb.mjs");
+	const { tsrStartManifest } = await import("../_tanstack-start-manifest_v-qznCSIGy.mjs");
 	const startManifest = tsrStartManifest();
 	let routes = startManifest.routes;
 	routes[rootRouteId];
@@ -107,10 +107,84 @@ async function getStartManifest(matchedRoutes) {
 		routes: manifestRoutes
 	};
 }
-var manifest = { "6532b4f18cc5bcc2361d69f45f2f84e2d4d87ad9ed8a519945f97f3260b8e7bc": {
-	functionName: "runHarnessTurn_createServerFn_handler",
-	importer: () => import("./turn-tBfrj7yd.mjs")
-} };
+var manifest = {
+	"0fa999f4c5f50f97f50e396c72d22bac509e66fe9a51a0668a0866c0788bcc3e": {
+		functionName: "fsMkdir_createServerFn_handler",
+		importer: () => import("./server-3EPd05Vz.mjs")
+	},
+	"11857cc008c32a0141f9ebfffa9ce5384d5fea775130cefdbef972ae6603405f": {
+		functionName: "fsGetCompanyRoot_createServerFn_handler",
+		importer: () => import("./server-3EPd05Vz.mjs")
+	},
+	"1e164447cf5fb3b60e111085cb9d388b506dd4773dd0fc655d62f0794e230e88": {
+		functionName: "fsDelete_createServerFn_handler",
+		importer: () => import("./server-3EPd05Vz.mjs")
+	},
+	"2e81004d9c157d79dcd862c83ab950685065a5fcff9a8e8194734eebb3e985ae": {
+		functionName: "fsList_createServerFn_handler",
+		importer: () => import("./server-3EPd05Vz.mjs")
+	},
+	"3f9c85ded0c85b11ad85670089fd879179da2f48f457656eba9fdafb31750187": {
+		functionName: "fsSeedCompanyTree_createServerFn_handler",
+		importer: () => import("./server-3EPd05Vz.mjs")
+	},
+	"4347559c4b74a5838aebefc5f983e45487402e7d6ffd715cfb0cf04562b19b9d": {
+		functionName: "fsMove_createServerFn_handler",
+		importer: () => import("./server-3EPd05Vz.mjs")
+	},
+	"4d014b7d5695cf271ecb6d606e4830cf820e40735c07c63b45eca84471656734": {
+		functionName: "getAiStatus_createServerFn_handler",
+		importer: () => import("./turn-COpEy_IP.mjs")
+	},
+	"5875d83adb820146b198e6ccc54ed8cb37e894f263a7b32db594774f6fe6323f": {
+		functionName: "fsTree_createServerFn_handler",
+		importer: () => import("./server-3EPd05Vz.mjs")
+	},
+	"6532b4f18cc5bcc2361d69f45f2f84e2d4d87ad9ed8a519945f97f3260b8e7bc": {
+		functionName: "runHarnessTurn_createServerFn_handler",
+		importer: () => import("./turn-COpEy_IP.mjs")
+	},
+	"7779bcdf5afea5c7528cfb1c0cc4c7f2d5a50a7d74a75f7be5fbcd6853f4b670": {
+		functionName: "fsSeedDepartment_createServerFn_handler",
+		importer: () => import("./server-3EPd05Vz.mjs")
+	},
+	"7b60d75daa39e4a11a3ec50382dc778da66240eae85482fc038975b8e18c8822": {
+		functionName: "fsSeedBot_createServerFn_handler",
+		importer: () => import("./server-3EPd05Vz.mjs")
+	},
+	"7bd77591bf0ceac531fbc9d547755d3ba0595a450a9ee9aef216d83e71d41d71": {
+		functionName: "fsExists_createServerFn_handler",
+		importer: () => import("./server-3EPd05Vz.mjs")
+	},
+	"7d1e3233596efa615b20640ed4065b14038fb7ac8de34a64e963a93c0ab2dbfd": {
+		functionName: "fsRead_createServerFn_handler",
+		importer: () => import("./server-3EPd05Vz.mjs")
+	},
+	"7f0c95b4d4230c67a1ee8278822c7daa6e0b5727086c1751d102f0d387bf7f3d": {
+		functionName: "fsStat_createServerFn_handler",
+		importer: () => import("./server-3EPd05Vz.mjs")
+	},
+	"a56685740e9d84f84e4b0c69ed6ac965de2d8bb265b32495470135422431bb18": {
+		functionName: "fsSetCompanyRoot_createServerFn_handler",
+		importer: () => import("./server-3EPd05Vz.mjs")
+	},
+	"a99cc9c9f05221311156adc2a5933b187cd1ae643e18705a1937324f8ba0247c": {
+		functionName: "fsRunCommand_createServerFn_handler",
+		importer: () => import("./server-3EPd05Vz.mjs")
+	},
+	"b977a74c3349a02ed3377147a0dc0c34994631b8b57c284a89cff7aa90b49228": {
+		functionName: "fsWrite_createServerFn_handler",
+		importer: () => import("./server-3EPd05Vz.mjs")
+	},
+	"c6f58459f422d316538337864eb436e437c4ea69158d8d21fdb0a7142606da48": {
+		functionName: "fsReplace_createServerFn_handler",
+		importer: () => import("./server-3EPd05Vz.mjs")
+	},
+	"dfb0a5cde55326e99915ceb245bd0283168759002f29a58000602ca49f147b8d": {
+		functionName: "fsSeedEmployee_createServerFn_handler",
+		importer: () => import("./server-3EPd05Vz.mjs")
+	}
+};
 async function getServerFnById(id, access) {
 	const serverFnInfo = manifest[id];
 	if (!serverFnInfo) throw new Error("Server function info not found for " + id);
@@ -1378,7 +1452,7 @@ var getBaseManifest = getProdBaseManifest;
 var createEarlyHintsForRequest = createEarlyHintsCollector;
 async function loadEntries() {
 	const [routerEntry, startEntry, pluginAdapters] = await Promise.all([
-		import("./router-DLmo4Cer.mjs").then((n) => n.t),
+		import("./router-iKTo2jMn.mjs").then((n) => n.t),
 		import("./start-5Z2QO8AU.mjs"),
 		import("./empty-plugin-adapters-D9UWiqvJ.mjs")
 	]);

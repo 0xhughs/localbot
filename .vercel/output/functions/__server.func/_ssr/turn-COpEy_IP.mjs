@@ -1,13 +1,6 @@
-import { n as TSS_SERVER_FUNCTION, t as createServerFn } from "./ssr.mjs";
-//#region node_modules/.nitro/vite/services/ssr/assets/turn-tBfrj7yd.js
-var createServerRpc = (serverFnMeta, splitImportFn) => {
-	const url = "/_serverFn/" + serverFnMeta.id;
-	return Object.assign(splitImportFn, {
-		url,
-		serverFnMeta,
-		[TSS_SERVER_FUNCTION]: true
-	});
-};
+import { t as createServerFn } from "./ssr.mjs";
+import { t as createServerRpc } from "./createServerRpc-A6pJPYTF.mjs";
+//#region node_modules/.nitro/vite/services/ssr/assets/turn-COpEy_IP.js
 var TOOLS = [
 	{
 		type: "function",
@@ -105,6 +98,17 @@ var TOOLS = [
 		}
 	}
 ];
+var getAiStatus_createServerFn_handler = createServerRpc({
+	id: "4d014b7d5695cf271ecb6d606e4830cf820e40735c07c63b45eca84471656734",
+	name: "getAiStatus",
+	filename: "src/lib/runtime/turn.ts"
+}, (opts) => getAiStatus.__executeServer(opts));
+var getAiStatus = createServerFn({ method: "POST" }).handler(getAiStatus_createServerFn_handler, async () => {
+	return {
+		available: Boolean(process.env.XAI_API_KEY),
+		model: "grok-4.5"
+	};
+});
 var runHarnessTurn_createServerFn_handler = createServerRpc({
 	id: "6532b4f18cc5bcc2361d69f45f2f84e2d4d87ad9ed8a519945f97f3260b8e7bc",
 	name: "runHarnessTurn",
@@ -175,4 +179,4 @@ var runHarnessTurn = createServerFn({ method: "POST" }).validator((input) => inp
 	};
 });
 //#endregion
-export { runHarnessTurn_createServerFn_handler };
+export { getAiStatus_createServerFn_handler, runHarnessTurn_createServerFn_handler };

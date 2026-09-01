@@ -1,13 +1,22 @@
-import { isUnder, posixBasename, posixDirname, posixJoin } from "../utils.ts";
-import type { FsNode } from "../types.ts";
+import {
+  isUnder,
+  normalizePath,
+  posixBasename,
+  posixDirname,
+  posixJoin,
+} from "../utils.ts";
+
+export type FsNode = {
+  path: string;
+  kind: "file" | "dir";
+  content: string;
+  mtime: number;
+  size: number;
+};
 
 export type Vfs = Record<string, FsNode>;
 
-export function normalizePath(path: string): string {
-  if (!path) return "/";
-  const prefixed = path.startsWith("/") ? path : `/${path}`;
-  return posixJoin(prefixed);
-}
+export { normalizePath };
 
 export function ensureDir(vfs: Vfs, path: string, mtime = Date.now()): Vfs {
   const n = normalizePath(path);

@@ -9,7 +9,6 @@ import {
   FileSearch,
   Ban,
 } from "lucide-react";
-import { getCatalogModel } from "@/lib/catalog";
 import { useLocalBot, resolveBot } from "@/lib/store";
 import type {
   PermissionDecision,
@@ -41,6 +40,7 @@ export function ChatPane() {
   const handoffTask = useLocalBot((s) => s.handoffTask);
   const writeBotFile = useLocalBot((s) => s.writeBotFile);
   const showComputer = useLocalBot((s) => s.ui.showComputer);
+  const aiAvailable = useLocalBot((s) => s.runtime.aiAvailable);
   const snap = useLocalBot.getState();
 
   const [chips, setChips] = useState<ToolChip[]>([]);
@@ -67,7 +67,6 @@ export function ChatPane() {
     );
   }
 
-  const model = getCatalogModel(bot.modelId);
   const running = Boolean(session?.running);
   const ctx = resolveBot(snap, bot.id);
 
@@ -80,7 +79,7 @@ export function ChatPane() {
     const mentions = [...trimmed.matchAll(/@([A-Za-z0-9_-]+)/g)].map((m) => m[1]!);
     for (const name of mentions) {
       if (name.toLowerCase() === bot.name.toLowerCase()) continue;
-      const result = handoffTask(bot.id, name, trimmed);
+      const result = await handoffTask(bot.id, name, trimmed);
       if (result.ok) {
         appendMessage(bot.id, {
           role: "system",
@@ -146,7 +145,7 @@ export function ChatPane() {
   const onAttach = async (file: File) => {
     const text = await file.text();
     const path = `${bot.workspacePath}/${file.name}`;
-    const r = writeBotFile(bot.id, path, text);
+    const r = await writeBotFile(bot.id, path, text);
     appendMessage(bot.id, {
       role: "system",
       content: r.ok
@@ -171,9 +170,16 @@ export function ChatPane() {
             )}
           </div>
           <p className="truncate text-[11px] text-muted">
-            {bot.job} · {model?.name ?? bot.modelId}
+            {bot.job}
           </p>
         </div>
+        <span
+          className={`hidden rounded-full px-2 py-0.5 font-mono text-[10px] tracking-wide uppercase md:inline ${
+            aiAvailable ? "bg-accent/15 text-accent" : "bg-danger/15 text-danger"
+          }`}
+        >
+          {aiAvailable ? "Hosted grok-4.5" : "AI unavailable"}
+        </span>
         <Button
           variant={running ? "danger" : "ghost"}
           size="sm"

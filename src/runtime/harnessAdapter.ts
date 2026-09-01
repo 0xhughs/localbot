@@ -1,18 +1,19 @@
 /**
- * Isolation layer: the UI talks to this adapter, never to model plugins.
- * Desktop builds point the model plugin at http://127.0.0.1:18789/v1.
- * This web workspace uses the same event shape.
+ * Isolation layer: the UI talks to this adapter, never to the model HTTP client.
+ * This pass: hosted grok-4.5 via src/lib/runtime/turn.ts.
+ * File tools write to the company root on the server disk.
+ *
+ * AbortSignal cannot be forwarded through createServerFn; Stop cancels the
+ * client loop between rounds only.
  */
 import { classifyToolCall, denyMessage, grantKey, type ToolCall } from "@/lib/permissions";
+import { grantPathFor } from "@/lib/fs/company";
+import { fsRead, fsTree } from "@/lib/fs/server";
 import { runHarnessTurn, type TurnMessage, type TurnToolCall } from "@/lib/runtime/turn";
 import { buildSystemPrompt, rosterBlurb } from "@/lib/runtime/prompt";
 import { resolveBot, useLocalBot } from "@/lib/store";
-import { writeFile } from "@/lib/fs/vfs";
 import type { PermissionDecision, PermissionRequest, ToolChip } from "@/lib/types";
 import { uid } from "@/lib/utils";
-import { LOCAL_OPENAI_BASE_URL } from "./loopback";
-
-export const HARNESS_MODEL_ENDPOINT = LOCAL_OPENAI_BASE_URL;
 
 export type AdapterEvents = {
   onChip: (chip: ToolChip) => void;
@@ -28,23 +29,23 @@ function parseArgs(raw: string): Record<string, unknown> {
   }
 }
 
-function executeTool(botId: string, call: ToolCall): string {
+async function executeTool(botId: string, call: ToolCall): Promise<string> {
   const s = useLocalBot.getState();
   switch (call.name) {
     case "read_file": {
       const path = String(call.args.path ?? "");
-      const r = s.readBotFile(botId, path);
+      const r = await s.readBotFile(botId, path);
       return r.ok ? r.content : r.error;
     }
     case "write_file": {
       const path = String(call.args.path ?? "");
       const content = String(call.args.content ?? "");
-      const r = s.writeBotFile(botId, path, content);
+      const r = await s.writeBotFile(botId, path, content);
       return r.ok ? `Wrote ${path} (${content.length} chars)` : r.error;
     }
     case "str_replace": {
       const path = String(call.args.path ?? "");
-      const r = s.replaceBotFile(
+      const r = await s.replaceBotFile(
         botId,
         path,
         String(call.args.old_string ?? ""),
@@ -54,22 +55,22 @@ function executeTool(botId: string, call: ToolCall): string {
     }
     case "list_dir": {
       const path = String(call.args.path ?? "");
-      const r = s.listBotDir(botId, path);
+      const r = await s.listBotDir(botId, path);
       return r.ok ? r.listing : r.error;
     }
     case "delete_file": {
       const path = String(call.args.path ?? "");
-      const r = s.deleteBotFile(botId, path);
+      const r = await s.deleteBotFile(botId, path);
       return r.ok ? `Deleted ${path}` : r.error;
     }
     case "run_command": {
       const command = String(call.args.command ?? "");
-      const r = s.shellBot(botId, command);
+      const r = await s.shellBot(botId, command);
       if (!r.ok) return r.error;
       return [r.stdout, r.stderr].filter(Boolean).join("\n") || `(exit ${r.code})`;
     }
     case "web_search":
-      return "Network is gated. Enable web search in Settings to use this tool on the desktop runtime.";
+      return "Network is gated. Enable web search in Settings to use this tool.";
     default:
       return `Unknown tool: ${call.name}`;
   }
@@ -93,12 +94,29 @@ export async function runAgentLoop(opts: {
       content: m.content,
     }));
 
+  const snap = useLocalBot.getState();
+  const shared = ctx.bot.grants.includes("shared")
+    ? grantPathFor(ctx.bot, ctx.employee, ctx.department, ctx.company, "shared")
+    : null;
+  const [memoryRes, standingRes, treeRes, sharedRes] = await Promise.all([
+    fsRead({ data: { path: `${ctx.bot.memoryPath}/notes.md`, companyRoot: ctx.company.root } }),
+    fsRead({ data: { path: `${ctx.bot.path}/AGENTS.md`, companyRoot: ctx.company.root } }),
+    fsTree({ data: { path: ctx.bot.path, companyRoot: ctx.company.root, max: 60 } }),
+    shared
+      ? fsTree({ data: { path: shared, companyRoot: ctx.company.root, max: 40 } })
+      : Promise.resolve({ ok: true as const, listing: "(not granted)" }),
+  ]);
+
   const messages: TurnMessage[] = [
     {
       role: "system",
       content:
-        buildSystemPrompt(useLocalBot.getState(), ctx.bot) +
-        `\n\nOther agents:\n${rosterBlurb(useLocalBot.getState())}`,
+        buildSystemPrompt(snap, ctx.bot, {
+          memory: memoryRes.ok ? memoryRes.content : "",
+          standing: standingRes.ok ? standingRes.content : ctx.bot.standingInstructions,
+          tree: treeRes.ok ? treeRes.listing : "(unavailable)",
+          sharedTree: sharedRes.ok ? sharedRes.listing : "(unavailable)",
+        }) + `\n\nOther agents:\n${rosterBlurb(snap)}`,
     },
     ...history,
   ];
@@ -109,11 +127,11 @@ export async function runAgentLoop(opts: {
       return { stopped: true };
     }
     rounds += 1;
-    const snap = useLocalBot.getState();
+    const live = useLocalBot.getState();
     const turn = await runHarnessTurn({
       data: {
         messages,
-        allowNetwork: snap.settings.webSearchEnabled,
+        allowNetwork: live.settings.webSearchEnabled,
       },
     });
     if (!turn.ok) return { stopped: false, error: turn.error };
@@ -125,7 +143,6 @@ export async function runAgentLoop(opts: {
           content: turn.content.trim(),
         });
       }
-      persistTranscript(opts.botId);
       return { stopped: false };
     }
 
@@ -150,7 +167,6 @@ export async function runAgentLoop(opts: {
     role: "assistant",
     content: "Stopped after too many tool rounds. Ask me to continue.",
   });
-  persistTranscript(opts.botId);
   return { stopped: false };
 }
 
@@ -211,32 +227,8 @@ async function handleOneTool(
     return denyMessage(cls);
   }
 
-  const output = executeTool(botId, call);
+  const output = await executeTool(botId, call);
   const denied = output.startsWith("Denied");
   events.onChipUpdate(chipId, { status: denied ? "denied" : "ok" });
   return output;
-}
-
-function persistTranscript(botId: string) {
-  const s = useLocalBot.getState();
-  const bot = s.bots.find((b) => b.id === botId);
-  if (!bot) return;
-  const sess = s.sessions[botId];
-  if (!sess) return;
-  const path = `${s.localbotHome}/sessions/${botId}/transcript.json`;
-  const body = JSON.stringify(
-    {
-      botId,
-      name: bot.name,
-      updatedAt: new Date().toISOString(),
-      messages: sess.messages.map((m) => ({
-        role: m.role,
-        content: m.content,
-        createdAt: m.createdAt,
-      })),
-    },
-    null,
-    2,
-  );
-  s.applyVfs((vfs) => writeFile(vfs, path, body));
 }

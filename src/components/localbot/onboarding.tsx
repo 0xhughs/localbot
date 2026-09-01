@@ -5,14 +5,13 @@ import {
   Check,
   FolderLock,
   HardDrive,
-  Pause,
-  Play,
   Shield,
 } from "lucide-react";
 import { onboardingCards } from "@/lib/catalog";
+import { fsGetCompanyRoot } from "@/lib/fs/server";
 import { scanBrowserHardware } from "@/lib/hardware";
 import { useLocalBot } from "@/lib/store";
-import { AGENT_COLOR_LIST, type AgentColorId, type CatalogModel, type DownloadJob } from "@/lib/types";
+import { AGENT_COLOR_LIST, type AgentColorId, type CatalogModel } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ColorSwatch } from "./avatar";
@@ -24,30 +23,23 @@ const TEMPLATES: { name: string; job: string; color: AgentColorId }[] = [
   { name: "Ops", job: "Keep the workspace organized and file the finished work.", color: "pine" },
 ];
 
-type Step =
-  | "hello"
-  | "stay"
-  | "grants"
-  | "scan"
-  | "models"
-  | "download"
-  | "agent";
+type Step = "hello" | "stay" | "grants" | "scan" | "models" | "agent";
 
 const WELCOME: { id: Step; title: string; body: string }[] = [
   {
     id: "hello",
-    title: "Your agents, on this computer.",
-    body: "LocalBot is a personal workspace. You pick a local model, create named agents, and talk to them like contacts. Each one has its own memory and its own folder.",
+    title: "Your agents, in this browser.",
+    body: "LocalBot is a web app. You create named agents and talk to them like contacts. Each one has its own workspace folder on the machine running this server.",
   },
   {
     id: "stay",
-    title: "Work stays here.",
-    body: "There is no cloud account and no key on the default path. The model is a file on disk. Sessions, logs, and memory live in your LocalBot home.",
+    title: "Chat is hosted grok-4.5.",
+    body: "This build does not run a local GGUF. Agents think with hosted grok-4.5 when the server has an API key. There is no model file written to disk.",
   },
   {
     id: "grants",
-    title: "Agents only touch folders you grant.",
-    body: "The default computer is the agent’s workspace — not your whole home directory. Shell, deletes, network, and anything outside the company root always ask first.",
+    title: "Work files go on disk.",
+    body: "The company root is a real directory. Agents only write inside folders you grant. Two people share work only if they point at the same real folder on this machine (or a NAS mounted here).",
   },
 ];
 
@@ -55,11 +47,8 @@ export function Onboarding() {
   const [step, setStep] = useState<Step>("hello");
   const hardware = useLocalBot((s) => s.hardware);
   const setHardware = useLocalBot((s) => s.setHardware);
-  const setDownload = useLocalBot((s) => s.setDownload);
-  const download = useLocalBot((s) => s.download);
-  const completeDownload = useLocalBot((s) => s.completeDownload);
+  const noteCatalog = useLocalBot((s) => s.noteCatalog);
   const completeOnboarding = useLocalBot((s) => s.completeOnboarding);
-  const models = useLocalBot((s) => s.models);
 
   const [scanning, setScanning] = useState(false);
   const [picked, setPicked] = useState<string | null>(null);
@@ -70,11 +59,31 @@ export function Onboarding() {
   const [botName, setBotName] = useState("Writer");
   const [botJob, setBotJob] = useState(TEMPLATES[0]!.job);
   const [color, setColor] = useState<AgentColorId>("sage");
+  const [companyRoot, setCompanyRoot] = useState("");
+  const [rootTouched, setRootTouched] = useState(false);
+  const [previewData, setPreviewData] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const cards = useMemo(
     () => (hardware ? onboardingCards(hardware) : null),
     [hardware],
   );
+
+  useEffect(() => {
+    void fsGetCompanyRoot().then((cfg) => {
+      setPreviewData(cfg.previewWritesToProjectData);
+      if (!rootTouched) setCompanyRoot(cfg.defaultRoot);
+    });
+  }, [rootTouched]);
+
+  useEffect(() => {
+    if (rootTouched) return;
+    void fsGetCompanyRoot().then((cfg) => {
+      const base = cfg.defaultRoot.replace(/[/\\][^/\\]+$/, "");
+      setCompanyRoot(`${base}/${company.trim() || "Studio"}`);
+    });
+  }, [company, rootTouched]);
 
   useEffect(() => {
     if (step !== "scan") return;
@@ -86,15 +95,10 @@ export function Onboarding() {
     return () => window.clearTimeout(t);
   }, [step, setHardware]);
 
-  const goDownload = (id: string) => {
+  const pickModel = (id: string) => {
     setPicked(id);
-    setDownload({
-      catalogId: id,
-      status: "running",
-      progress: 0,
-      startedAt: new Date().toISOString(),
-    });
-    setStep("download");
+    noteCatalog(id);
+    setStep("agent");
   };
 
   return (
@@ -131,21 +135,8 @@ export function Onboarding() {
         {step === "models" && cards && hardware && (
           <ModelStep
             cards={cards}
-            onPick={goDownload}
+            onPick={pickModel}
             onBack={() => setStep("scan")}
-          />
-        )}
-        {step === "download" && picked && (
-          <DownloadStep
-            catalogId={picked}
-            job={download}
-            setJob={setDownload}
-            onDone={async () => {
-              if (!models.some((m) => m.catalogId === picked)) {
-                await completeDownload(picked);
-              }
-              setStep("agent");
-            }}
           />
         )}
         {step === "agent" && (
@@ -164,18 +155,25 @@ export function Onboarding() {
             setBotJob={setBotJob}
             color={color}
             setColor={setColor}
+            companyRoot={companyRoot}
+            setCompanyRoot={(v) => {
+              setRootTouched(true);
+              setCompanyRoot(v);
+            }}
+            previewData={previewData}
+            busy={busy}
+            error={error}
             onTemplate={(t) => {
               setBotName(t.name);
               setBotJob(t.job);
               setColor(t.color);
             }}
             onBack={() => setStep("models")}
-            onFinish={() => {
-              const modelId =
-                picked ??
-                useLocalBot.getState().models[0]?.catalogId ??
-                "gemma4-e2b-q4";
-              completeOnboarding({
+            onFinish={async () => {
+              setBusy(true);
+              setError(null);
+              const modelId = picked ?? "gemma4-e2b-q4";
+              const result = await completeOnboarding({
                 companyName: company,
                 departmentName: department,
                 employeeName: employee,
@@ -184,7 +182,10 @@ export function Onboarding() {
                 color,
                 modelId,
                 sharedRoot: shared,
+                companyRoot,
               });
+              setBusy(false);
+              if (!result.ok) setError(result.error);
             }}
           />
         )}
@@ -252,8 +253,8 @@ function ScanStep({
       </p>
       <h1 className="text-3xl font-medium tracking-tight">This machine</h1>
       <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted">
-        LocalBot sizes the model catalog from RAM, GPU, and disk — never by
-        asking you to guess.
+        Browser estimate of RAM and GPU. It does not change chat in this build —
+        chat still uses hosted grok-4.5. Kept for when local models are wired.
       </p>
       <div className="mt-8 overflow-hidden rounded-xl bg-surface p-1 shadow-[0_0_0_1px_var(--color-border)]">
         <dl className="grid grid-cols-1 divide-y divide-border sm:grid-cols-2 sm:divide-x sm:divide-y-0">
@@ -282,7 +283,7 @@ function ScanStep({
               ],
               [
                 "Free disk",
-                scanning ? "…" : hardware ? `${hardware.freeDiskGb} GB` : "—",
+                scanning ? "…" : hardware ? `${hardware.freeDiskGb} GB (estimate)` : "—",
               ],
             ] as const
           ).map(([k, v]) => (
@@ -295,19 +296,13 @@ function ScanStep({
           ))}
         </dl>
       </div>
-      {hardware?.ramSource === "assumed-desktop" && (
-        <p className="mt-3 text-xs leading-relaxed text-muted">
-          Browsers cap reported RAM at 8 GB. This looks like a desktop, so
-          LocalBot treats it as a 16 GB class machine for recommendations.
-        </p>
-      )}
       <div className="mt-8 flex gap-3">
         <Button variant="ghost" onClick={onBack}>
           <ArrowLeft className="size-4" />
           Back
         </Button>
         <Button onClick={onContinue} disabled={scanning || !hardware}>
-          See models
+          See catalog
           <ArrowRight className="size-4" />
         </Button>
       </div>
@@ -334,31 +329,29 @@ function ModelStep({
       <p className="mb-3 font-mono text-[11px] tracking-[0.18em] text-subtle uppercase">
         Catalog
       </p>
-      <h1 className="text-3xl font-medium tracking-tight">Pick a model</h1>
+      <h1 className="text-3xl font-medium tracking-tight">Choose a catalog size (placeholder)</h1>
       <p className="mt-2 max-w-xl text-sm text-muted">
-        Ungated GGUF files only. Grey cards will not load on this machine.
+        These cards are planned local models. This build does not download a GGUF
+        or run inference locally. Chat uses hosted grok-4.5. Catalog noted.
       </p>
       <div className="mt-6 grid gap-3 md:grid-cols-3">
         {items.map(({ key, title, model }) => {
           if (!model) return null;
-          const fit = cards.fits[model.id];
-          const disabled = !fit?.fits;
           const rec = key === "recommended";
           return (
             <button
               key={key}
               type="button"
-              disabled={disabled}
               onClick={() => onPick(model.id)}
-              className="flex flex-col rounded-xl bg-surface p-4 text-left shadow-[0_0_0_1px_var(--color-border)] transition-[transform,background-color] duration-150 hover:bg-raised disabled:cursor-not-allowed disabled:opacity-40"
+              className="flex flex-col rounded-xl bg-surface p-4 text-left shadow-[0_0_0_1px_var(--color-border)] transition-[transform,background-color] duration-150 hover:bg-raised"
             >
               <div className="flex items-center justify-between">
                 <span className="font-mono text-[10px] tracking-wider text-subtle uppercase">
                   {title}
                 </span>
-                {rec && fit?.fits && (
+                {rec && (
                   <span className="rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-medium text-accent">
-                    Best fit
+                    Placeholder
                   </span>
                 )}
               </div>
@@ -366,7 +359,9 @@ function ModelStep({
               <p className="mt-1 font-mono text-xs text-muted">
                 {model.sizeLabel} · {model.license}
               </p>
-              <p className="mt-3 text-xs leading-relaxed text-muted">{fit?.reason}</p>
+              <p className="mt-3 text-xs leading-relaxed text-muted">
+                Not wired in this build. Stored as a catalog id only.
+              </p>
             </button>
           );
         })}
@@ -376,99 +371,6 @@ function ModelStep({
           <ArrowLeft className="size-4" />
           Back
         </Button>
-      </div>
-    </section>
-  );
-}
-
-function DownloadStep({
-  catalogId,
-  job,
-  setJob,
-  onDone,
-}: {
-  catalogId: string;
-  job: DownloadJob | null;
-  setJob: (j: DownloadJob | null) => void;
-  onDone: () => void | Promise<void>;
-}) {
-  const paused = job?.status === "paused";
-  useEffect(() => {
-    let p = useLocalBot.getState().download?.progress ?? 0;
-    let finished = false;
-    const tick = window.setInterval(() => {
-      if (finished) return;
-      const cur = useLocalBot.getState().download;
-      if (!cur || cur.catalogId !== catalogId) return;
-      if (cur.status === "paused") return;
-      if (cur.status === "done" || cur.status === "verifying") return;
-      p = Math.min(1, p + 0.04 + Math.random() * 0.025);
-      if (p >= 1) {
-        finished = true;
-        window.clearInterval(tick);
-        setJob({ ...cur, status: "verifying", progress: 1 });
-        window.setTimeout(() => {
-          void onDone();
-        }, 400);
-        return;
-      }
-      setJob({ ...cur, status: "running", progress: p });
-    }, 80);
-    return () => window.clearInterval(tick);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [catalogId]);
-
-  const pct = Math.round((job?.progress ?? 0) * 100);
-  return (
-    <section className="stagger-in flex flex-1 flex-col justify-center py-8">
-      <p className="mb-3 font-mono text-[11px] tracking-[0.18em] text-subtle uppercase">
-        Models
-      </p>
-      <h1 className="text-3xl font-medium tracking-tight">Downloading GGUF</h1>
-      <p className="mt-2 text-sm text-muted">
-        Saved under LocalBot home / models. Checksum verified before the file is
-        marked ready.
-      </p>
-      <div className="mt-8 rounded-xl bg-surface p-5 shadow-[0_0_0_1px_var(--color-border)]">
-        <div className="flex items-center justify-between text-sm">
-          <span className="font-mono text-xs text-muted">{catalogId}</span>
-          <span className="tabular-nums text-fg">{pct}%</span>
-        </div>
-        <div className="mt-3 h-2 overflow-hidden rounded-full bg-raised">
-          <div
-            className="h-full rounded-full bg-accent transition-[width] duration-150"
-            style={{ width: `${pct}%` }}
-          />
-        </div>
-        <p className="mt-3 text-xs text-muted">
-          {job?.status === "verifying"
-            ? "Verifying checksum…"
-            : paused
-              ? "Paused"
-              : "Writing into ~/.localbot/models"}
-        </p>
-        <div className="mt-4">
-          {paused ? (
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => job && setJob({ ...job, status: "running" })}
-            >
-              <Play className="size-3.5" />
-              Resume
-            </Button>
-          ) : (
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled={job?.status === "verifying"}
-              onClick={() => job && setJob({ ...job, status: "paused" })}
-            >
-              <Pause className="size-3.5" />
-              Pause
-            </Button>
-          )}
-        </div>
       </div>
     </section>
   );
@@ -489,9 +391,14 @@ function AgentStep(props: {
   setBotJob: (v: string) => void;
   color: AgentColorId;
   setColor: (v: AgentColorId) => void;
+  companyRoot: string;
+  setCompanyRoot: (v: string) => void;
+  previewData: boolean;
+  busy: boolean;
+  error: string | null;
   onTemplate: (t: (typeof TEMPLATES)[number]) => void;
   onBack: () => void;
-  onFinish: () => void;
+  onFinish: () => void | Promise<void>;
 }) {
   return (
     <section className="stagger-in flex flex-1 flex-col py-6">
@@ -500,8 +407,8 @@ function AgentStep(props: {
       </p>
       <h1 className="text-3xl font-medium tracking-tight">Create your first agent</h1>
       <p className="mt-2 max-w-xl text-sm text-muted">
-        This writes the company tree on disk. The agent’s computer is its
-        workspace folder.
+        This writes the company tree on disk at the path below. The agent’s
+        computer is its workspace folder.
       </p>
 
       <div className="mt-6 grid gap-4 md:grid-cols-2">
@@ -524,17 +431,28 @@ function AgentStep(props: {
             checked={props.shared}
             onChange={(e) => props.setShared(e.target.checked)}
           />
-          Company root is a shared drive
+          This path is a shared drive
         </label>
       </div>
-      {props.shared ? (
+
+      <label className="mt-4 block text-xs font-medium text-muted">
+        Company root (absolute path)
+        <Input
+          className="mt-1.5 font-mono text-xs"
+          value={props.companyRoot}
+          onChange={(e) => props.setCompanyRoot(e.target.value)}
+        />
+      </label>
+      {props.previewData ? (
         <p className="mt-2 text-xs text-muted">
-          Point both installs at the same folder. LocalBot does not sync on its
-          own — the folder is the bus.
+          This preview writes to the project data folder. Two laptops share work
+          only if they point at the same real folder on the machine running npm run
+          dev.
         </p>
       ) : (
         <p className="mt-2 text-xs text-muted">
-          Shared departments require a shared folder path.
+          Shared departments require a shared folder path. This process sees the
+          disk of the machine running the server.
         </p>
       )}
 
@@ -578,18 +496,19 @@ function AgentStep(props: {
         </div>
       </div>
 
-      <p className="mt-5 font-mono text-[11px] leading-relaxed text-subtle">
-        {`/Documents/LocalBot/${props.company || "Studio"}/departments/${props.department || "Operations"}/people/${props.employee || "You"}/bots/${props.botName || "Writer"}/`}
+      <p className="mt-5 font-mono text-[11px] leading-relaxed text-subtle break-all">
+        {`${props.companyRoot || "(set a path)"}/departments/${props.department || "Operations"}/people/${props.employee || "You"}/bots/${props.botName || "Writer"}/`}
       </p>
+      {props.error && <p className="mt-2 text-sm text-danger">{props.error}</p>}
 
       <div className="mt-8 flex gap-3">
-        <Button variant="ghost" onClick={props.onBack}>
+        <Button variant="ghost" onClick={props.onBack} disabled={props.busy}>
           <ArrowLeft className="size-4" />
           Back
         </Button>
-        <Button onClick={props.onFinish} disabled={!props.botName.trim()}>
+        <Button onClick={() => void props.onFinish()} disabled={!props.botName.trim() || !props.companyRoot.trim() || props.busy}>
           <Check className="size-4" />
-          Open chat
+          {props.busy ? "Creating folders…" : "Open chat"}
         </Button>
       </div>
     </section>

@@ -1,36 +1,35 @@
 # LocalBot
 
-Personal agents on this computer. You pick a local open-weight model, create named agents, and talk to them like contacts. Each agent has its own memory, its own workspace folder, and permission cards before risky actions.
+Browser app: named agents, folder grants, a file pane. Chat uses **hosted grok-4.5**. Work files live on **disk at the company root**.
 
-No cloud account. No API key on the default path. Work stays in the company folder you grant.
+There is no desktop installer and no local GGUF inference in this build. The model picker is a catalog placeholder.
 
 ## First run
 
-1. Launch LocalBot.
-2. Three welcome screens — what it is, that work stays here, that agents only touch granted folders.
-3. Hardware scan (OS, RAM, GPU, Apple Silicon, disk).
-4. Pick Small / Recommended / Large. Cards that will not load are greyed out with the reason.
-5. Download the GGUF. Pause and resume are supported. Checksum is verified. File lands in `~/.localbot/models/`.
-6. Name the company, department, employee, and first agent.
-7. Land in that agent’s chat.
-
-After onboarding, Settings still lets you download another model, switch the active model per agent, or import a local GGUF.
-
-Ollama is never required. If it is already running on a desktop install, Settings may offer “Use existing Ollama” as an advanced option.
-
-## Company root sharing
-
-Default company root:
-
 ```
-{documents}/LocalBot/{CompanyName}/
+npm install
+npm run dev
+open http://127.0.0.1:8080
 ```
 
-Point that path at a shared network drive, NAS, or synced folder (Drive for Desktop, Nextcloud, company file server). LocalBot does not implement its own P2P sync. Shared work happens because two installs point at the same Company root.
+1. Walk the welcome screens.
+2. Pick a catalog size (stored as an id only — nothing is downloaded).
+3. Name the company, department, employee, and first agent. Set the company root (defaults to `{cwd}/data/LocalBot/{CompanyName}`).
+4. Chat. Ask Writer to write `hello.md` into its workspace. The file is created on disk.
 
-If the company root is only local disk, Employee Two on another laptop does not see Employee One. Settings says so: “Shared departments require a shared folder path.”
+Chat needs `XAI_API_KEY` on the server. If it is missing, the header shows **AI unavailable** and turns return an error. Onboarding still finishes.
 
-Uninstalling the app does not delete the company root.
+## Where files go
+
+Company root is a real directory, default:
+
+```
+{cwd}/data/LocalBot/{CompanyName}/
+```
+
+On this preview that is the project `data/` folder. Two people share work only if they point at the **same real folder** (NAS / Drive / shared disk) on the machine running `npm run dev`. This process cannot see another laptop’s disk.
+
+Uninstalling the browser profile does not delete the company root on disk.
 
 ## Keyboard
 

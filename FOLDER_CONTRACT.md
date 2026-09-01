@@ -1,26 +1,25 @@
 # Folder contract
 
+Work product lives on **disk** under the configured company root. Browser state (agents, chats, pins, grants) stays in `localStorage`. File bodies are not stored in the browser.
+
 ## Trees
 
-App home:
+Server config:
 
 ```
-{localbotHome}/          # ~/.localbot
-  models/
-  sessions/{agentId}/
-  logs/
+{cwd}/data/localbot-config.json    # chosen absolute company root
 ```
 
-Company root (work product — survives uninstall):
+Company root (default `{cwd}/data/LocalBot/{CompanyName}`):
 
 ```
 {CompanyRoot}/
   company.json
-  shared/                      # company-wide, only if granted
+  shared/
   departments/
     {DepartmentName}/
       department.json
-      shared/                  # any agent in this department may use this if granted
+      shared/
       people/
         {EmployeeName}/
           employee.json
@@ -31,7 +30,7 @@ Company root (work product — survives uninstall):
               bot.json
               AGENTS.md
               memory/
-              workspace/       # this bot’s private working directory
+              workspace/
               output/
 ```
 
@@ -54,15 +53,8 @@ Company root (work product — survives uninstall):
 | company-shared | `{company}/shared/` | no |
 | inbox | `{employee}/inbox/` | no |
 
-Rules:
+Writes outside the company root throw. Writes outside the bot’s grants return Denied.
 
-- Installing as Employee One creates `{CompanyRoot}/departments/{Dept}/people/{EmployeeOne}/` and at least one bot folder.
-- Each bot’s default computer is its `workspace/` folder. It may write there freely after the first grant.
-- A bot granted `shared/` can read and write department shared files. Two installs that share the company root can both see those files. The folder is the bus — no chat server.
-- A bot may never see another employee’s private `bots/` tree unless an admin grant says so.
-- `outbox/` is where finished deliverables land. The UI has Open outbox / Reveal path.
-- Filesystem watch: when another agent writes into `shared/`, the file pane refreshes.
+Two installs share files only if they use the same real folder on the machine that runs the server.
 
-## Handoff
-
-`@Name` in the composer writes a task file into department `shared/` and notifies the other agent. No multi-user message server.
+`@Name` writes `shared/task-*.md` on disk and notifies the other agent in this browser.

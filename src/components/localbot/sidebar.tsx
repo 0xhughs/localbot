@@ -8,7 +8,6 @@ import {
   Settings,
   Trash2,
 } from "lucide-react";
-import { getCatalogModel } from "@/lib/catalog";
 import { useLocalBot } from "@/lib/store";
 import { formatRelative } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -27,7 +26,6 @@ export function Sidebar() {
   const deleteBot = useLocalBot((s) => s.deleteBot);
   const setUi = useLocalBot((s) => s.setUi);
   const company = useLocalBot((s) => s.company);
-  const models = useLocalBot((s) => s.models);
 
   return (
     <aside className="flex h-full min-h-0 w-[248px] shrink-0 flex-col border-r border-border bg-surface">
@@ -94,13 +92,13 @@ export function Sidebar() {
                   <MenuItem onClick={() => pinBot(bot.id, !bot.pinned)}>
                     <Pin className="size-3.5" /> {bot.pinned ? "Unpin" : "Pin"}
                   </MenuItem>
-                  <MenuItem onClick={() => duplicateBot(bot.id)}>
+                  <MenuItem onClick={() => void duplicateBot(bot.id)}>
                     <Copy className="size-3.5" /> Duplicate
                   </MenuItem>
                   <MenuItem onClick={() => hideBot(bot.id, true)}>
                     <EyeOff className="size-3.5" /> Hide
                   </MenuItem>
-                  <MenuItem onClick={() => deleteBot(bot.id)}>
+                  <MenuItem onClick={() => void deleteBot(bot.id)}>
                     <Trash2 className="size-3.5" /> Delete
                   </MenuItem>
                 </div>
@@ -122,9 +120,7 @@ export function Sidebar() {
           New agent
         </Button>
         <p className="mt-2 px-1 font-mono text-[10px] text-subtle">
-          {models[0]
-            ? (getCatalogModel(models[0].catalogId)?.name ?? "Local model ready")
-            : "No model"}
+          Hosted grok-4.5
         </p>
       </div>
     </aside>

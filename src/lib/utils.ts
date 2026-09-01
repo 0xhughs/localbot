@@ -59,6 +59,12 @@ export function posixJoin(...parts: string[]): string {
   return "/" + out.join("/");
 }
 
+export function normalizePath(path: string): string {
+  if (!path) return "/";
+  const prefixed = path.startsWith("/") ? path : `/${path}`;
+  return posixJoin(prefixed);
+}
+
 export function posixDirname(path: string): string {
   const n = posixJoin(path);
   const i = n.lastIndexOf("/");

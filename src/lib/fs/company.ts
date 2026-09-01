@@ -1,26 +1,5 @@
-import type {
-  Bot,
-  Company,
-  Department,
-  DownloadedModel,
-  Employee,
-  FolderGrant,
-} from "../types.ts";
-import { posixJoin } from "../utils.ts";
-import {
-  ensureDir,
-  type Vfs,
-  writeFile,
-  writeJson,
-} from "./vfs.ts";
-
-export const DEFAULT_HOME = "/LocalBot";
-export const DEFAULT_COMPANY_ROOT = "/Documents/LocalBot";
-
-export function companyRootPath(companyName: string, rootBase = DEFAULT_COMPANY_ROOT): string {
-  const slug = companyName.trim() || "Studio";
-  return posixJoin(rootBase, slug);
-}
+import type { Bot, Company, Department, Employee, FolderGrant } from "../types.ts";
+import { isUnder, normalizePath, posixJoin } from "../utils.ts";
 
 export function departmentPath(companyRoot: string, deptName: string): string {
   return posixJoin(companyRoot, "departments", deptName);
@@ -57,117 +36,13 @@ export function grantPathFor(
   }
 }
 
-export function seedHome(vfs: Vfs, home = DEFAULT_HOME): Vfs {
-  let next = vfs;
-  for (const p of [
-    home,
-    posixJoin(home, "models"),
-    posixJoin(home, "sessions"),
-    posixJoin(home, "logs"),
-  ]) {
-    next = ensureDir(next, p);
-  }
-  return next;
-}
-
-export function seedCompanyTree(args: {
-  vfs: Vfs;
-  company: Company;
-  department: Department;
-  employee: Employee;
-  bots: Bot[];
-}): Vfs {
-  const { company, department, employee, bots } = args;
-  let vfs = args.vfs;
-  vfs = ensureDir(vfs, company.root);
-  vfs = writeJson(vfs, posixJoin(company.root, "company.json"), {
-    name: company.name,
-    catalogPin: company.catalogPin,
-    defaultDepartment: department.name,
-  });
-  vfs = ensureDir(vfs, posixJoin(company.root, "shared"));
-  vfs = ensureDir(vfs, posixJoin(company.root, "departments"));
-  vfs = ensureDir(vfs, department.path);
-  vfs = writeJson(vfs, posixJoin(department.path, "department.json"), {
-    name: department.name,
-  });
-  vfs = ensureDir(vfs, posixJoin(department.path, "shared"));
-  vfs = ensureDir(vfs, posixJoin(department.path, "people"));
-  vfs = ensureDir(vfs, employee.path);
-  vfs = writeJson(vfs, posixJoin(employee.path, "employee.json"), {
-    displayName: employee.displayName,
-    department: department.name,
-    defaultModel: employee.defaultModelId,
-  });
-  vfs = ensureDir(vfs, posixJoin(employee.path, "inbox"));
-  vfs = ensureDir(vfs, posixJoin(employee.path, "outbox"));
-  vfs = ensureDir(vfs, posixJoin(employee.path, "bots"));
-
-  for (const bot of bots) {
-    vfs = seedBotFolder(vfs, bot, department, employee);
-  }
-  return vfs;
-}
-
-export function seedBotFolder(
-  vfs: Vfs,
+export function allowedRootsFor(
   bot: Bot,
-  department: Department,
   employee: Employee,
-): Vfs {
-  let next = vfs;
-  next = ensureDir(next, bot.path);
-  next = ensureDir(next, posixJoin(bot.path, "memory"));
-  next = ensureDir(next, posixJoin(bot.path, "workspace"));
-  next = ensureDir(next, posixJoin(bot.path, "output"));
-  next = writeJson(next, posixJoin(bot.path, "bot.json"), {
-    name: bot.name,
-    job: bot.job,
-    modelId: bot.modelId,
-    color: bot.color,
-    grants: bot.grants,
-    createdAt: bot.createdAt,
-  });
-  next = writeFile(
-    next,
-    posixJoin(bot.path, "AGENTS.md"),
-    `# ${bot.name}\n\n${bot.job}\n\n${bot.standingInstructions}\n`,
-  );
-  next = writeFile(
-    next,
-    posixJoin(bot.path, "memory", "notes.md"),
-    `# Memory\n\nStanding context for ${bot.name}.\n`,
-  );
-  next = writeFile(
-    next,
-    posixJoin(department.path, "shared", ".keep"),
-    `Department shared folder for ${department.name}.\nAny granted bot may read and write here.\n`,
-  );
-  next = writeFile(
-    next,
-    posixJoin(employee.path, "outbox", ".keep"),
-    `Finished deliverables for ${employee.displayName} land here.\n`,
-  );
-  return next;
-}
-
-export function writeModelBlob(
-  vfs: Vfs,
-  home: string,
-  model: DownloadedModel,
-  blob: string,
-): Vfs {
-  const dir = posixJoin(home, "models");
-  let next = ensureDir(vfs, dir);
-  next = writeFile(next, model.path, blob);
-  next = writeJson(next, posixJoin(dir, `${model.catalogId}.json`), {
-    id: model.catalogId,
-    filename: model.filename,
-    sha256: model.sha256,
-    sizeBytes: model.sizeBytes,
-    downloadedAt: model.downloadedAt,
-  });
-  return next;
+  department: Department,
+  company: Company,
+): string[] {
+  return bot.grants.map((g) => grantPathFor(bot, employee, department, company, g));
 }
 
 export function expectedCompanyPaths(args: {
@@ -197,4 +72,45 @@ export function expectedCompanyPaths(args: {
     );
   }
   return paths;
+}
+
+/** Map a model-supplied path onto the company tree. Bare names land in workspace. */
+export function resolveAgentFilePath(
+  requested: string,
+  bot: Bot,
+  employee: Employee,
+  department: Department,
+  company: Company,
+): string {
+  const n = normalizePath(requested);
+  const root = normalizePath(company.root);
+  if (n === root || isUnder(n, root)) return n;
+  const rel = n.replace(/^\//, "");
+  if (rel === "workspace" || rel.startsWith("workspace/")) {
+    return posixJoin(bot.path, rel);
+  }
+  if (rel === "output" || rel.startsWith("output/")) {
+    return posixJoin(bot.path, rel);
+  }
+  if (rel === "memory" || rel.startsWith("memory/")) {
+    return posixJoin(bot.path, rel);
+  }
+  if (rel === "shared" || rel.startsWith("shared/")) {
+    return posixJoin(department.path, rel);
+  }
+  if (rel === "outbox" || rel.startsWith("outbox/")) {
+    return posixJoin(employee.path, rel);
+  }
+  if (rel === "inbox" || rel.startsWith("inbox/")) {
+    return posixJoin(employee.path, rel);
+  }
+  return posixJoin(bot.workspacePath, rel);
+}
+
+export function remapUnderRoot(oldRoot: string, newRoot: string, target: string): string {
+  const o = normalizePath(oldRoot);
+  const n = normalizePath(target);
+  if (n === o) return normalizePath(newRoot);
+  if (n.startsWith(o + "/")) return posixJoin(newRoot, n.slice(o.length));
+  return n;
 }
