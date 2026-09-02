@@ -1,5 +1,5 @@
 import path from "node:path";
-import type { Bot, Company, Department, Employee } from "../types.ts";
+import type { Company, Department, Employee, LegacyBot as Bot } from "../types.ts";
 import { diskMkdir, diskWrite } from "./disk.ts";
 
 function json(value: unknown): string {

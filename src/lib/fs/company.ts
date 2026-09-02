@@ -1,4 +1,4 @@
-import type { Bot, Company, Department, Employee, FolderGrant } from "../types.ts";
+import type { Company, Department, Employee, FolderGrant, LegacyBot as Bot } from "../types.ts";
 import { isUnder, normalizePath, posixJoin } from "../utils.ts";
 
 export function departmentPath(companyRoot: string, deptName: string): string {

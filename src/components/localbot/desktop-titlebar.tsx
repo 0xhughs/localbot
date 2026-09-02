@@ -1,19 +1,7 @@
 import { Minus, Square, X } from "lucide-react";
 import { useEffect, type CSSProperties } from "react";
+import { desktopBridge } from "@/lib/desktop-bridge";
 import { useLocalBot } from "@/lib/store";
-
-declare global {
-  interface Window {
-    localbotDesktop?: {
-      platform: string;
-      setTitle: (title: string) => void;
-      minimize: () => void;
-      maximize: () => void;
-      close: () => void;
-      onSettings: (fn: () => void) => () => void;
-    };
-  }
-}
 
 export function DesktopTitlebar() {
   const selected = useLocalBot((s) => s.ui.selectedBotId);
@@ -21,7 +9,7 @@ export function DesktopTitlebar() {
   const setUi = useLocalBot((s) => s.setUi);
   const bot = bots.find((b) => b.id === selected);
   const title = bot ? `${bot.name} · LocalBot` : "LocalBot";
-  const desktop = typeof window !== "undefined" ? window.localbotDesktop : undefined;
+  const desktop = desktopBridge();
 
   useEffect(() => {
     document.title = title;

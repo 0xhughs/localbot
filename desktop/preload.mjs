@@ -11,4 +11,10 @@ contextBridge.exposeInMainWorld("localbotDesktop", {
     ipcRenderer.on("localbot:settings", wrap);
     return () => ipcRenderer.removeListener("localbot:settings", wrap);
   },
+  /**
+   * Open the OS folder dialog. Resolves to an absolute path or null.
+   * @param {{ title?: string; defaultPath?: string }} [opts]
+   * @returns {Promise<string | null>}
+   */
+  pickFolder: (opts) => ipcRenderer.invoke("localbot:pickFolder", opts ?? {}),
 });

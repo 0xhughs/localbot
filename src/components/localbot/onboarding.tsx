@@ -10,7 +10,7 @@ import {
   Shield,
 } from "lucide-react";
 import { onboardingCards } from "@/lib/catalog";
-import { fsGetCompanyRoot } from "@/lib/fs/server";
+import type { FoldersConfig } from "@/lib/fs/scope-model";
 import { scanBrowserHardware } from "@/lib/hardware";
 import {
   fsScanServerHardware,
@@ -28,6 +28,7 @@ import { MASCOT_IDS, MASCOT_META, type MascotId } from "@/lib/mascots";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ColorSwatch } from "./avatar";
+import { FoldersForm } from "./folder-picker";
 import { Wordmark } from "./logo";
 import { MascotMark } from "./mascots";
 
@@ -37,23 +38,23 @@ const TEMPLATES: { name: string; job: string; color: AgentColorId; mascotId: Mas
   { name: "Ops", job: "Keep the workspace organized and file the finished work.", color: "slate", mascotId: "ops" },
 ];
 
-type Step = "hello" | "stay" | "grants" | "scan" | "models" | "download" | "agent";
+type Step = "hello" | "stay" | "grants" | "scan" | "models" | "download" | "folders" | "agent";
 
 const WELCOME: { id: Step; title: string; body: string }[] = [
   {
     id: "hello",
     title: "Your agents, on this computer.",
-    body: "LocalBot is a chat of named agents. Each one has its own workspace folder on this machine.",
+    body: "LocalBot is a chat of named agents. Each one has its own private folder on this machine.",
   },
   {
     id: "stay",
     title: "Chat is a local model file.",
-    body: "No account. No API key on the default path. The model is a GGUF on this machine. Work files go on disk under the company root.",
+    body: "No account. No API key on the default path. The model is a GGUF on this machine. Work files go to folders you pick.",
   },
   {
     id: "grants",
-    title: "Agents only touch folders you grant.",
-    body: "The company root is a real directory. Two people share work only if they point at the same real folder on this machine.",
+    title: "Agents only touch folders you connect.",
+    body: "Four scopes: private, employee shared, department shared, company shared. Shared scopes are optional. Two people share work only if they point at the same real folder.",
   },
 ];
 
@@ -69,14 +70,12 @@ export function Onboarding() {
   const [company, setCompany] = useState("Studio");
   const [department, setDepartment] = useState("Operations");
   const [employee, setEmployee] = useState("You");
-  const [shared, setShared] = useState(false);
   const [botName, setBotName] = useState("Writer");
   const [botJob, setBotJob] = useState(TEMPLATES[0]!.job);
   const [color, setColor] = useState<AgentColorId>("sage");
   const [mascotId, setMascotId] = useState<MascotId>("writer");
-  const [companyRoot, setCompanyRoot] = useState("");
-  const [rootTouched, setRootTouched] = useState(false);
-  const [previewData, setPreviewData] = useState(true);
+  const [folders, setFolders] = useState<FoldersConfig | null>(null);
+  const [createFolders, setCreateFolders] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [browserGuess, setBrowserGuess] = useState<string | null>(null);
@@ -85,21 +84,6 @@ export function Onboarding() {
     () => (hardware ? onboardingCards(hardware) : null),
     [hardware],
   );
-
-  useEffect(() => {
-    void fsGetCompanyRoot().then((cfg) => {
-      setPreviewData(cfg.previewWritesToProjectData);
-      if (!rootTouched) setCompanyRoot(cfg.defaultRoot);
-    });
-  }, [rootTouched]);
-
-  useEffect(() => {
-    if (rootTouched) return;
-    void fsGetCompanyRoot().then((cfg) => {
-      const base = cfg.defaultRoot.replace(/[/\\][^/\\]+$/, "");
-      setCompanyRoot(`${base}/${company.trim() || "Studio"}`);
-    });
-  }, [company, rootTouched]);
 
   useEffect(() => {
     if (step !== "scan") return;
@@ -168,19 +152,29 @@ export function Onboarding() {
           <DownloadStep
             catalogId={picked}
             onBack={() => setStep("models")}
-            onReady={() => setStep("agent")}
+            onReady={() => setStep("folders")}
           />
         )}
-        {step === "agent" && (
-          <AgentStep
+        {step === "folders" && (
+          <FoldersStep
             company={company}
             setCompany={setCompany}
             department={department}
             setDepartment={setDepartment}
             employee={employee}
             setEmployee={setEmployee}
-            shared={shared}
-            setShared={setShared}
+            initial={folders}
+            onBack={() => setStep("download")}
+            onContinue={(f, create) => {
+              setFolders(f);
+              setCreateFolders(create);
+              setStep("agent");
+            }}
+          />
+        )}
+        {step === "agent" && folders && (
+          <AgentStep
+            folders={folders}
             botName={botName}
             setBotName={setBotName}
             botJob={botJob}
@@ -189,12 +183,6 @@ export function Onboarding() {
             setColor={setColor}
             mascotId={mascotId}
             setMascotId={setMascotId}
-            companyRoot={companyRoot}
-            setCompanyRoot={(v) => {
-              setRootTouched(true);
-              setCompanyRoot(v);
-            }}
-            previewData={previewData}
             busy={busy}
             error={error}
             onTemplate={(t) => {
@@ -203,7 +191,7 @@ export function Onboarding() {
               setColor(t.color);
               setMascotId(t.mascotId);
             }}
-            onBack={() => setStep("download")}
+            onBack={() => setStep("folders")}
             onFinish={async () => {
               setBusy(true);
               setError(null);
@@ -217,8 +205,8 @@ export function Onboarding() {
                 color,
                 mascotId,
                 modelId,
-                sharedRoot: shared,
-                companyRoot,
+                folders,
+                createFolders,
               });
               setBusy(false);
               if (!result.ok) setError(result.error);
@@ -561,44 +549,30 @@ function DownloadStep({
   );
 }
 
-function AgentStep(props: {
+function FoldersStep(props: {
   company: string;
   setCompany: (v: string) => void;
   department: string;
   setDepartment: (v: string) => void;
   employee: string;
   setEmployee: (v: string) => void;
-  shared: boolean;
-  setShared: (v: boolean) => void;
-  botName: string;
-  setBotName: (v: string) => void;
-  botJob: string;
-  setBotJob: (v: string) => void;
-  color: AgentColorId;
-  setColor: (v: AgentColorId) => void;
-  mascotId: MascotId;
-  setMascotId: (v: MascotId) => void;
-  companyRoot: string;
-  setCompanyRoot: (v: string) => void;
-  previewData: boolean;
-  busy: boolean;
-  error: string | null;
-  onTemplate: (t: (typeof TEMPLATES)[number]) => void;
+  initial: FoldersConfig | null;
   onBack: () => void;
-  onFinish: () => void | Promise<void>;
+  onContinue: (folders: FoldersConfig, create: boolean) => void;
 }) {
   return (
     <section className="stagger-in flex flex-1 flex-col py-6">
       <p className="mb-3 font-mono text-[11px] tracking-[0.18em] text-subtle uppercase">
-        Company
+        Folders
       </p>
-      <h1 className="text-3xl font-medium tracking-tight">Create your first agent</h1>
+      <h1 className="text-3xl font-medium tracking-tight">Connect your folders</h1>
       <p className="mt-2 max-w-xl text-sm text-muted">
-        This writes the company tree on disk. Chat uses the local GGUF you just
-        verified.
+        Pick the real folders your agents work in. Connect folders IT already
+        made, or let LocalBot create a suggested layout. Shared scopes can be
+        skipped. Nothing is uploaded anywhere.
       </p>
 
-      <div className="mt-6 grid gap-4 md:grid-cols-2">
+      <div className="mt-6 grid gap-4 md:grid-cols-3">
         <label className="block text-xs font-medium text-muted">
           Company
           <Input className="mt-1.5" value={props.company} onChange={(e) => props.setCompany(e.target.value)} />
@@ -611,34 +585,57 @@ function AgentStep(props: {
           Your name
           <Input className="mt-1.5" value={props.employee} onChange={(e) => props.setEmployee(e.target.value)} />
         </label>
-        <label className="flex items-end gap-2 pb-1 text-sm text-fg">
-          <input
-            type="checkbox"
-            className="size-4 accent-accent"
-            checked={props.shared}
-            onChange={(e) => props.setShared(e.target.checked)}
-          />
-          This path is a shared drive
-        </label>
       </div>
+      <p className="mt-2 text-xs text-muted">
+        These are labels for the suggested layout. No account is created.
+      </p>
 
-      <label className="mt-4 block text-xs font-medium text-muted">
-        Company root (absolute path)
-        <Input
-          className="mt-1.5 font-mono text-xs"
-          value={props.companyRoot}
-          onChange={(e) => props.setCompanyRoot(e.target.value)}
+      <div className="mt-6">
+        <FoldersForm
+          initial={props.initial}
+          names={{ company: props.company, department: props.department, employee: props.employee }}
+          submitLabel="Continue"
+          busy={false}
+          error={null}
+          onSubmit={(f, create) => props.onContinue(f, create)}
+          footer={
+            <Button variant="ghost" onClick={props.onBack}>
+              <ArrowLeft className="size-4" />
+              Back
+            </Button>
+          }
         />
-      </label>
-      {props.previewData ? (
-        <p className="mt-2 text-xs text-muted">
-          This preview writes to the project data folder.
-        </p>
-      ) : (
-        <p className="mt-2 text-xs text-muted">
-          Shared departments require a shared folder path.
-        </p>
-      )}
+      </div>
+    </section>
+  );
+}
+
+function AgentStep(props: {
+  folders: FoldersConfig;
+  botName: string;
+  setBotName: (v: string) => void;
+  botJob: string;
+  setBotJob: (v: string) => void;
+  color: AgentColorId;
+  setColor: (v: AgentColorId) => void;
+  mascotId: MascotId;
+  setMascotId: (v: MascotId) => void;
+  busy: boolean;
+  error: string | null;
+  onTemplate: (t: (typeof TEMPLATES)[number]) => void;
+  onBack: () => void;
+  onFinish: () => void | Promise<void>;
+}) {
+  return (
+    <section className="stagger-in flex flex-1 flex-col py-6">
+      <p className="mb-3 font-mono text-[11px] tracking-[0.18em] text-subtle uppercase">
+        Agent
+      </p>
+      <h1 className="text-3xl font-medium tracking-tight">Create your first agent</h1>
+      <p className="mt-2 max-w-xl text-sm text-muted">
+        This creates agents/{props.botName || "Name"}/private inside your agents
+        folder. Chat uses the local GGUF you just verified.
+      </p>
 
       <div className="mt-6">
         <p className="text-xs font-medium text-muted">Template</p>
@@ -704,7 +701,7 @@ function AgentStep(props: {
       </div>
 
       <p className="mt-5 font-mono text-[11px] leading-relaxed text-subtle break-all">
-        {`${props.companyRoot || "(set a path)"}/departments/${props.department || "Operations"}/people/${props.employee || "You"}/bots/${props.botName || "Writer"}/`}
+        {`${props.folders.employeeRoot}/agents/${props.botName || "Writer"}/private/`}
       </p>
       {props.error && <p className="mt-2 text-sm text-danger">{props.error}</p>}
 
@@ -713,7 +710,7 @@ function AgentStep(props: {
           <ArrowLeft className="size-4" />
           Back
         </Button>
-        <Button onClick={() => void props.onFinish()} disabled={!props.botName.trim() || !props.companyRoot.trim() || props.busy}>
+        <Button onClick={() => void props.onFinish()} disabled={!props.botName.trim() || props.busy}>
           <Check className="size-4" />
           {props.busy ? "Creating folders…" : "Open chat"}
         </Button>

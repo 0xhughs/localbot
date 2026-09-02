@@ -36,7 +36,7 @@ import {
 import { importGguf, streamHubDownload, verifyModel } from "./runtime/models.ts";
 import { runLocalTurn } from "./runtime/local-engine.ts";
 import { assertLoopbackOnly, describeBind, LOOPBACK_HOST, LOOPBACK_PORT } from "../runtime/loopback.ts";
-import type { Bot, Company, Department, Employee } from "./types.ts";
+import type { Company, Department, Employee, LegacyBot } from "./types.ts";
 import { posixJoin } from "./utils.ts";
 
 function fixture() {
@@ -65,7 +65,7 @@ function fixture() {
     defaultModelId: "qwen25-05b-q4",
     createdAt: now,
   };
-  const bot = (name: string, id: string): Bot => {
+  const bot = (name: string, id: string): LegacyBot => {
     const botDir = posixJoin(employee.path, "bots", name);
     return {
       id,

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { llamaTarget } from "../runtime/llama-platform.ts";
-import type { DiskConfig, DiskEntry } from "../types.ts";
+import type { DiskConfig, DiskEntry, FoldersConfig } from "../types.ts";
 
 export function isElectronRuntime(): boolean {
   return process.env.LOCALBOT_ELECTRON === "1";
@@ -77,47 +77,160 @@ const DEFAULT_CFG_FIELDS = {
   useExistingOllama: false,
 };
 
-export function emptyConfig(): DiskConfig {
-  const companyRoot = defaultCompanyRoot();
+export const CONFIG_VERSION = 2;
+
+/**
+ * Default "Create my folders" layout. A suggestion for the pickers, not a
+ * required company layout — the four scopes may live anywhere.
+ */
+export function suggestedFolders(input: {
+  companyName?: string;
+  departmentName?: string;
+  employeeName?: string;
+}): FoldersConfig {
+  const root = defaultCompanyRoot(input.companyName || "Studio");
+  const dept = slugName(input.departmentName || "Operations");
+  const emp = slugName(input.employeeName || "You");
+  const employeeRoot = path.join(root, "departments", dept, "employees", emp);
   return {
-    companyRoot,
+    employeeRoot,
+    employeeShared: path.join(employeeRoot, "shared"),
+    departmentShared: path.join(root, "departments", dept, "shared"),
+    companyShared: path.join(root, "company-shared"),
+  };
+}
+
+function normalizeFolders(raw: unknown): FoldersConfig | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const employeeRoot = typeof r.employeeRoot === "string" ? r.employeeRoot.trim() : "";
+  if (!employeeRoot) return null;
+  const opt = (v: unknown): string | null =>
+    typeof v === "string" && v.trim() ? path.resolve(v.trim()) : null;
+  return {
+    employeeRoot: path.resolve(employeeRoot),
+    employeeShared: opt(r.employeeShared),
+    departmentShared: opt(r.departmentShared),
+    companyShared: opt(r.companyShared),
+  };
+}
+
+/**
+ * One-time map of a pre-Stage-2 `companyRoot` onto the four scopes. The old
+ * tree was `{root}/departments/{Dept}/people/{Emp}/bots/{Bot}/…`; the first
+ * department/employee found become the employee root. Nothing is moved or
+ * deleted — old `bots/{Name}/workspace` files stay where they are.
+ */
+export function migrateLegacyCompanyRoot(companyRoot: string): FoldersConfig {
+  const root = path.resolve(companyRoot);
+  const firstDir = (dir: string): string | null => {
+    try {
+      const names = fs
+        .readdirSync(dir, { withFileTypes: true })
+        .filter((d) => d.isDirectory())
+        .map((d) => d.name)
+        .sort();
+      return names[0] ?? null;
+    } catch {
+      return null;
+    }
+  };
+  const dept = firstDir(path.join(root, "departments"));
+  const emp = dept ? firstDir(path.join(root, "departments", dept, "people")) : null;
+  const companyShared = fs.existsSync(path.join(root, "shared"))
+    ? path.join(root, "shared")
+    : null;
+  if (dept && emp) {
+    return {
+      employeeRoot: path.join(root, "departments", dept, "people", emp),
+      employeeShared: null,
+      departmentShared: path.join(root, "departments", dept, "shared"),
+      companyShared,
+    };
+  }
+  return {
+    employeeRoot: root,
+    employeeShared: null,
+    departmentShared: null,
+    companyShared,
+  };
+}
+
+export function emptyConfig(): DiskConfig {
+  return {
+    version: CONFIG_VERSION,
+    folders: null,
+    legacyCompanyRoot: null,
     previewWritesToProjectData: true,
     modelsDir: defaultModelsDir(),
     ...DEFAULT_CFG_FIELDS,
   };
 }
 
+function writeConfigFile(cfg: DiskConfig): void {
+  fs.mkdirSync(dataDir(), { recursive: true });
+  fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2) + "\n", "utf8");
+}
+
 export function loadConfig(): DiskConfig {
   const fallback = emptyConfig();
+  let raw: Record<string, unknown>;
   try {
-    const raw = JSON.parse(fs.readFileSync(configPath(), "utf8")) as Partial<DiskConfig>;
-    const companyRoot = raw.companyRoot
-      ? path.resolve(raw.companyRoot)
-      : fallback.companyRoot;
-    const modelsDir = raw.modelsDir ? path.resolve(raw.modelsDir) : defaultModelsDir();
-    return {
-      companyRoot,
-      previewWritesToProjectData: isUnderProjectData(companyRoot),
-      modelsDir,
-      activeModelId: raw.activeModelId ?? null,
-      activeModelPath: raw.activeModelPath ? path.resolve(raw.activeModelPath) : null,
-      allowHostedDemo: Boolean(raw.allowHostedDemo),
-      useExistingOllama: Boolean(raw.useExistingOllama),
-    };
+    raw = JSON.parse(fs.readFileSync(configPath(), "utf8")) as Record<string, unknown>;
   } catch {
     return fallback;
   }
+  const modelsDir =
+    typeof raw.modelsDir === "string" && raw.modelsDir
+      ? path.resolve(raw.modelsDir)
+      : defaultModelsDir();
+  let folders = normalizeFolders(raw.folders);
+  let legacyCompanyRoot =
+    typeof raw.legacyCompanyRoot === "string" && raw.legacyCompanyRoot
+      ? path.resolve(raw.legacyCompanyRoot)
+      : null;
+  let migrated = false;
+  const oldRoot = typeof raw.companyRoot === "string" ? raw.companyRoot.trim() : "";
+  if (!folders && oldRoot) {
+    folders = migrateLegacyCompanyRoot(oldRoot);
+    legacyCompanyRoot = path.resolve(oldRoot);
+    migrated = true;
+  }
+  const cfg: DiskConfig = {
+    version: CONFIG_VERSION,
+    folders,
+    legacyCompanyRoot,
+    previewWritesToProjectData: folders ? isUnderProjectData(folders.employeeRoot) : true,
+    modelsDir,
+    activeModelId: typeof raw.activeModelId === "string" ? raw.activeModelId : null,
+    activeModelPath:
+      typeof raw.activeModelPath === "string" && raw.activeModelPath
+        ? path.resolve(raw.activeModelPath)
+        : null,
+    allowHostedDemo: Boolean(raw.allowHostedDemo),
+    useExistingOllama: Boolean(raw.useExistingOllama),
+  };
+  if (migrated) {
+    try {
+      writeConfigFile(cfg);
+    } catch {
+      /* read-only data dir: keep the in-memory migration */
+    }
+  }
+  return cfg;
 }
 
 export function patchConfig(patch: Partial<DiskConfig>): DiskConfig {
   const cur = loadConfig();
-  const companyRoot = path.resolve(
-    (patch.companyRoot ?? cur.companyRoot).trim() || defaultCompanyRoot(),
-  );
   const modelsDir = path.resolve(patch.modelsDir ?? cur.modelsDir ?? defaultModelsDir());
+  const folders =
+    patch.folders !== undefined ? normalizeFolders(patch.folders) : cur.folders;
   const next: DiskConfig = {
-    companyRoot,
-    previewWritesToProjectData: isUnderProjectData(companyRoot),
+    version: CONFIG_VERSION,
+    folders,
+    legacyCompanyRoot:
+      patch.legacyCompanyRoot !== undefined ? patch.legacyCompanyRoot : cur.legacyCompanyRoot,
+    previewWritesToProjectData: folders ? isUnderProjectData(folders.employeeRoot) : true,
     modelsDir,
     activeModelId: patch.activeModelId !== undefined ? patch.activeModelId : cur.activeModelId,
     activeModelPath:
@@ -131,15 +244,9 @@ export function patchConfig(patch: Partial<DiskConfig>): DiskConfig {
     useExistingOllama:
       patch.useExistingOllama !== undefined ? patch.useExistingOllama : cur.useExistingOllama,
   };
-  fs.mkdirSync(dataDir(), { recursive: true });
   fs.mkdirSync(next.modelsDir, { recursive: true });
-  fs.mkdirSync(next.companyRoot, { recursive: true });
-  fs.writeFileSync(configPath(), JSON.stringify(next, null, 2) + "\n", "utf8");
+  writeConfigFile(next);
   return next;
-}
-
-export function saveConfig(companyRoot: string): DiskConfig {
-  return patchConfig({ companyRoot });
 }
 
 export function assertInsideRoot(companyRoot: string, target: string): string {
@@ -364,13 +471,16 @@ export function diskShell(
   cwd: string,
   command: string,
   allowedRoots?: string[],
+  guard?: (abs: string) => void,
 ): DiskShellResult {
   const tokens = tokenize(command.trim());
   if (tokens.length === 0) return { stdout: "", stderr: "", code: 0 };
   const [cmd, ...args] = tokens;
   const resolve = (p: string) => {
     const abs = p.startsWith("/") ? p : path.join(cwd, p);
-    return authorize(companyRoot, abs, allowedRoots);
+    const ok = authorize(companyRoot, abs, allowedRoots);
+    guard?.(ok);
+    return ok;
   };
   try {
     switch (cmd) {

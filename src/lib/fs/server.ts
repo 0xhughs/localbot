@@ -1,271 +1,268 @@
+/**
+ * Server functions for folder scopes. The sidecar is the source of truth:
+ * every call carries `{ scope, relPath, agentName }` and the host path is
+ * resolved here from `localbot-config.json`. Nothing in this file accepts a
+ * root directory from the browser.
+ */
 import { createServerFn } from "@tanstack/react-start";
-import type { Bot, Company, Department, DiskConfig, DiskEntry, Employee } from "../types.ts";
+import type { DiskConfig, FoldersConfig, ScopedEntry, ScopeId } from "../types.ts";
 import {
-  seedBotFolderOnDisk,
-  seedCompanyTreeOnDisk,
-  seedDepartmentOnDisk,
-  seedEmployeeOnDisk,
-} from "./company-disk.ts";
-import {
-  defaultCompanyRoot,
-  diskDelete,
-  diskExists,
-  diskList,
-  diskMkdir,
-  diskMove,
-  diskPrettyTree,
-  diskRead,
-  diskReplace,
-  diskShell,
-  diskStat,
-  diskWrite,
+  isElectronRuntime,
   loadConfig,
-  saveConfig,
-  type DiskShellResult,
+  suggestedFolders,
+  type DiskShellResult as ShellResult,
 } from "./disk.ts";
+import {
+  ensureAgent,
+  readAgent,
+  readAgentStanding,
+  removeAgent,
+  requireFolders,
+  ScopeError,
+  scopedDelete,
+  scopedList,
+  scopedMkdir,
+  scopedRead,
+  scopedReplace,
+  scopedShell,
+  scopedStat,
+  scopedTree,
+  scopedWrite,
+  setAgentScopes,
+  setFolders,
+  validateFolder,
+  type EnsureAgentInput,
+  type ScopedTarget,
+} from "./scopes.ts";
 
-export type FsArgs = {
-  path: string;
-  companyRoot?: string;
-  allowedRoots?: string[];
-};
+type Fail = { ok: false; error: string; code: string };
 
-function rootOf(companyRoot?: string): string {
-  return companyRoot?.trim() ? companyRoot : loadConfig().companyRoot;
+function fail(err: unknown): Fail {
+  if (err instanceof ScopeError) return { ok: false, error: err.message, code: err.code };
+  return { ok: false, error: err instanceof Error ? err.message : String(err), code: "IO" };
 }
 
-export const fsGetCompanyRoot = createServerFn({ method: "POST" }).handler(
-  async (): Promise<DiskConfig & { defaultRoot: string }> => {
+export type ScopedArgs = ScopedTarget;
+
+/* ---------- folders ---------- */
+
+export type FoldersState = Pick<
+  DiskConfig,
+  "folders" | "legacyCompanyRoot" | "previewWritesToProjectData"
+> & { isElectron: boolean };
+
+export const foldersGet = createServerFn({ method: "POST" }).handler(
+  async (): Promise<FoldersState> => {
     const cfg = loadConfig();
-    return { ...cfg, defaultRoot: defaultCompanyRoot() };
+    return {
+      folders: cfg.folders,
+      legacyCompanyRoot: cfg.legacyCompanyRoot,
+      previewWritesToProjectData: cfg.previewWritesToProjectData,
+      isElectron: isElectronRuntime(),
+    };
   },
 );
 
-export const fsSetCompanyRoot = createServerFn({ method: "POST" })
-  .validator((input: { absolutePath: string }) => input)
-  .handler(async ({ data }): Promise<DiskConfig> => {
-    return saveConfig(data.absolutePath);
-  },
-);
+export const foldersSuggest = createServerFn({ method: "POST" })
+  .validator((input: { companyName?: string; departmentName?: string; employeeName?: string }) => input)
+  .handler(async ({ data }): Promise<FoldersConfig> => suggestedFolders(data));
 
-export const fsList = createServerFn({ method: "POST" })
-  .validator((input: FsArgs) => input)
-  .handler(async ({ data }): Promise<{ ok: true; entries: DiskEntry[] } | { ok: false; error: string }> => {
+export const foldersValidate = createServerFn({ method: "POST" })
+  .validator((input: { path: string }) => input)
+  .handler(async ({ data }) => validateFolder(data.path));
+
+export const foldersSet = createServerFn({ method: "POST" })
+  .validator((input: { folders: Partial<FoldersConfig>; create: boolean }) => input)
+  .handler(async ({ data }) => {
+    try {
+      return setFolders(data.folders, { create: Boolean(data.create) });
+    } catch (err) {
+      return { ...fail(err), field: null as keyof FoldersConfig | null };
+    }
+  });
+
+/* ---------- agents ---------- */
+
+export const agentEnsure = createServerFn({ method: "POST" })
+  .validator((input: EnsureAgentInput) => input)
+  .handler(
+    async ({
+      data,
+    }): Promise<{ ok: true; privatePath: string; agentDir: string; scopes: ScopeId[] } | Fail> => {
+      try {
+        const r = ensureAgent(requireFolders(), data);
+        return { ok: true, ...r };
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+export const agentSetScopes = createServerFn({ method: "POST" })
+  .validator((input: { agentName: string; scopes: string[] }) => input)
+  .handler(async ({ data }): Promise<{ ok: true; scopes: ScopeId[] } | Fail> => {
+    try {
+      return { ok: true, scopes: setAgentScopes(requireFolders(), data.agentName, data.scopes) };
+    } catch (err) {
+      return fail(err);
+    }
+  });
+
+export const agentInfo = createServerFn({ method: "POST" })
+  .validator((input: { agentName: string }) => input)
+  .handler(
+    async ({
+      data,
+    }): Promise<{ ok: true; standing: string | null; scopes: ScopeId[]; exists: boolean } | Fail> => {
+      try {
+        const folders = requireFolders();
+        const rec = readAgent(folders, data.agentName);
+        return {
+          ok: true,
+          exists: Boolean(rec),
+          standing: readAgentStanding(folders, data.agentName),
+          scopes: rec?.scopes ?? ["private"],
+        };
+      } catch (err) {
+        return fail(err);
+      }
+    },
+  );
+
+export const agentRemove = createServerFn({ method: "POST" })
+  .validator((input: { agentName: string }) => input)
+  .handler(async ({ data }): Promise<{ ok: true } | Fail> => {
+    try {
+      removeAgent(requireFolders(), data.agentName);
+      return { ok: true };
+    } catch (err) {
+      return fail(err);
+    }
+  });
+
+/* ---------- agent tools (containment + this agent's scope grant) ---------- */
+
+export const agentFsList = createServerFn({ method: "POST" })
+  .validator((input: ScopedArgs) => input)
+  .handler(async ({ data }): Promise<{ ok: true; entries: ScopedEntry[] } | Fail> => {
+    try {
+      return { ok: true, entries: scopedList(requireFolders(), data, true) };
+    } catch (err) {
+      return fail(err);
+    }
+  });
+
+export const agentFsRead = createServerFn({ method: "POST" })
+  .validator((input: ScopedArgs) => input)
+  .handler(async ({ data }): Promise<{ ok: true; content: string } | Fail> => {
+    try {
+      return { ok: true, content: scopedRead(requireFolders(), data, true) };
+    } catch (err) {
+      return fail(err);
+    }
+  });
+
+export const agentFsWrite = createServerFn({ method: "POST" })
+  .validator((input: ScopedArgs & { content: string }) => input)
+  .handler(async ({ data }): Promise<{ ok: true; display: string } | Fail> => {
+    try {
+      return { ok: true, display: scopedWrite(requireFolders(), data, data.content) };
+    } catch (err) {
+      return fail(err);
+    }
+  });
+
+export const agentFsMkdir = createServerFn({ method: "POST" })
+  .validator((input: ScopedArgs) => input)
+  .handler(async ({ data }): Promise<{ ok: true; display: string } | Fail> => {
+    try {
+      return { ok: true, display: scopedMkdir(requireFolders(), data) };
+    } catch (err) {
+      return fail(err);
+    }
+  });
+
+export const agentFsReplace = createServerFn({ method: "POST" })
+  .validator((input: ScopedArgs & { oldString: string; newString: string }) => input)
+  .handler(async ({ data }): Promise<{ ok: true; display: string } | Fail> => {
     try {
       return {
         ok: true,
-        entries: diskList(rootOf(data.companyRoot), data.path, data.allowedRoots),
+        display: scopedReplace(requireFolders(), data, data.oldString, data.newString),
       };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      return fail(err);
     }
   });
 
-export const fsRead = createServerFn({ method: "POST" })
-  .validator((input: FsArgs) => input)
-  .handler(async ({ data }): Promise<{ ok: true; content: string } | { ok: false; error: string }> => {
+export const agentFsDelete = createServerFn({ method: "POST" })
+  .validator((input: ScopedArgs) => input)
+  .handler(async ({ data }): Promise<{ ok: true; display: string } | Fail> => {
     try {
-      return {
-        ok: true,
-        content: diskRead(rootOf(data.companyRoot), data.path, data.allowedRoots),
-      };
+      return { ok: true, display: scopedDelete(requireFolders(), data) };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      return fail(err);
     }
   });
 
-export const fsWrite = createServerFn({ method: "POST" })
-  .validator((input: FsArgs & { content: string }) => input)
-  .handler(async ({ data }): Promise<{ ok: true } | { ok: false; error: string }> => {
+export const agentFsStat = createServerFn({ method: "POST" })
+  .validator((input: ScopedArgs) => input)
+  .handler(async ({ data }): Promise<{ ok: true; entry: ScopedEntry | null } | Fail> => {
     try {
-      diskWrite(rootOf(data.companyRoot), data.path, data.content, data.allowedRoots);
-      return { ok: true };
+      return { ok: true, entry: scopedStat(requireFolders(), data, true) };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      return fail(err);
     }
   });
 
-export const fsMkdir = createServerFn({ method: "POST" })
-  .validator((input: FsArgs) => input)
-  .handler(async ({ data }): Promise<{ ok: true } | { ok: false; error: string }> => {
+export const agentFsTree = createServerFn({ method: "POST" })
+  .validator((input: ScopedArgs & { max?: number }) => input)
+  .handler(async ({ data }): Promise<{ ok: true; listing: string } | Fail> => {
     try {
-      diskMkdir(rootOf(data.companyRoot), data.path, data.allowedRoots);
-      return { ok: true };
+      return { ok: true, listing: scopedTree(requireFolders(), data, data.max ?? 80, true) };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      return fail(err);
     }
   });
 
-export const fsDelete = createServerFn({ method: "POST" })
-  .validator((input: FsArgs) => input)
-  .handler(async ({ data }): Promise<{ ok: true } | { ok: false; error: string }> => {
+export const agentFsRunCommand = createServerFn({ method: "POST" })
+  .validator((input: { agentName: string; command: string }) => input)
+  .handler(async ({ data }): Promise<({ ok: true } & ShellResult) | Fail> => {
     try {
-      diskDelete(rootOf(data.companyRoot), data.path, data.allowedRoots);
-      return { ok: true };
+      return { ok: true, ...scopedShell(requireFolders(), data.agentName, data.command) };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      return fail(err);
     }
   });
 
-export const fsExists = createServerFn({ method: "POST" })
-  .validator((input: FsArgs) => input)
-  .handler(async ({ data }): Promise<{ ok: true; exists: boolean } | { ok: false; error: string }> => {
+/* ---------- Computer pane (the human browsing their own configured folders) ---------- */
+
+export const browseList = createServerFn({ method: "POST" })
+  .validator((input: ScopedArgs) => input)
+  .handler(async ({ data }): Promise<{ ok: true; entries: ScopedEntry[] } | Fail> => {
     try {
-      return {
-        ok: true,
-        exists: diskExists(rootOf(data.companyRoot), data.path, data.allowedRoots),
-      };
+      return { ok: true, entries: scopedList(requireFolders(), data, false) };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      return fail(err);
     }
   });
 
-export const fsStat = createServerFn({ method: "POST" })
-  .validator((input: FsArgs) => input)
-  .handler(async ({ data }): Promise<{ ok: true; entry: DiskEntry | null } | { ok: false; error: string }> => {
+export const browseRead = createServerFn({ method: "POST" })
+  .validator((input: ScopedArgs) => input)
+  .handler(async ({ data }): Promise<{ ok: true; content: string } | Fail> => {
     try {
-      return {
-        ok: true,
-        entry: diskStat(rootOf(data.companyRoot), data.path, data.allowedRoots),
-      };
+      return { ok: true, content: scopedRead(requireFolders(), data, false) };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      return fail(err);
     }
   });
 
-export const fsReplace = createServerFn({ method: "POST" })
-  .validator((input: FsArgs & { oldString: string; newString: string }) => input)
-  .handler(async ({ data }): Promise<{ ok: true } | { ok: false; error: string }> => {
+export const browseStat = createServerFn({ method: "POST" })
+  .validator((input: ScopedArgs) => input)
+  .handler(async ({ data }): Promise<{ ok: true; entry: ScopedEntry | null } | Fail> => {
     try {
-      diskReplace(
-        rootOf(data.companyRoot),
-        data.path,
-        data.oldString,
-        data.newString,
-        data.allowedRoots,
-      );
-      return { ok: true };
+      return { ok: true, entry: scopedStat(requireFolders(), data, false) };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
-    }
-  });
-
-export const fsMove = createServerFn({ method: "POST" })
-  .validator((input: { from: string; to: string; companyRoot?: string; allowedRoots?: string[] }) => input)
-  .handler(async ({ data }): Promise<{ ok: true } | { ok: false; error: string }> => {
-    try {
-      diskMove(rootOf(data.companyRoot), data.from, data.to, data.allowedRoots);
-      return { ok: true };
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
-    }
-  });
-
-export const fsTree = createServerFn({ method: "POST" })
-  .validator((input: FsArgs & { max?: number }) => input)
-  .handler(async ({ data }): Promise<{ ok: true; listing: string } | { ok: false; error: string }> => {
-    try {
-      return {
-        ok: true,
-        listing: diskPrettyTree(
-          rootOf(data.companyRoot),
-          data.path,
-          data.max ?? 80,
-          data.allowedRoots,
-        ),
-      };
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
-    }
-  });
-
-export const fsRunCommand = createServerFn({ method: "POST" })
-  .validator(
-    (input: {
-      command: string;
-      cwd: string;
-      companyRoot?: string;
-      allowedRoots?: string[];
-    }) => input,
-  )
-  .handler(async ({ data }): Promise<({ ok: true } & DiskShellResult) | { ok: false; error: string }> => {
-    try {
-      const result = diskShell(
-        rootOf(data.companyRoot),
-        data.cwd,
-        data.command,
-        data.allowedRoots,
-      );
-      return { ok: true, ...result };
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
-    }
-  });
-
-export type SeedInput = {
-  companyRoot: string;
-  company: Company;
-  department: Department;
-  employee: Employee;
-  bots: Bot[];
-};
-
-export const fsSeedCompanyTree = createServerFn({ method: "POST" })
-  .validator((input: SeedInput) => input)
-  .handler(async ({ data }): Promise<{ ok: true } | { ok: false; error: string }> => {
-    try {
-      saveConfig(data.companyRoot);
-      seedCompanyTreeOnDisk({
-        companyRoot: data.companyRoot,
-        company: { ...data.company, root: data.companyRoot },
-        department: data.department,
-        employee: data.employee,
-        bots: data.bots,
-      });
-      return { ok: true };
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
-    }
-  });
-
-export const fsSeedBot = createServerFn({ method: "POST" })
-  .validator(
-    (input: {
-      companyRoot: string;
-      bot: Bot;
-      department: Department;
-      employee: Employee;
-    }) => input,
-  )
-  .handler(async ({ data }): Promise<{ ok: true } | { ok: false; error: string }> => {
-    try {
-      seedBotFolderOnDisk(data.companyRoot, data.bot, data.department, data.employee);
-      return { ok: true };
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
-    }
-  });
-
-export const fsSeedDepartment = createServerFn({ method: "POST" })
-  .validator((input: { companyRoot: string; department: Department }) => input)
-  .handler(async ({ data }): Promise<{ ok: true } | { ok: false; error: string }> => {
-    try {
-      seedDepartmentOnDisk(data.companyRoot, data.department);
-      return { ok: true };
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
-    }
-  });
-
-export const fsSeedEmployee = createServerFn({ method: "POST" })
-  .validator(
-    (input: { companyRoot: string; department: Department; employee: Employee }) => input,
-  )
-  .handler(async ({ data }): Promise<{ ok: true } | { ok: false; error: string }> => {
-    try {
-      seedEmployeeOnDisk(data.companyRoot, data.department, data.employee);
-      return { ok: true };
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      return fail(err);
     }
   });

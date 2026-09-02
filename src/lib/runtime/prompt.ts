@@ -1,50 +1,58 @@
 import { getCatalogModel } from "@/lib/catalog";
+import { folderFor, SCOPE_META, type FoldersConfig, type ScopeId } from "@/lib/fs/scope-model";
 import type { AppSnapshot, Bot } from "@/lib/types";
 import { resolveBot } from "@/lib/store";
-import { grantPathFor } from "@/lib/fs/company";
+
+export type ScopeTrees = Partial<Record<ScopeId, string>>;
+
+function scopeLine(bot: Bot, folders: FoldersConfig | null, scope: ScopeId): string {
+  const meta = SCOPE_META[scope];
+  if (scope === "private") {
+    return `- private/ — your own folder (${meta.blurb}) Memory lives in private/memory/notes.md, deliverables in private/output/.`;
+  }
+  const connected = Boolean(folders && folderFor(folders, scope));
+  if (!connected) return `- ${scope}/ — not connected on this computer.`;
+  if (!bot.scopes.includes(scope)) return `- ${scope}/ — connected, but not granted to you.`;
+  return `- ${scope}/ — ${meta.blurb}`;
+}
 
 export function buildSystemPrompt(
-  s: AppSnapshot,
+  s: AppSnapshot & { folders: FoldersConfig | null },
   bot: Bot,
   extras: {
     memory: string;
     standing: string;
-    tree: string;
-    sharedTree: string;
+    trees: ScopeTrees;
   },
 ): string {
   const ctx = resolveBot(s, bot.id);
   if (!ctx) return "You are a LocalBot agent.";
   const model = getCatalogModel(bot.modelId);
   const modelName = model?.name ?? bot.modelId;
-  const shared = bot.grants.includes("shared")
-    ? grantPathFor(bot, ctx.employee, ctx.department, ctx.company, "shared")
-    : null;
-  const outbox = bot.grants.includes("outbox")
-    ? grantPathFor(bot, ctx.employee, ctx.department, ctx.company, "outbox")
-    : null;
 
-  return `You are ${bot.name}, a LocalBot agent in a browser app.
+  const scopeLines = (["private", "employee-shared", "department-shared", "company-shared"] as ScopeId[])
+    .map((sc) => scopeLine(bot, s.folders, sc))
+    .join("\n");
+
+  const treeBlocks = Object.entries(extras.trees)
+    .map(([scope, tree]) => `${scope}/ tree:\n${tree}`)
+    .join("\n\n");
+
+  return `You are ${bot.name}, a LocalBot agent in a desktop app.
 Job: ${bot.job}
 Chat model: local GGUF (${modelName})
 Employee: ${ctx.employee.displayName}
 Department: ${ctx.department.name}
 Company: ${ctx.company.name}
 
-You do real work by calling tools. Prefer write_file / str_replace / list_dir over talking about work. When the user asks you to create something, actually write it into output/ or workspace/. Put finished deliverables in output/ AND copy a final version into the employee outbox when it is granted.
+You do real work by calling tools. Prefer write_file / str_replace / list_dir over talking about work. When the user asks you to create something, actually write it.
 
-Paths you may use (absolute paths on the machine running this server):
-- workspace: ${bot.workspacePath}
-- output: ${bot.outputPath}
-- memory: ${bot.memoryPath}
-${shared ? `- department shared: ${shared}` : "- department shared: not granted"}
-${outbox ? `- outbox: ${outbox}` : ""}
+Folders. Every tool path starts with one of these four names; a bare filename like hello.md means private/hello.md:
+${scopeLines}
 
-Current workspace tree:
-${extras.tree}
+Never use absolute paths, drive letters, or "..". You will not see where these folders live on disk; that is by design.
 
-Shared folder:
-${extras.sharedTree}
+${treeBlocks}
 
 Standing instructions:
 ${extras.standing}
@@ -54,12 +62,12 @@ ${extras.memory}
 
 Rules:
 - Never claim you cannot write files. You can. Use tools.
-- Bare filenames like hello.md go in your workspace. Use the absolute workspace/output paths above.
+- Put finished deliverables in private/output/. Put work for other people in a shared folder that is connected and granted.
 - Never ask the user to paste file contents you can read yourself.
-- Keep replies concise. After tools, summarize what you wrote and where.
-- If another agent is mentioned with @Name, the UI will write a handoff file. You may also write a task note into the shared folder.
+- Keep replies concise. After tools, summarize what you wrote and where, using the scope/ path.
+- If another agent is mentioned with @Name, the UI writes a handoff task file into a shared folder. You may also write a task note there yourself.
 - Do not invent network access. Web search is ${s.settings.webSearchEnabled ? "enabled" : "disabled"}.
-- Stay inside granted folders.`;
+- Stay inside your granted folders.`;
 }
 
 export function rosterBlurb(s: AppSnapshot): string {

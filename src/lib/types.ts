@@ -1,6 +1,8 @@
 import type { MascotId } from "./mascots";
+import type { FoldersConfig, ScopeId } from "./fs/scope-model";
 
 export type { MascotId };
+export type { FoldersConfig, ScopeId };
 
 export type AgentColorId =
   | "sage"
@@ -73,6 +75,7 @@ export type ModelFit = {
 export type Company = {
   id: string;
   name: string;
+  /** Legacy single company root. Empty for installs configured with folder scopes. */
   root: string;
   defaultDepartmentId: string;
   catalogPin: string;
@@ -83,6 +86,7 @@ export type Department = {
   id: string;
   companyId: string;
   name: string;
+  /** Legacy tree path. Display label only in the scoped model. */
   path: string;
   createdAt: string;
 };
@@ -91,6 +95,7 @@ export type Employee = {
   id: string;
   departmentId: string;
   displayName: string;
+  /** Legacy tree path. Display label only in the scoped model. */
   path: string;
   defaultModelId: string | null;
   createdAt: string;
@@ -112,16 +117,28 @@ export type Bot = {
   color: AgentColorId;
   mascotId: MascotId;
   modelId: string;
-  path: string;
-  workspacePath: string;
-  outputPath: string;
-  memoryPath: string;
-  grants: FolderGrant[];
+  /** Scopes this agent may touch. `private` is always present. Agent safety, not RBAC. */
+  scopes: ScopeId[];
+  /** Host path of the agent's private folder. Display only; the sidecar resolves paths. */
+  privatePath: string;
   standingInstructions: string;
   pinned: boolean;
   hidden: boolean;
   unread: number;
   createdAt: string;
+};
+
+/**
+ * Pre-Stage-2 single-root tree shape. Used by the legacy tree helpers
+ * (`fs/company.ts`, `fs/company-disk.ts`, `permissions.ts` grant classifier)
+ * and their disk-grant tests. The live app uses `Bot.scopes`.
+ */
+export type LegacyBot = Omit<Bot, "scopes" | "privatePath"> & {
+  path: string;
+  workspacePath: string;
+  outputPath: string;
+  memoryPath: string;
+  grants: FolderGrant[];
 };
 
 export type DiskEntry = {
@@ -131,8 +148,20 @@ export type DiskEntry = {
   size: number;
 };
 
+/** Entry inside a scope. `relPath` is relative to the scope root; no host path. */
+export type ScopedEntry = {
+  name: string;
+  kind: "file" | "dir";
+  size: number;
+  relPath: string;
+};
+
 export type DiskConfig = {
-  companyRoot: string;
+  version: 2;
+  /** null until onboarding picks folders. */
+  folders: FoldersConfig | null;
+  /** Kept after the one-time companyRoot → folders migration. Never deleted. */
+  legacyCompanyRoot: string | null;
   previewWritesToProjectData: boolean;
   modelsDir: string;
   activeModelId: string | null;
@@ -212,7 +241,7 @@ export type UiState = {
   selectedBotId: string | null;
   showComputer: boolean;
   showSettings: boolean;
-  settingsTab: "general" | "models" | "company" | "runtime" | "safety";
+  settingsTab: "general" | "models" | "folders" | "company" | "runtime" | "safety";
   composer: string;
   commandOpen: boolean;
   agentsOpen: boolean;

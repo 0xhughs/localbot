@@ -9,12 +9,26 @@ export function LocalBotApp() {
   const [ready, setReady] = useState(false);
   const onboarded = useLocalBot((s) => s.onboarded);
   const setRuntime = useLocalBot((s) => s.setRuntime);
+  const refreshFolders = useLocalBot((s) => s.refreshFolders);
+  const ensureAgents = useLocalBot((s) => s.ensureAgents);
 
   useEffect(() => {
     const unsub = useLocalBot.persist.onFinishHydration(() => setReady(true));
     if (useLocalBot.persist.hasHydrated()) setReady(true);
     return unsub;
   }, []);
+
+  // Folder scopes are server-owned. Load them once, then make sure every agent
+  // has its agents/{Name}/private folder (covers sessions migrated from the
+  // single-company-root layout; nothing old is moved).
+  useEffect(() => {
+    if (!ready || !onboarded) return;
+    void refreshFolders().then((folders) => {
+      if (!folders) return;
+      const s = useLocalBot.getState();
+      if (s.bots.some((b) => !b.privatePath)) void ensureAgents();
+    });
+  }, [ready, onboarded, refreshFolders, ensureAgents]);
 
   useEffect(() => {
     if (!ready) return;

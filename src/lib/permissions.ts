@@ -1,5 +1,15 @@
-import type { Bot, Company, Department, Employee, FolderGrant, ToolKind } from "./types.ts";
+import type {
+  Bot as ScopedBot,
+  Company,
+  Department,
+  Employee,
+  FolderGrant,
+  FoldersConfig,
+  LegacyBot as Bot,
+  ToolKind,
+} from "./types.ts";
 import { grantPathFor } from "./fs/company.ts";
+import { displayPath, folderFor, parseScopedPath } from "./fs/scope-model.ts";
 import { normalizePath } from "./fs/vfs.ts";
 import { isUnder } from "./utils.ts";
 
@@ -166,6 +176,83 @@ export function classifyToolCall(
     summary: call.name === "list_dir" ? "Listing" : "Reading",
     detail: path ?? JSON.stringify(call.args),
     allowedByGrant: allowed && !leavesCompany,
+  };
+}
+
+/**
+ * Scope-based classifier for the live app. Paths are `scope/relPath`; a bare
+ * name is `private`. A scope counts as allowed only when the agent is granted
+ * it and a folder is actually connected for it.
+ */
+export function classifyScopedToolCall(
+  call: ToolCall,
+  ctx: {
+    bot: ScopedBot;
+    folders: FoldersConfig | null;
+    webSearchEnabled: boolean;
+    controlThisComputer: boolean;
+  },
+): PermissionClass {
+  const kind = toolKind(call.name);
+  const rawPath = typeof call.args.path === "string" ? call.args.path : undefined;
+  const parsed = rawPath !== undefined ? parseScopedPath(rawPath) : null;
+  const display = parsed ? displayPath(parsed.scope, parsed.relPath) : undefined;
+  const command = typeof call.args.command === "string" ? call.args.command : undefined;
+  const query = typeof call.args.query === "string" ? call.args.query : undefined;
+
+  const connected = parsed
+    ? parsed.scope === "private"
+      ? Boolean(ctx.folders)
+      : Boolean(ctx.folders && folderFor(ctx.folders, parsed.scope))
+    : false;
+  const allowed = parsed ? connected && ctx.bot.scopes.includes(parsed.scope) : false;
+
+  if (kind === "network" || kind === "browser") {
+    return {
+      kind,
+      alwaysAsk: true,
+      summary: kind === "browser" ? "Browser" : "Network",
+      detail: query ?? JSON.stringify(call.args),
+      allowedByGrant: ctx.webSearchEnabled,
+    };
+  }
+  if (kind === "shell") {
+    return {
+      kind: "shell",
+      alwaysAsk: !ctx.controlThisComputer,
+      path: "private/",
+      summary: "Terminal",
+      detail: command ?? JSON.stringify(call.args),
+      allowedByGrant: Boolean(ctx.folders),
+    };
+  }
+  if (kind === "delete") {
+    return {
+      kind: "delete",
+      alwaysAsk: true,
+      path: display,
+      summary: "Delete",
+      detail: display ?? "unknown path",
+      allowedByGrant: allowed,
+    };
+  }
+  if (kind === "write" || kind === "edit") {
+    return {
+      kind,
+      alwaysAsk: !allowed,
+      path: display,
+      summary: kind === "edit" ? "Editing" : "Writing",
+      detail: display ?? "unknown path",
+      allowedByGrant: allowed,
+    };
+  }
+  return {
+    kind: "read",
+    alwaysAsk: !allowed,
+    path: display,
+    summary: call.name === "list_dir" ? "Listing" : "Reading",
+    detail: display ?? JSON.stringify(call.args),
+    allowedByGrant: allowed,
   };
 }
 
