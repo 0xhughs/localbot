@@ -3,16 +3,17 @@
  * Default: local GGUF via llama-server on 127.0.0.1. Hosted grok-4.5 only if
  * the explicit demo switch is on in server config.
  *
- * File tools write to the company root on the server disk.
+ * File tools send `{ scope, relPath, agentName }`; the sidecar resolves the
+ * host path from its own config. No root ever travels from the browser.
  *
  * AbortSignal cannot be forwarded through createServerFn; Stop cancels the
  * client loop between rounds only.
  */
-import { classifyToolCall, denyMessage, grantKey, type ToolCall } from "@/lib/permissions";
-import { grantPathFor } from "@/lib/fs/company";
-import { fsRead, fsTree } from "@/lib/fs/server";
+import { classifyScopedToolCall, denyMessage, grantKey, type ToolCall } from "@/lib/permissions";
+import { agentFsRead, agentFsTree, agentInfo } from "@/lib/fs/server";
+import type { ScopeId } from "@/lib/fs/scope-model";
 import { runHarnessTurn, type TurnMessage, type TurnToolCall } from "@/lib/runtime/turn";
-import { buildSystemPrompt, rosterBlurb } from "@/lib/runtime/prompt";
+import { buildSystemPrompt, rosterBlurb, type ScopeTrees } from "@/lib/runtime/prompt";
 import { resolveBot, useLocalBot } from "@/lib/store";
 import type { PermissionDecision, PermissionRequest, ToolChip } from "@/lib/types";
 import { uid } from "@/lib/utils";
@@ -87,6 +88,9 @@ export async function runAgentLoop(opts: {
   const store = useLocalBot.getState();
   const ctx = resolveBot(store, opts.botId);
   if (!ctx) return { stopped: false, error: "Unknown agent" };
+  if (!store.folders) {
+    return { stopped: false, error: "Folders are not set up. Open Settings → Folders." };
+  }
 
   const history = (store.sessions[opts.botId]?.messages ?? [])
     .filter((m) => m.role === "user" || m.role === "assistant")
@@ -97,17 +101,22 @@ export async function runAgentLoop(opts: {
     }));
 
   const snap = useLocalBot.getState();
-  const shared = ctx.bot.grants.includes("shared")
-    ? grantPathFor(ctx.bot, ctx.employee, ctx.department, ctx.company, "shared")
-    : null;
-  const [memoryRes, standingRes, treeRes, sharedRes] = await Promise.all([
-    fsRead({ data: { path: `${ctx.bot.memoryPath}/notes.md`, companyRoot: ctx.company.root } }),
-    fsRead({ data: { path: `${ctx.bot.path}/AGENTS.md`, companyRoot: ctx.company.root } }),
-    fsTree({ data: { path: ctx.bot.path, companyRoot: ctx.company.root, max: 60 } }),
-    shared
-      ? fsTree({ data: { path: shared, companyRoot: ctx.company.root, max: 40 } })
-      : Promise.resolve({ ok: true as const, listing: "(not granted)" }),
+  const agentName = ctx.bot.name;
+  const treeScopes: ScopeId[] = ["private", "employee-shared", "department-shared"].filter(
+    (sc): sc is ScopeId => ctx.bot.scopes.includes(sc as ScopeId),
+  );
+  const [memoryRes, infoRes, ...treeRes] = await Promise.all([
+    agentFsRead({ data: { scope: "private", relPath: "memory/notes.md", agentName } }),
+    agentInfo({ data: { agentName } }),
+    ...treeScopes.map((scope) =>
+      agentFsTree({ data: { scope, relPath: "", agentName, max: scope === "private" ? 60 : 40 } }),
+    ),
   ]);
+  const trees: ScopeTrees = {};
+  treeScopes.forEach((scope, i) => {
+    const r = treeRes[i];
+    trees[scope] = r && r.ok ? r.listing : r ? `(unavailable: ${r.error})` : "(unavailable)";
+  });
 
   const messages: TurnMessage[] = [
     {
@@ -115,9 +124,9 @@ export async function runAgentLoop(opts: {
       content:
         buildSystemPrompt(snap, ctx.bot, {
           memory: memoryRes.ok ? memoryRes.content : "",
-          standing: standingRes.ok ? standingRes.content : ctx.bot.standingInstructions,
-          tree: treeRes.ok ? treeRes.listing : "(unavailable)",
-          sharedTree: sharedRes.ok ? sharedRes.listing : "(unavailable)",
+          standing:
+            infoRes.ok && infoRes.standing ? infoRes.standing : ctx.bot.standingInstructions,
+          trees,
         }) + `\n\nOther agents:\n${rosterBlurb(snap)}`,
     },
     ...history,
@@ -178,15 +187,13 @@ async function handleOneTool(
   events: AdapterEvents,
 ): Promise<string> {
   const snap = useLocalBot.getState();
-  const ctx = resolveBot(snap, botId);
-  if (!ctx) return "Unknown agent";
+  const bot = snap.bots.find((b) => b.id === botId);
+  if (!bot) return "Unknown agent";
   const args = parseArgs(tc.arguments);
   const call: ToolCall = { name: tc.name, args };
-  const cls = classifyToolCall(call, {
-    bot: ctx.bot,
-    employee: ctx.employee,
-    department: ctx.department,
-    company: ctx.company,
+  const cls = classifyScopedToolCall(call, {
+    bot,
+    folders: snap.folders,
     webSearchEnabled: snap.settings.webSearchEnabled,
     controlThisComputer: snap.settings.controlThisComputer,
   });

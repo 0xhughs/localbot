@@ -17,20 +17,25 @@ export function NewAgentDialog() {
   const [job, setJob] = useState("");
   const [color, setColor] = useState<AgentColorId>("steel");
   const [mascotId, setMascotId] = useState<MascotId>("researcher");
+  const [error, setError] = useState<string | null>(null);
   if (!open) return null;
 
-  const submit = () => {
+  const submit = async () => {
     const n = name.trim() || `Agent ${bots.length + 1}`;
-    void createBot({
-      name: n,
-      job: job.trim() || "Generalist",
-      color,
-      mascotId,
-      modelId: selectedCatalogId ?? "qwen25-05b-q4",
-      extraGrants: ["shared"],
-    });
-    setName("");
-    setJob("");
+    setError(null);
+    try {
+      await createBot({
+        name: n,
+        job: job.trim() || "Generalist",
+        color,
+        mascotId,
+        modelId: selectedCatalogId ?? "qwen25-05b-q4",
+      });
+      setName("");
+      setJob("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
   };
 
   return (
@@ -38,7 +43,7 @@ export function NewAgentDialog() {
       <div className="w-full max-w-md rounded-xl bg-surface p-5 shadow-[0_0_0_1px_var(--color-border),0_16px_40px_rgb(0_0_0/0.45)]">
         <h2 className="text-lg font-medium tracking-tight">New agent</h2>
         <p className="mt-1 text-sm text-muted">
-          Each agent gets a workspace, memory, and output folder.
+          Each agent gets agents/{"{Name}"}/private with memory and output inside.
         </p>
         <label className="mt-4 block text-xs font-medium text-muted">
           Name
@@ -90,11 +95,12 @@ export function NewAgentDialog() {
             ))}
           </div>
         </div>
+        {error && <p className="mt-3 text-sm text-danger">{error}</p>}
         <div className="mt-5 flex justify-end gap-2">
           <Button variant="ghost" onClick={() => setUi({ newAgentOpen: false })}>
             Cancel
           </Button>
-          <Button onClick={submit}>Create</Button>
+          <Button onClick={() => void submit()}>Create</Button>
         </div>
       </div>
     </div>

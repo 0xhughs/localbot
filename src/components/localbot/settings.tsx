@@ -1,7 +1,14 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { CATALOG } from "@/lib/catalog";
-import { fsGetCompanyRoot } from "@/lib/fs/server";
+import {
+  configuredScopes,
+  folderFor,
+  SCOPE_IDS,
+  SCOPE_META,
+  type FoldersConfig,
+  type ScopeId,
+} from "@/lib/fs/scope-model";
 import {
   modelDownloadStart,
   modelEngineStatus,
@@ -11,14 +18,16 @@ import {
   modelSetOllama,
 } from "@/lib/runtime/model-server";
 import { useLocalBot } from "@/lib/store";
-import { AGENT_COLOR_LIST, type FolderGrant } from "@/lib/types";
+import { AGENT_COLOR_LIST } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { FoldersForm } from "./folder-picker";
 
 const TABS = [
   ["general", "General"],
   ["models", "Models"],
-  ["company", "Company"],
+  ["folders", "Folders"],
+  ["company", "Agents"],
   ["runtime", "Runtime"],
   ["safety", "Safety"],
 ] as const;
@@ -61,7 +70,8 @@ export function SettingsDialog() {
         <div className="min-h-0 flex-1 overflow-y-auto p-5 scrollbar-thin">
           {tab === "general" && <GeneralPane />}
           {tab === "models" && <ModelsPane />}
-          {tab === "company" && <CompanyPane />}
+          {tab === "folders" && <FoldersPane />}
+          {tab === "company" && <AgentsPane />}
           {tab === "runtime" && <RuntimePane />}
           {tab === "safety" && <SafetyPane />}
         </div>
@@ -89,9 +99,9 @@ function GeneralPane() {
       </Field>
       <Field label="This build">
         <p className="text-sm leading-relaxed text-muted">
-          Browser app. Chat uses a local GGUF via llama.cpp on this machine. Work
-          files live on disk at the company root. Hosted models stay off unless you
-          turn on the explicit demo switch.
+          Chat uses a local GGUF via llama.cpp on this machine. Work files live in
+          the folders you connected under Settings → Folders. Hosted models stay off
+          unless you turn on the explicit demo switch.
         </p>
       </Field>
       {preview && (
@@ -196,114 +206,115 @@ function ModelsPane() {
   );
 }
 
-function CompanyPane() {
+function FoldersPane() {
+  const folders = useLocalBot((s) => s.folders);
+  const meta = useLocalBot((s) => s.foldersMeta);
+  const company = useLocalBot((s) => s.company);
   const departments = useLocalBot((s) => s.departments);
   const employees = useLocalBot((s) => s.employees);
-  const bots = useLocalBot((s) => s.bots);
-  const settings = useLocalBot((s) => s.settings);
-  const company = useLocalBot((s) => s.company);
-  const setCompanyRootShared = useLocalBot((s) => s.setCompanyRootShared);
-  const setBotGrants = useLocalBot((s) => s.setBotGrants);
-  const createBot = useLocalBot((s) => s.createBot);
-  const createDepartment = useLocalBot((s) => s.createDepartment);
-  const createEmployee = useLocalBot((s) => s.createEmployee);
-  const moveBotToEmployee = useLocalBot((s) => s.moveBotToEmployee);
-  const applyCompanyRoot = useLocalBot((s) => s.applyCompanyRoot);
-  const seedFoldersHere = useLocalBot((s) => s.seedFoldersHere);
-  const selectedCatalogId = useLocalBot((s) => s.selectedCatalogId);
   const preview = useLocalBot((s) => s.previewWritesToProjectData);
-  const [path, setPath] = useState(company?.root ?? "");
-  const [msg, setMsg] = useState<string | null>(null);
+  const applyFolders = useLocalBot((s) => s.applyFolders);
+  const refreshFolders = useLocalBot((s) => s.refreshFolders);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState<{ previous: FoldersConfig | null; current: FoldersConfig } | null>(null);
 
   useEffect(() => {
-    setPath(company?.root ?? "");
-    void fsGetCompanyRoot().then((cfg) => {
-      if (!company?.root) setPath(cfg.companyRoot);
-    });
-  }, [company?.root]);
+    void refreshFolders();
+  }, [refreshFolders]);
 
-  const copyPath = async () => {
-    try {
-      await navigator.clipboard.writeText(path);
-      setMsg("Path copied.");
-    } catch {
-      setMsg(path);
-    }
-  };
+  const changed = saved
+    ? SCOPE_IDS.filter((sc) => {
+        const before = saved.previous ? folderFor(saved.previous, sc) : null;
+        return before && before !== folderFor(saved.current, sc);
+      })
+    : [];
 
   return (
     <div className="space-y-5">
-      <Field label="Company root (absolute path)">
-        <Input
-          className="font-mono text-xs"
-          value={path}
-          onChange={(e) => setPath(e.target.value)}
-        />
-      </Field>
-      <div className="flex flex-wrap gap-2">
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={async () => {
-            const r = await applyCompanyRoot(path);
-            setMsg(r.ok ? `Using ${r.root}` : r.error);
-          }}
-        >
-          Use this path
-        </Button>
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={async () => {
-            const r = await seedFoldersHere();
-            setMsg(r.ok ? "Folders created on disk." : r.error);
-          }}
-        >
-          Create folders here
-        </Button>
-        <Button variant="ghost" size="sm" onClick={() => void copyPath()}>
-          Reveal path
-        </Button>
-      </div>
-      {preview && (
-        <p className="text-xs text-muted">
-          This preview writes to the project data folder.
-        </p>
-      )}
-      {msg && <p className="font-mono text-xs text-muted">{msg}</p>}
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          className="size-4 accent-accent"
-          checked={settings.companyRootIsShared}
-          onChange={(e) => setCompanyRootShared(e.target.checked)}
-        />
-        This path is a shared drive
-      </label>
-      <p className="text-xs text-muted">
-        Two people see the same files only if this process and theirs point at
-        the same real folder (NAS / Drive / shared disk) on the machine running
-        the server. This checkbox only changes the copy.
+      <p className="text-sm leading-relaxed text-muted">
+        Four scopes, each a real folder on this computer or a mounted share. The
+        local sidecar stores them in localbot-config.json and resolves every agent
+        path from them. {meta.isElectron ? "Use Choose… to open the OS folder dialog." : "This is the browser preview: type a path; the OS dialog is only in the desktop app."}
       </p>
-      <div className="flex flex-wrap gap-2">
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={() => void createDepartment("Research")}
-        >
-          Add department
-        </Button>
-        {departments[0] && (
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => void createEmployee(departments[0]!.id, "Teammate")}
-          >
-            Add employee
-          </Button>
-        )}
-      </div>
-      <h2 className="text-sm font-medium">Agents & grants</h2>
+      <FoldersForm
+        initial={folders}
+        names={{
+          company: company?.name ?? "Studio",
+          department: departments[0]?.name ?? "Operations",
+          employee: employees[0]?.displayName ?? "You",
+        }}
+        submitLabel="Save folders"
+        busy={busy}
+        error={error}
+        onSubmit={async (f, create) => {
+          setBusy(true);
+          setError(null);
+          setSaved(null);
+          const r = await applyFolders(f, create);
+          setBusy(false);
+          if (!r.ok) {
+            setError(r.error);
+            return;
+          }
+          setSaved({ previous: r.previous, current: r.folders });
+        }}
+      />
+      {saved && (
+        <div className="rounded-md bg-raised p-3 text-xs leading-relaxed text-muted shadow-[0_0_0_1px_var(--color-border)]">
+          <p className="text-fg">Saved.</p>
+          {changed.length > 0 ? (
+            <>
+              <p className="mt-1">
+                Changing a folder does not move old files. They are still where they
+                were:
+              </p>
+              <ul className="mt-1 space-y-0.5 font-mono text-[11px]">
+                {changed.map((sc) => (
+                  <li key={sc} className="break-all">
+                    {sc}: {folderFor(saved.previous!, sc)} → {folderFor(saved.current, sc)}
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : (
+            <p className="mt-1">No folder location changed.</p>
+          )}
+        </div>
+      )}
+      {meta.legacyCompanyRoot && (
+        <div className="rounded-md bg-raised p-3 text-xs leading-relaxed text-muted shadow-[0_0_0_1px_var(--color-border)]">
+          <p className="text-fg">Migrated from a single company root.</p>
+          <p className="mt-1 break-all font-mono text-[11px]">{meta.legacyCompanyRoot}</p>
+          <p className="mt-1">
+            Old agent files under …/bots/&#123;Name&#125;/workspace were not moved or
+            deleted. New agent folders are agents/&#123;Name&#125;/private inside your
+            agents folder.
+          </p>
+        </div>
+      )}
+      {preview && (
+        <p className="text-xs text-muted">This preview writes to the project data folder.</p>
+      )}
+    </div>
+  );
+}
+
+function AgentsPane() {
+  const bots = useLocalBot((s) => s.bots);
+  const folders = useLocalBot((s) => s.folders);
+  const setBotScopes = useLocalBot((s) => s.setBotScopes);
+  const createBot = useLocalBot((s) => s.createBot);
+  const selectedCatalogId = useLocalBot((s) => s.selectedCatalogId);
+  const [msg, setMsg] = useState<string | null>(null);
+  const connected = configuredScopes(folders);
+
+  return (
+    <div className="space-y-5">
+      <p className="text-sm leading-relaxed text-muted">
+        Each agent may touch only the scopes ticked here. Private is always on.
+        Greyed scopes have no folder connected — pick one under Folders.
+      </p>
       {bots.map((bot) => (
         <div
           key={bot.id}
@@ -311,44 +322,37 @@ function CompanyPane() {
         >
           <div className="flex items-center justify-between gap-2">
             <p className="text-sm font-medium">{bot.name}</p>
-            <select
-              className="h-8 rounded-sm bg-bg px-2 text-xs text-fg shadow-[0_0_0_1px_var(--color-border)]"
-              value={bot.employeeId}
-              onChange={(e) => void moveBotToEmployee(bot.id, e.target.value)}
-            >
-              {employees.map((e) => (
-                <option key={e.id} value={e.id}>
-                  {e.displayName}
-                </option>
-              ))}
-            </select>
+            <p className="max-w-[60%] truncate font-mono text-[10px] text-subtle" title={bot.privatePath}>
+              {bot.privatePath || "—"}
+            </p>
           </div>
           <div className="mt-2 flex flex-wrap gap-2">
-            {(["workspace", "output", "shared", "outbox", "company-shared"] as FolderGrant[]).map(
-              (g) => {
-                const on = bot.grants.includes(g);
-                return (
-                  <button
-                    key={g}
-                    type="button"
-                    onClick={() => {
-                      const next = on
-                        ? bot.grants.filter((x) => x !== g)
-                        : [...bot.grants, g];
-                      void setBotGrants(bot.id, next);
-                    }}
-                    className={`rounded-full px-2.5 py-1 text-[11px] ${
-                      on ? "bg-accent/15 text-accent" : "bg-bg text-muted"
-                    }`}
-                  >
-                    {g}
-                  </button>
-                );
-              },
-            )}
+            {SCOPE_IDS.map((sc: ScopeId) => {
+              const on = bot.scopes.includes(sc);
+              const available = sc === "private" || connected.includes(sc);
+              return (
+                <button
+                  key={sc}
+                  type="button"
+                  disabled={sc === "private" || !available}
+                  title={!available ? `${SCOPE_META[sc].label} is not connected` : undefined}
+                  onClick={async () => {
+                    const next = on ? bot.scopes.filter((x) => x !== sc) : [...bot.scopes, sc];
+                    const r = await setBotScopes(bot.id, next);
+                    setMsg(r.ok ? null : r.error);
+                  }}
+                  className={`rounded-full px-2.5 py-1 text-[11px] ${
+                    on ? "bg-accent/15 text-accent" : "bg-bg text-muted"
+                  } ${!available ? "cursor-not-allowed opacity-40" : ""}`}
+                >
+                  {sc}
+                </button>
+              );
+            })}
           </div>
         </div>
       ))}
+      {msg && <p className="font-mono text-xs text-danger">{msg}</p>}
       <Button
         size="sm"
         onClick={() =>
@@ -357,7 +361,7 @@ function CompanyPane() {
             job: "Generalist",
             color: AGENT_COLOR_LIST[bots.length % AGENT_COLOR_LIST.length]!.id,
             modelId: selectedCatalogId ?? "qwen25-05b-q4",
-          })
+          }).catch((err: unknown) => setMsg(err instanceof Error ? err.message : String(err)))
         }
       >
         New agent
@@ -368,7 +372,7 @@ function CompanyPane() {
 
 function RuntimePane() {
   const runtime = useLocalBot((s) => s.runtime);
-  const company = useLocalBot((s) => s.company);
+  const folders = useLocalBot((s) => s.folders);
   const [engine, setEngine] = useState(runtime);
   useEffect(() => {
     void modelEngineStatus().then((s) => {
@@ -392,7 +396,13 @@ function RuntimePane() {
       <Row k="GGUF" v={engine.ggufPath || runtime.ggufPath || "—"} />
       <Row k="RAM estimate" v={engine.ramEstimate || "—"} />
       <Row k="Loopback" v={engine.loopback || runtime.loopback || "—"} />
-      <Row k="Company root" v={company?.root ?? "—"} />
+      {SCOPE_IDS.map((sc) => (
+        <Row
+          k={SCOPE_META[sc].label}
+          key={sc}
+          v={folders ? (folderFor(folders, sc) ?? "not connected") : "—"}
+        />
+      ))}
       <p className="text-sm leading-relaxed text-muted">
         llama-server binds 127.0.0.1 only. Chat does not call a hosted API unless
         you turn on Allow hosted demo (breaks policy).
@@ -470,7 +480,7 @@ function SafetyPane() {
             <span className="block text-sm text-danger">Control this computer</span>
             <span className="text-xs text-muted">
               Off. Turns off permission cards for the workspace shell. Still
-              scoped to the company root.
+              scoped to the agent's private folder.
             </span>
           </span>
         </label>

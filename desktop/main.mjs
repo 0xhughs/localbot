@@ -201,6 +201,24 @@ async function createWindow(uiUrl) {
   ipcMain.removeAllListeners("localbot:minimize");
   ipcMain.removeAllListeners("localbot:maximize");
   ipcMain.removeAllListeners("localbot:close");
+  ipcMain.removeHandler("localbot:pickFolder");
+
+  // Native folder dialog. Returns one absolute path or null. The renderer
+  // still sends the result through the sidecar's folder validation before it
+  // becomes a configured scope.
+  ipcMain.handle("localbot:pickFolder", async (_e, opts) => {
+    const title = opts && typeof opts.title === "string" ? opts.title : "Choose a folder";
+    const defaultPath =
+      opts && typeof opts.defaultPath === "string" && opts.defaultPath ? opts.defaultPath : undefined;
+    const result = await dialog.showOpenDialog(win, {
+      title,
+      defaultPath,
+      buttonLabel: "Use this folder",
+      properties: ["openDirectory", "createDirectory", "dontAddToRecent"],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0];
+  });
 
   ipcMain.on("localbot:title", (_e, title) => {
     if (typeof title === "string" && title.trim()) win.setTitle(title.trim());

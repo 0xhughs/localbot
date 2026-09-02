@@ -22,9 +22,9 @@ import { AgentAvatar } from "./avatar";
 import { ChatMarkdown } from "./markdown";
 
 const SUGGESTIONS = [
-  "Write a one-page launch brief into output/brief.md",
-  "List everything in your workspace and summarize it",
-  "Create notes.md in your workspace with today's priorities",
+  "Write a one-page launch brief into private/output/brief.md",
+  "List everything in private/ and summarize it",
+  "Create notes.md in private/ with today's priorities",
 ];
 
 export function ChatPane() {
@@ -145,12 +145,12 @@ export function ChatPane() {
 
   const onAttach = async (file: File) => {
     const text = await file.text();
-    const path = `${bot.workspacePath}/${file.name}`;
+    const path = `private/${file.name}`;
     const r = await writeBotFile(bot.id, path, text);
     appendMessage(bot.id, {
       role: "system",
       content: r.ok
-        ? `Attached ${file.name} into workspace.`
+        ? `Attached ${file.name} into private/.`
         : `Could not attach ${file.name}: ${r.error}`,
     });
   };
@@ -292,8 +292,8 @@ export function ChatPane() {
         </div>
         <p className="mx-auto mt-2 max-w-2xl font-mono text-[10px] text-subtle">
           {ctx
-            ? `computer · ${bot.workspacePath}`
-            : "workspace"}
+            ? `private · ${bot.privatePath || "agents/" + bot.name + "/private"}`
+            : "private"}
         </p>
       </div>
     </section>
@@ -304,7 +304,7 @@ function Empty({ botName, onPick }: { botName: string; onPick: (t: string) => vo
   return (
     <div className="mx-auto flex max-w-lg flex-col items-start py-10">
       <p className="text-sm text-muted">
-        {botName} is ready. Work stays in the workspace. Try one of these:
+        {botName} is ready. Work stays in its private folder unless you grant a shared scope. Try one of these:
       </p>
       <div className="mt-4 flex flex-col gap-2">
         {SUGGESTIONS.map((s) => (
