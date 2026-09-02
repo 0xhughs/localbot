@@ -1,5 +1,25 @@
 # LOCALBOT_HANDOFF.md
 
+## Update after Stage 1 — Clean foundation
+2026-09-02 · branch `cursor/stage-1-clean-foundation-dad0`
+
+**What actually WORKS now**
+- Package is named `localbot` (`package.json` / `package-lock.json`), not `app-builder-workspace`.
+- `npm run lint` (0 problems), `npm run typecheck`, and `npm test` (248 pass / 0 fail) all exit 0. Previously: 1 lint error, 2 type errors, 10 failing template tests.
+- `.output/` and `.vercel/` are gitignored and no longer tracked (109 files removed from the index). `npm run build` still regenerates them and succeeds.
+- Dead template code removed: `src/lib/multiplayer/` (unimported), the unused `isDesktopShell()` export, and a write-only `loadedPath` var.
+- Existing dark UI / onboarding / hardware scan / catalog / llama.cpp loopback / Electron window are untouched: dev server serves HTTP 200 and the auth invariant still agrees (sign-in off).
+
+**Still NOT BUILT (deferred to later stages)**
+- Hosted-demo code still present (`hosted-turn.ts`, `allowHostedDemo` branch) — off by default behind the Settings safety switch.
+- `auth/`, `db.ts` + `migrations/`, and the `grok-pwa` plugin remain: still imported by `__root.tsx` / `auth/server.ts` / `vite.config.ts`, so not dead by import check.
+- Per-launch sidecar token + narrow preload/IPC bridge: NOT BUILT (`desktop/preload.mjs` exposes only window controls).
+- Durable config off `localStorage`: NOT BUILT (`store.ts` still persists `localbot-state-v3`).
+
+See `STAGE_HANDOFF.md` for the exact prove-it command and file list.
+
+---
+
 ## Update after package pass
 2026-09-01
 - Packaged binary path: `dist/desktop/linux-unpacked/LocalBot` (this OS). macOS `dist/desktop/mac/LocalBot.app`. Windows `dist/desktop/win-unpacked/LocalBot.exe`.
