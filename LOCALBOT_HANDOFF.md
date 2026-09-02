@@ -1,5 +1,23 @@
 # LOCALBOT_HANDOFF.md
 
+## Update after Stage 3 — Four-scope browser + watch/poll + Refresh
+2026-09-02 · branch `stage-3-watch-refresh`
+
+**What actually WORKS now**
+- The sidecar watches every configured folder (`src/lib/fs/watch.ts`): recursive `fs.watch` plus a 15 s safety poll where the OS delivers events; a bounded metadata poll (2 s, depth 4, 2000 entries) as the only source on network mounts / UNC paths / when `fs.watch` cannot attach, or when `LOCALBOT_WATCH_MODE=poll`. Watchers never write. Each root has a monotonic `version` and an `ok` / `disconnected` status with the OS reason.
+- External writes into a configured scope appear in the Computer pane without a restart and without this process writing the file: the pane polls `scopesStatus` every 3 s and re-lists a section when its `version` moves. Verified in the browser preview: a file written from a terminal appeared under Department in ~2 s.
+- **Refresh** button in the Computer pane header re-lists every visible scope through the sidecar resolver (`browseRefresh` rescans every root now). Verified with a 10-minute forced poll: nothing appeared until Refresh was clicked.
+- A missing / unmounted configured folder is `ScopeError("DISCONNECTED")` for that scope on every browse and agent-tool op (`assertScopeConnected` in `resolveScopePath`). The pane shows a **Disconnected** banner with the reason and path on that section only; the other scopes keep working. A recursive `mkdir` can no longer recreate a vanished share as a local folder. Null scopes stay hidden; `..` / absolute / drive / UNC / symlink escapes stay denied (checked before the disk is touched).
+- Electron **Reveal in Finder / Explorer**: one new narrow IPC `localbot:revealPath` (`shell.showItemInFolder`) in the `pickFolder` style; main re-checks the path against the configured folders in `localbot-config.json`. The host path comes from the sidecar (`browseHostPath`), never from the browser. Web preview keeps copy-path. The painted action is **UNVERIFIED** on this GTK-less host.
+- `npm run lint`, `npm run typecheck`, `npm test` (195 + 82) exit 0. 14 new tests in `src/lib/fs/watch.test.ts`.
+
+**Still NOT BUILT**
+- DeepSeek Harness (custom loop unchanged; AGENTS.md item 4). Signed installers. Real two-machine / NAS run (**UNVERIFIED**; poll mode was forced, not measured on SMB/NFS; macOS network detection returns false and relies on the safety poll). Sidecar token. Agents / chats still in `localStorage["localbot-state-v3"]`. Rename / archive. Atomic writes / stale checks. Push (SSE) updates — the pane polls status every 3 s.
+
+See `STAGE_HANDOFF.md` for the exact prove-it command, pass output, and in-app test steps.
+
+---
+
 ## Update after Stage 2 — Folder scopes + native pickers
 2026-09-02 · branch `stage-2-folder-scopes`
 
@@ -307,7 +325,7 @@ Disk grant tests kept. Added: server RAM (`ramSource: "os"`), Large disabled on 
 | Arabic UI / RTL | **NOT BUILT** | `html lang="en"` |
 | Company root picker | **PARTIAL** | Absolute path field, no OS folder dialog |
 | NAS / two-machine sharing | **NOT BUILT** | Same real folder on the server machine only |
-| Filesystem watcher | **NOT BUILT** | Computer pane refetches on `diskEpoch` |
+| Filesystem watcher | **WORKS** (Stage 3) | `src/lib/fs/watch.ts` — `fs.watch` + bounded poll; pane polls `scopesStatus` |
 | Streaming tokens | **NOT BUILT** | Single completion |
 | Ollama | **STUB** | Optional “Use existing Ollama”, default off, not required |
 | Control this computer | **WORKS** | Switch exists, default off |
@@ -333,7 +351,7 @@ Disk grant tests kept. Added: server RAM (`ramSource: "os"`), Large disabled on 
 - **Inbox grant has no Settings chip (cosmetic).**
 - **`npm test` fails template PWA tests (annoying for CI).** LocalBot tests pass in isolation.
 - **Company rename does not move folders (annoying).**
-- **No `fs.watch` (annoying).**
+- ~~No `fs.watch`~~ — Stage 3 added watch/poll + Refresh.
 - **Do not kill llama-server on 18789** unless replacing it. `ensureLocalServer` reuses a healthy process.
 - **Signed store installer not this pass.** Linux preview host has no GTK 3, so Electron cannot paint here. `npm run desktop` still launches the process (xvfb).
 - **If `npm run dev` is already up, `npm run desktop` attaches to it** and keeps the web data dir. A clean `npm run desktop` starts the UI with Electron appData/documents paths.
