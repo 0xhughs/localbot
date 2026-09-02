@@ -1,4 +1,4 @@
-import { AGENT_COLORS, type Bot } from "@/lib/types";
+import { type Bot } from "@/lib/types";
 import { isMascotId, mascotIdForTemplate } from "@/lib/mascots";
 import { cn } from "@/lib/utils";
 import { MascotMark } from "./mascots";

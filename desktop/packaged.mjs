@@ -51,12 +51,16 @@ export function resolveUiLoad({
   };
 }
 
+/** @param {string} serverDir */
 export function sidecarServerEntry(serverDir) {
   if (!serverDir) return null;
   return `${String(serverDir).replace(/[/\\]+$/, "")}/server/index.mjs`;
 }
 
-/** ESM child processes cannot import from asar; use the unpacked twin. */
+/**
+ * ESM child processes cannot import from asar; use the unpacked twin.
+ * @param {string} filePath
+ */
 export function unpackAsarPath(filePath) {
   return String(filePath).replace(/app\.asar(?=\/|\\)/, "app.asar.unpacked");
 }

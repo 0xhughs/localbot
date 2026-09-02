@@ -19,7 +19,7 @@ import {
   makeTempRoot,
 } from "./fs/disk.ts";
 import { scanHardware } from "./hardware.ts";
-import { scanServerHardware, scanServerHardwareFrom } from "./hardware-server.ts";
+import { scanServerHardwareFrom } from "./hardware-server.ts";
 import { classifyToolCall, pathAllowed } from "./permissions.ts";
 import { mascotIdForTemplate } from "./mascots.ts";
 import { executeTurn } from "./runtime/execute-turn.ts";
