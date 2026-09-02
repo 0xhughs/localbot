@@ -15,10 +15,6 @@ declare global {
   }
 }
 
-export function isDesktopShell(): boolean {
-  return typeof window !== "undefined" && Boolean(window.localbotDesktop);
-}
-
 export function DesktopTitlebar() {
   const selected = useLocalBot((s) => s.ui.selectedBotId);
   const bots = useLocalBot((s) => s.bots);

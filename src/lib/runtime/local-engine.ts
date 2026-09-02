@@ -10,7 +10,6 @@ import { getCatalogModel, requiredMemoryGb } from "../catalog.ts";
 import { LOOPBACK_HOST, LOOPBACK_PORT, LOCAL_OPENAI_BASE_URL, assertLoopbackOnly } from "../../runtime/loopback.ts";
 
 let child: ChildProcess | null = null;
-let loadedPath: string | null = null;
 
 export function llamaServerBin(): string {
   return path.join(llamaBinDir(), llamaServerName());
@@ -173,7 +172,6 @@ export async function ensureLocalServer(): Promise<{ ok: true; url: string } | {
     return { ok: false, error: "Local model not ready. Download or import a GGUF first." };
   }
   if (await pingLocal()) {
-    loadedPath = ready.path;
     return { ok: true, url: LOCAL_OPENAI_BASE_URL };
   }
   const bin = await ensureLlamaBinary();
@@ -209,7 +207,6 @@ export async function ensureLocalServer(): Promise<{ ok: true; url: string } | {
   child.stderr?.on("data", () => undefined);
   child.on("exit", () => {
     child = null;
-    loadedPath = null;
   });
   const ok = await waitForHealth(90000);
   if (!ok) {
@@ -217,7 +214,6 @@ export async function ensureLocalServer(): Promise<{ ok: true; url: string } | {
     child = null;
     return { ok: false, error: "llama-server failed to start. Local model not ready." };
   }
-  loadedPath = ready.path;
   return { ok: true, url: LOCAL_OPENAI_BASE_URL };
 }
 
