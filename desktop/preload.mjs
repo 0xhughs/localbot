@@ -17,4 +17,11 @@ contextBridge.exposeInMainWorld("localbotDesktop", {
    * @returns {Promise<string | null>}
    */
   pickFolder: (opts) => ipcRenderer.invoke("localbot:pickFolder", opts ?? {}),
+  /**
+   * Show a file or folder in Finder / Explorer. `hostPath` comes from the
+   * sidecar's browseHostPath; main re-checks it against the configured folders.
+   * @param {string} hostPath
+   * @returns {Promise<{ ok: boolean; error?: string }>}
+   */
+  revealPath: (hostPath) => ipcRenderer.invoke("localbot:revealPath", hostPath),
 });
