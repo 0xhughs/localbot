@@ -1,56 +1,102 @@
 # Folder contract
 
-Work product lives on **disk** under the configured company root. Browser state (agents, chats, pins, grants) stays in `localStorage`. File bodies are not stored in the browser.
+Work product lives on **disk** in four folder scopes the employee picks. Browser state (agents, chats, pins, chat grants) stays in `localStorage` for now (Stage 7 moves it). File bodies are never stored in the browser. The **sidecar** (the Node server) is the only thing that knows where a scope lives; the UI and the model only ever say `scope/relative/path`.
 
-## Trees
+## Four scopes
 
-Server config:
+| Scope (what the model sees) | Config key | Required | Resolves to |
+|---|---|---|---|
+| `private/` | `folders.employeeRoot` | yes | `{employeeRoot}/agents/{AgentName}/private/` |
+| `employee-shared/` | `folders.employeeShared` | no (may be `null`) | that folder |
+| `department-shared/` | `folders.departmentShared` | no (may be `null`) | that folder |
+| `company-shared/` | `folders.companyShared` | no (may be `null`) | that folder |
 
-```
-{cwd}/data/localbot-config.json    # company root, models dir, active GGUF, demo switches
-```
+The four locations do not have to share a parent. Any of them can be a local folder, a mapped drive, or a mounted share. A `null` scope is hidden in the Computer pane and refused by the resolver (`SCOPE_UNSET`).
 
-Models (not under the company root):
+A bare path like `hello.md` means `private/hello.md`.
 
-```
-{cwd}/data/LocalBot/models/{filename}.gguf
-{cwd}/data/LocalBot/bin/llama-b10749/    # official llama.cpp CPU build
-```
-
-Company root (default `{cwd}/data/LocalBot/{CompanyName}`):
+## Server config
 
 ```
-{CompanyRoot}/
-  company.json
-  shared/
+{dataDir}/localbot-config.json
+```
+
+```json
+{
+  "version": 2,
+  "folders": {
+    "employeeRoot": "/abs/path",
+    "employeeShared": "/abs/path or null",
+    "departmentShared": "/abs/path or null",
+    "companyShared": null
+  },
+  "legacyCompanyRoot": null,
+  "previewWritesToProjectData": true,
+  "modelsDir": "...",
+  "activeModelId": "...",
+  "activeModelPath": "...",
+  "allowHostedDemo": false,
+  "useExistingOllama": false
+}
+```
+
+`dataDir` is `{cwd}/data` in the browser preview / `npm run desktop`, `{appData}/LocalBot` in the packaged Electron app, or `LOCALBOT_DATA_DIR`.
+
+### Migration from the single company root
+
+A v1 file (`companyRoot`, no `folders`) is migrated once on the next load:
+
+- first `departments/{Dept}/people/{Emp}` → `employeeRoot`
+- `departments/{Dept}/shared` → `departmentShared`
+- `{companyRoot}/shared` → `companyShared` (if it exists)
+- `employeeShared` → `null`
+- `legacyCompanyRoot` → the old root
+
+Nothing is moved or deleted. Old `bots/{Name}/workspace` files stay where they were; the new agent folders are `agents/{Name}/private`. Settings → Folders shows this notice.
+
+## Inside the employee root
+
+```
+{employeeRoot}/
+  agents/
+    {AgentName}/
+      agent.json      # name, job, model, color, mascot, scopes (grants) — outside private/
+      AGENTS.md       # standing instructions, user-managed
+      private/        # the "private" scope root
+        memory/notes.md
+        output/
+```
+
+`agent.json` is the sidecar-side record of which scopes the agent may touch. `private` is always granted.
+
+## Suggested layout ("Create my folders")
+
+A suggestion for the pickers, not a required company layout:
+
+```
+{documents}/LocalBot/{Company}/            # {cwd}/data/LocalBot/{Company} in the preview
+  company-shared/                          # companyShared
   departments/
-    {DepartmentName}/
-      department.json
-      shared/
-      people/
-        {EmployeeName}/
-          employee.json
-          inbox/
-          outbox/
-          bots/
-            {BotName}/
-              bot.json
-              AGENTS.md
-              memory/
-              workspace/
-              output/
+    {Department}/
+      shared/                              # departmentShared
+      employees/
+        {Employee}/                        # employeeRoot
+          shared/                          # employeeShared
+          agents/{AgentName}/private/
 ```
 
-## JSON
+## Path rules (enforced in `src/lib/fs/scopes.ts`)
 
-`company.json` — company name, catalog pin, default department.
+- Refused: absolute host paths (`/x`, `C:\x`, `\\server\share`), any `..` segment, NUL bytes, `:` in a segment, unknown scope names, scopes whose folder is `null`.
+- Symlinks: the `realpath` of the deepest existing ancestor must stay under `realpath(scope root)`. Dangling links are refused.
+- Agent tool calls also require the scope to be in that agent's `agent.json` `scopes`.
+- The workspace shell tool runs only inside `private/`.
+- Changing a folder in Settings does **not** move old files. LocalBot shows the old and new locations.
 
-`bot.json` — name, job, model id, color, grants.
+## Handoff
 
-`localbot-config.json` — `companyRoot`, `modelsDir`, `activeModelId`, `activeModelPath`, `allowHostedDemo`, `useExistingOllama`.
+`@Name` in chat writes `task-{timestamp}-{From}-to-{To}.md` into `employee-shared/` if connected, else `department-shared/` if connected. If neither is connected the UI says so and writes nothing.
 
-## Grants
+## Sharing
 
-Default first agent: `workspace`, `output`, `shared`, `outbox`. Writes outside the company root or outside grants are denied on the server.
-
-Two people share work only if this process and theirs point at the **same real folder** on the machine running the server.
+Two people see the same files only if their LocalBot installs point a scope at the **same real folder** (NAS / mapped drive / shared disk). LocalBot does not sync, copy, or assign permissions; the OS does.

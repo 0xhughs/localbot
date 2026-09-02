@@ -21,7 +21,7 @@ Named agents, chats, settings, onboarding. Dark, dense, keyboard-first.
 - Sidebar of agent contacts
 - Per-agent chat with tool chips
 - Permission Allow once / Allow for this chat / Deny
-- Computer pane lists **disk** under workspace / output / shared / outbox
+- Computer pane lists **disk** per configured scope: Private / My agents / Department / Company (null scopes hidden)
 - Runtime badge: `Local {model name}` or `Local model not ready`
 
 ## 2. Chat
@@ -32,13 +32,16 @@ Ollama is an optional Settings extra if something is already on `127.0.0.1:11434
 
 ## 3. Files
 
-All tool writes go through server functions in `src/lib/fs/server.ts`, which call `src/lib/fs/disk.ts`. Paths are resolved with `path.resolve` and refused if they escape the company root.
+All tool calls send `{ scope, relPath, agentName }` to server functions in `src/lib/fs/server.ts`. `src/lib/fs/scopes.ts` resolves the scope from `localbot-config.json` (`folders.employeeRoot` / `employeeShared` / `departmentShared` / `companyShared`), refuses `..`, absolute / drive / UNC paths, unset scopes and symlink escapes (realpath), checks the agent's `agent.json` scope grant, then calls the disk primitives in `src/lib/fs/disk.ts`. The browser never supplies a root. See `FOLDER_CONTRACT.md`.
 
-Default company root: `{cwd}/data/LocalBot/{CompanyName}`. Models dir: `{cwd}/data/LocalBot/models`.
+Electron adds one native action through `desktop/preload.mjs`: `pickFolder()` → `localbot:pickFolder` IPC → `dialog.showOpenDialog`. The picked path is validated by the sidecar before it is saved.
+
+Models dir: `{cwd}/data/LocalBot/models` (preview) or `{appData}/LocalBot/models` (Electron).
 
 ## 4. Not built
 
-- Desktop window / packagers
+- Signed / notarized installers (unsigned unpacked Electron only)
+- Folder watch / poll / Refresh (Stage 3)
 - node-llama-cpp (cmake missing on this host; llama-server binary is used instead)
 - DeepSeek Harness
 - Two-machine sync (share by pointing at the same real folder)

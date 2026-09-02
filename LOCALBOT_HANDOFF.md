@@ -1,5 +1,24 @@
 # LOCALBOT_HANDOFF.md
 
+## Update after Stage 2 — Folder scopes + native pickers
+2026-09-02 · branch `stage-2-folder-scopes`
+
+**What actually WORKS now**
+- `localbot-config.json` is `version: 2` with a `folders` object: `employeeRoot` (required) + `employeeShared` / `departmentShared` / `companyShared` (nullable). A v1 `companyRoot` file is migrated once on load; `legacyCompanyRoot` is kept; no files are moved or deleted.
+- The sidecar resolves every file path from `{ scope, relPath, agentName }` (`src/lib/fs/scopes.ts`). The browser never sends a root. `..`, absolute / drive / UNC paths, NUL, unset scopes, and symlink escapes (realpath, dangling links included) are rejected.
+- Agent scope grants live in `{employeeRoot}/agents/{Name}/agent.json`, outside `private/`, and are enforced server-side.
+- Electron `localbot:pickFolder` IPC (`dialog.showOpenDialog` with `openDirectory`) exposed via `desktop/preload.mjs`; web preview keeps a typed path field tagged **preview only**. The painted dialog is **UNVERIFIED** on this GTK-less host.
+- Onboarding **Folders** step after model download; Settings → **Folders** (with “changing a folder does not move old files” notice) and → **Agents** (per-scope grants); Computer pane shows one section per configured scope and hides `null` scopes.
+- `@Name` handoff writes `task-*.md` to `employee-shared`, else `department-shared`, else reports that neither is connected.
+- `npm run lint`, `npm run typecheck`, `npm test` (195 + 68) exit 0. The 53 pre-existing grant / local-model tests still pass.
+
+**Still NOT BUILT**
+- Watch / poll / Refresh (Stage 3). DeepSeek Harness (custom loop unchanged). Signed installers. Agents / chats still in `localStorage["localbot-state-v3"]` (Stage 7). Reveal in Finder/Explorer. Legacy tree helpers (`fs/company.ts`, `fs/company-disk.ts`) kept only for the grant tests.
+
+See `STAGE_HANDOFF.md` for the exact prove-it command, pass output, and in-app test steps. Sections below that mention a single “company root”, `departments/{Dept}/people/{Emp}/bots/{Bot}` tree, `workspace/` / `outbox/` grants, or `fsSetCompanyRoot` describe the pre-Stage-2 layout and are superseded by `FOLDER_CONTRACT.md`.
+
+---
+
 ## Update after Stage 1 — Clean foundation
 2026-09-02 · branch `cursor/stage-1-clean-foundation-dad0`
 

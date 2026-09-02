@@ -1,6 +1,6 @@
 # LocalBot
 
-Named agents in a **desktop window**. Chat uses a **local GGUF** via llama.cpp on this machine. Work files live on **disk at the company root**.
+Named agents in a **desktop window**. Chat uses a **local GGUF** via llama.cpp on this machine. Work files live on **disk in four folder scopes you pick** — private, employee shared, department shared, company shared.
 
 No API key is required on the default path. Hosted models stay off unless you turn on **Allow hosted demo (breaks policy)** in Settings.
 
@@ -32,8 +32,9 @@ npm run dev
 1. Walk the welcome screens.
 2. Hardware scan. On a 16 GB-class machine, Recommended (Qwen 2.5 3B) is offered. 0.5B stays Small for 4 GB machines.
 3. Download the GGUF from Hugging Face, or import a `.gguf` already on this machine.
-4. Name the company and first agent (Writer / Researcher / Ops mascots).
-5. Chat. Ask Writer to write `hello.md` into its workspace.
+4. Connect your folders: pick the required agents folder and any of the three optional shared folders (or let LocalBot create a suggested layout). In the desktop app this opens the OS folder dialog; the browser preview has a typed path field marked **preview only**.
+5. Name the first agent (Writer / Researcher / Ops mascots).
+6. Chat. Ask Writer to write `hello.md` — it lands in `private/hello.md`.
 
 If no GGUF is loaded, the header says **Local {model}** is not ready (`Local model not ready`). It does not fall back to a hosted model.
 
@@ -48,8 +49,8 @@ Electron's own Node starts the already-built Nitro server (`resources/localbot-s
 ```
 {cwd}/data/LocalBot/models/{filename}     # GGUF weights
 {cwd}/data/LocalBot/bin/{platform-arch}/  # llama.cpp
-{cwd}/data/LocalBot/{CompanyName}/        # company tree
-{cwd}/data/localbot-config.json
+{cwd}/data/localbot-config.json           # version 2: folders { employeeRoot, employeeShared, departmentShared, companyShared }
+{cwd}/data/LocalBot/{CompanyName}/        # only if you chose "Create my folders"
 ```
 
 **Packaged Electron**
@@ -58,10 +59,10 @@ Electron's own Node starts the already-built Nitro server (`resources/localbot-s
 {appData}/LocalBot/localbot-config.json
 {appData}/LocalBot/models/
 {appData}/LocalBot/bin/{platform-arch}/
-{documents}/LocalBot/{CompanyName}/
+{documents}/LocalBot/{CompanyName}/       # only if you chose "Create my folders"
 ```
 
-Company files are never written into the asar / install folder.
+Work folders are wherever you pointed the four scopes; see [FOLDER_CONTRACT.md](FOLDER_CONTRACT.md). Each agent's private folder is `{employeeRoot}/agents/{Name}/private`. Company files are never written into the asar / install folder.
 
 llama.cpp binaries are resolved for **macOS arm64, macOS x64, Windows x64, Linux x64**.
 
