@@ -3,7 +3,6 @@ import {
   normalizePath,
   posixBasename,
   posixDirname,
-  posixJoin,
 } from "../utils.ts";
 
 export type FsNode = {
