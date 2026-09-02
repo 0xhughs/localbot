@@ -1,5 +1,5 @@
 {
-  "name": "app-builder-workspace",
+  "name": "localbot",
   "private": true,
   "version": "0.1.0",
   "description": "LocalBot — local agents on this computer",
