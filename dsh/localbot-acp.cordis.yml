@@ -118,16 +118,19 @@
 - id: tool-str-replace-editor
   disabled: true
 
-# ── permissions: files are contained by the LocalBot backend; shell asks ────
-# `read-only` here governs the OS sandbox around bash, not the scoped fs tools
-# (read / write / edit resolve through LocalBot's backend and need no prompt
-# inside a granted scope). A bash command with side effects must escalate,
-# which surfaces as ACP session/request_permission → the Allow / Deny cards.
-# Set explicitly so DSH_PERMISSION_MODE in the environment cannot widen it.
+# ── permissions ─────────────────────────────────────────────────────────────
+# File tools (read / write / edit) resolve through LocalBot's scoped backend
+# and need no prompt inside a granted scope. The OS sandbox around bash uses
+# the session cwd (= the agent's private/) as its writable root; a command
+# that needs more must escalate, which surfaces as ACP
+# session/request_permission → the Allow / Deny cards. The mode is pinned
+# here so DSH_PERMISSION_MODE in the environment cannot widen it. (`read-only`
+# was tried: its runtime-context note makes small models refuse to use the
+# file tools at all.)
 
 - id: sandbox-policy
   config:
-    mode: read-only
+    mode: workspace-write
     workspaceRoot: !!js process.cwd()
 
 - id: approval

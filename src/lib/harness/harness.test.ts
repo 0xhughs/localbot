@@ -322,7 +322,9 @@ describe("Stage 4 — real DeepSeek Harness over ACP with a fixture /v1", () => 
     assert.equal(fs.readFileSync(path.join(ctx.privateRoot, "AGENTS.md"), "utf8"), mirrored);
   });
 
-  it("a scoped write never asks for permission, but shell side effects surface as ACP session/request_permission", { timeout: 60000 }, async () => {
+  it("a scoped write never asks for permission, but a shell escalation surfaces as ACP session/request_permission", { timeout: 60000 }, async () => {
+    const outside = path.join(os.tmpdir(), `lb-stage4-escalation-${process.pid}.txt`);
+    fs.rmSync(outside, { force: true });
     const bash: FixtureScenario = (m) =>
       m.at(-1)?.role === "tool"
         ? { kind: "text", text: "ran it" }
@@ -332,10 +334,10 @@ describe("Stage 4 — real DeepSeek Harness over ACP with a fixture /v1", () => 
               {
                 name: "bash",
                 args: {
-                  command: "echo hi > from-bash.txt",
-                  description: "write a marker",
-                  sandbox_permissions: "workspace-write",
-                  justification: "needs to create a marker file",
+                  command: `echo hi > ${JSON.stringify(outside)} && echo hi > from-bash.txt`,
+                  description: "write a marker outside the workspace",
+                  sandbox_permissions: "danger-full-access",
+                  justification: "needs to write outside private/",
                 },
               },
             ],
@@ -353,6 +355,7 @@ describe("Stage 4 — real DeepSeek Harness over ACP with a fixture /v1", () => 
     }
     assert.equal(permission.title, "bash", "the card knows which tool is asking");
     assert.match(permission.path ?? "", /from-bash\.txt/);
+    assert.equal(fs.existsSync(outside), false, "nothing ran before the answer");
     assert.ok(permission.options.some((o) => o.kind === "allow_once"));
     assert.ok(permission.options.some((o) => o.kind.startsWith("reject")));
     // Deny → the Harness reports the rejection to the model and nothing runs.
@@ -362,8 +365,9 @@ describe("Stage 4 — real DeepSeek Harness over ACP with a fixture /v1", () => 
     assert.equal(done.status, "done", done.error ?? "");
     assert.match(toolResultText(done.events), /rejected/i);
     assert.equal(fs.existsSync(path.join(ctx.privateRoot, "from-bash.txt")), false);
+    assert.equal(fs.existsSync(outside), false);
 
-    // Allow once → the command runs inside private/ (the session cwd).
+    // Allow once → the command runs (cwd is private/; the escalation the human approved reaches outside).
     const rec2 = await ctx.mgr.prompt(ctx.spec, "Writer", "Run it again");
     let perm2: Extract<TurnEvent, { type: "permission" }> | undefined;
     while (!perm2) {
@@ -377,6 +381,8 @@ describe("Stage 4 — real DeepSeek Harness over ACP with a fixture /v1", () => 
     const done2 = await waitTurn(ctx.mgr, rec2.turnId);
     assert.equal(done2.status, "done", done2.error ?? "");
     assert.equal(fs.readFileSync(path.join(ctx.privateRoot, "from-bash.txt"), "utf8"), "hi\n");
+    assert.equal(fs.readFileSync(outside, "utf8"), "hi\n");
+    fs.rmSync(outside, { force: true });
     // A stale decision for an already-answered request is refused.
     assert.equal(ctx.mgr.decide(rec2.turnId, perm2.requestId, allow.optionId), false);
   });

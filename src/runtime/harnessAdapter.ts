@@ -117,7 +117,7 @@ export async function runAgentTurn(opts: {
         opts.events.onChip({
           id,
           kind: chipKind(ev.kind, ev.title),
-          label: chipLabel(ev.title, ev.path),
+          label: chipLabel(ev.title),
           detail: ev.path ?? "",
           status: chipStatus(ev.status),
         });
@@ -128,7 +128,7 @@ export async function runAgentTurn(opts: {
         if (!id) break;
         const patch: Partial<ToolChip> = {};
         if (ev.status) patch.status = chipStatus(ev.status);
-        if (ev.title) patch.label = chipLabel(ev.title);
+        if (ev.title) patch.label = chipLabel(ev.title.split(/\s+/)[0] ?? ev.title);
         opts.events.onChipUpdate(id, patch);
         break;
       }
