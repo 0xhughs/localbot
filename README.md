@@ -38,6 +38,8 @@ npm run dev
 
 If no GGUF is loaded, the header says **Local {model}** is not ready (`Local model not ready`). It does not fall back to a hosted model.
 
+The agent loop is the real **DeepSeek Harness** (`@deepseek-ai/dsh` `0.1.2-alpha.5`, launched by the sidecar as `dsh --profile acp --patch dsh/localbot-acp.cordis.yml`, driven over the Agent Client Protocol). Its only model route is llama.cpp on loopback; its file tools go through LocalBot's scoped resolver. dsh at this pin needs **Node ≥ 22.15** — run the dev server with one, or set `LOCALBOT_DSH_NODE=/path/to/node`. See [ARCHITECTURE.md](ARCHITECTURE.md).
+
 ## How the packaged app runs
 
 Electron's own Node starts the already-built Nitro server (`resources/localbot-sidecar/sidecar.mjs`, not a file inside the asar) on `127.0.0.1:18790`. The window loads that URL. llama.cpp still binds `127.0.0.1:18789`. No global `node` / `npm` is used in packaged mode.

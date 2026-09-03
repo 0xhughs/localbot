@@ -69,6 +69,10 @@ Nothing is moved or deleted. Old `bots/{Name}/workspace` files stay where they w
 
 `agent.json` is the sidecar-side record of which scopes the agent may touch. `private` is always granted.
 
+### Harness sessions (Stage 4)
+
+Each agent's ACP session runs with `cwd = {employeeRoot}/agents/{AgentName}/private`. That cwd only identifies the agent; the Harness filesystem provider (`dsh/localbot-fs.mjs`) still resolves every path through `resolveScopePath`. Before each session/prompt the sidecar mirrors `agents/{AgentName}/AGENTS.md` (plus the granted-scope list) into `private/AGENTS.md`, where the upstream instruction loader picks it up. That copy is **read-only for model tools** — edit the one next to `agent.json`. Harness's own session logs live under `{dataDir}/dsh-home/`, never in a scope.
+
 ## Suggested layout ("Create my folders")
 
 A suggestion for the pickers, not a required company layout:
@@ -90,7 +94,8 @@ A suggestion for the pickers, not a required company layout:
 - Refused: absolute host paths (`/x`, `C:\x`, `\\server\share`), any `..` segment, NUL bytes, `:` in a segment, unknown scope names, scopes whose folder is `null`.
 - Symlinks: the `realpath` of the deepest existing ancestor must stay under `realpath(scope root)`. Dangling links are refused.
 - Agent tool calls also require the scope to be in that agent's `agent.json` `scopes`.
-- The workspace shell tool runs only inside `private/`.
+- The Harness file tools (`read`, `write`, `edit`, `glob`, `grep`) accept `scope/relative/path`, a bare path (= `private/`), or an absolute path only when it already lies inside one of the agent's granted, connected scope roots; everything else is denied before the disk is touched. Results show logical paths only.
+- The shell tool runs only inside `private/` (the session cwd is its sandbox) and must ask through an ACP permission request before any side effect.
 - Changing a folder in Settings does **not** move old files. LocalBot shows the old and new locations.
 - The configured folder behind a scope must be reachable at the moment of the call. If it cannot be stat'ed (unmounted share, unplugged drive, deleted folder) every read, list, and write on that scope fails with `DISCONNECTED`. LocalBot never lists it as empty, never recreates it locally, and never redirects the work to another scope.
 

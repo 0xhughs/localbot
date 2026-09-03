@@ -33,6 +33,37 @@ function walkForBinary(root: string, name: string, depth = 0): string | null {
   return null;
 }
 
+function hasSharedLibs(dir: string): boolean {
+  try {
+    return fs.readdirSync(dir).some((n) => /\.(so(\.\d+)*|dylib|dll)$/i.test(n));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The official archives unpack into a versioned subfolder (`llama-b10749/`)
+ * holding the shared libraries and ggml backends next to the binary; ggml
+ * loads its backends from the executable's own directory, so the top-level
+ * copy cannot run alone. Prefer the binary that still sits with its libraries.
+ */
+export function runnableLlamaServer(binDir: string, name = llamaServerName()): string {
+  const top = path.join(binDir, name);
+  if (hasSharedLibs(binDir) && fs.existsSync(top)) return top;
+  let entries: fs.Dirent[] = [];
+  try {
+    entries = fs.readdirSync(binDir, { withFileTypes: true });
+  } catch {
+    return top;
+  }
+  for (const e of entries) {
+    if (!e.isDirectory()) continue;
+    const nested = path.join(binDir, e.name, name);
+    if (fs.existsSync(nested) && hasSharedLibs(path.dirname(nested))) return nested;
+  }
+  return top;
+}
+
 async function extractArchive(archive: string, dest: string, kind: "tar.gz" | "zip"): Promise<void> {
   fs.mkdirSync(dest, { recursive: true });
   const { execSync } = await import("node:child_process");
@@ -206,12 +237,16 @@ export async function ensureLocalServer(): Promise<{ ok: true; url: string } | {
     "0",
     "--jinja",
   ];
-  child = childProcess.spawn(bin.bin, args, {
-    cwd: path.dirname(bin.bin),
+  const exe = runnableLlamaServer(path.dirname(bin.bin));
+  const exeDir = path.dirname(exe);
+  const sep = process.platform === "win32" ? ";" : ":";
+  child = childProcess.spawn(exe, args, {
+    cwd: exeDir,
     env: {
       ...process.env,
-      LD_LIBRARY_PATH: path.dirname(bin.bin),
-      DYLD_LIBRARY_PATH: path.dirname(bin.bin),
+      LD_LIBRARY_PATH: [exeDir, process.env.LD_LIBRARY_PATH].filter(Boolean).join(sep),
+      DYLD_LIBRARY_PATH: [exeDir, process.env.DYLD_LIBRARY_PATH].filter(Boolean).join(sep),
+      ...(process.platform === "win32" ? { PATH: [exeDir, process.env.PATH].filter(Boolean).join(sep) } : {}),
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
