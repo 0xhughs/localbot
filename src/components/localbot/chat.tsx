@@ -16,7 +16,7 @@ import type {
   ToolChip,
   ToolKind,
 } from "@/lib/types";
-import { runAgentLoop } from "@/runtime/harnessAdapter";
+import { runAgentTurn } from "@/runtime/harnessAdapter";
 import { Button } from "@/components/ui/button";
 import { AgentAvatar } from "./avatar";
 import { ChatMarkdown } from "./markdown";
@@ -95,7 +95,7 @@ export function ChatPane() {
     setChips([]);
     setRunning(bot.id, true);
     const live: ToolChip[] = [];
-    const result = await runAgentLoop({
+    const result = await runAgentTurn({
       botId: bot.id,
       userText: trimmed,
       abort: ac.signal,

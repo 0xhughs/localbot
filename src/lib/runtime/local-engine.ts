@@ -115,6 +115,19 @@ export function engineStatus(): {
   };
 }
 
+/**
+ * Context window handed to llama-server and declared to the Harness route.
+ * The DeepSeek Harness system prompt + tool catalog is ~4.5k tokens, so the
+ * floor is 8192 regardless of RAM class (KV cache for the 0.5B / 3B GGUFs at
+ * 8k stays well under 0.5 GB). Larger catalog windows are capped at 16k.
+ */
+export const HARNESS_MIN_CONTEXT = 8192;
+
+export function localContextTokens(model: { contextK?: number } | null | undefined): number {
+  const wanted = (model?.contextK ?? 4) * 1024;
+  return Math.max(HARNESS_MIN_CONTEXT, Math.min(16384, wanted));
+}
+
 async function waitForHealth(ms = 60000): Promise<boolean> {
   const start = Date.now();
   while (Date.now() - start < ms) {
@@ -177,9 +190,7 @@ export async function ensureLocalServer(): Promise<{ ok: true; url: string } | {
   const bin = await ensureLlamaBinary();
   if (!bin.ok) return bin;
   const model = getCatalogModel(ready.catalogId);
-  const totalGb = os.totalmem() / 1024 ** 3;
-  const ctxCap = totalGb < 8 ? 1024 : 4096;
-  const ctx = Math.max(512, Math.min(ctxCap, (model?.contextK ?? 4) * 1024));
+  const ctx = localContextTokens(model);
   const args = [
     "-m",
     ready.path,

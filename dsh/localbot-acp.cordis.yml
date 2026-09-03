@@ -1,0 +1,179 @@
+# LocalBot overlay for the official DeepSeek Harness ACP profile.
+#
+#   dsh --profile acp --patch dsh/localbot-acp.cordis.yml
+#
+# Applied after @deepseek-ai/dsh-base and @deepseek-ai/dsh-acp-app. Rows here
+# override upstream rows by id; the loop (`agent-loop`), the ACP transport
+# (`acp`), session persistence, approvals, and the fs tools stay upstream.
+#
+# What this overlay changes:
+#   * the model route is the local llama.cpp server on loopback, named
+#     `localbot-llama`, declared as an OpenAI-compatible provider
+#   * DeepSeek hosted inference, web search / fetch, and feedback telemetry
+#     are disabled
+#   * subagent / agent-team tooling is disabled (LocalBot agents are folders,
+#     not Harness subagents)
+#   * the single-root `fs-sandbox` backend is replaced by LocalBot's scoped
+#     `ctx.fs` provider (dsh/localbot-fs.mjs), which resolves every path
+#     through src/lib/fs/scopes.ts `resolveScopePath`
+#
+# Environment supplied by the LocalBot sidecar (src/lib/harness/process.ts):
+#   DSH_HOME                  isolated Harness home under the LocalBot data dir
+#   LOCALBOT_DATA_DIR         where localbot-config.json lives
+#   LOCALBOT_LLAMA_BASE_URL   http://127.0.0.1:18789/v1
+#   LOCALBOT_LLAMA_MODEL      model id sent to llama.cpp ("local")
+#   LOCALBOT_LLAMA_CONTEXT    context window in tokens
+#   LOCALBOT_LLAMA_MAX_TOKENS max output tokens
+#   LOCALBOT_LLAMA_KEY        fixed non-secret placeholder; pi-ai's OpenAI
+#                             client requires a key-shaped value. Not an API key.
+
+# ── hosted / network / telemetry off ────────────────────────────────────────
+
+- id: session-telemetry-otel
+  disabled: true
+
+- id: llm-deepseek
+  disabled: true
+
+- id: web
+  disabled: true
+
+- id: web-search-deepseek
+  disabled: true
+
+- id: web-fetch-http
+  disabled: true
+
+- id: tool-web
+  disabled: true
+
+# ── no subagents / agent teams in LocalBot ──────────────────────────────────
+
+- id: subagent
+  disabled: true
+
+- id: subagent-spawn-in-process
+  disabled: true
+
+- id: subagent-fork-in-process
+  disabled: true
+
+- id: tool-subagent-control
+  disabled: true
+
+- id: tool-subagent-list-agents
+  disabled: true
+
+- id: tool-subagent
+  disabled: true
+
+- id: tool-subagent-fork
+  disabled: true
+
+- id: workflow-worker-thread
+  disabled: true
+
+- id: tool-workflow
+  disabled: true
+
+- id: tool-ralph
+  disabled: true
+
+# ── smaller tool catalog for small local models ─────────────────────────────
+# Goal / todo / plan-mode / skill / job-control / duplicate editor tools are
+# off so the system prompt + tool schemas fit a small GGUF's context. The
+# model keeps read, write, edit, glob, grep and the sandboxed bash (bash asks
+# for permission through ACP; its workspace is the session cwd = private/).
+
+- id: goal
+  disabled: true
+
+- id: goal-round-driver
+  disabled: true
+
+- id: command-goal
+  disabled: true
+
+- id: tool-goal
+  disabled: true
+
+- id: plan-mode
+  disabled: true
+
+- id: tool-todo
+  disabled: true
+
+- id: skill
+  disabled: true
+
+- id: skill-filesystem
+  disabled: true
+
+- id: tool-skill
+  disabled: true
+
+- id: tool-jobs
+  disabled: true
+
+- id: tool-str-replace-editor
+  disabled: true
+
+# ── the local model route ───────────────────────────────────────────────────
+
+- id: llm-pi-ai
+  config:
+    providers:
+      localbot-llama:
+        displayName: LocalBot local model (llama.cpp)
+        api: openai-completions
+        baseURL: !!js process.env.LOCALBOT_LLAMA_BASE_URL || 'http://127.0.0.1:18789/v1'
+        apiKeyEnv: LOCALBOT_LLAMA_KEY
+        defaultContextWindow: !!js Number(process.env.LOCALBOT_LLAMA_CONTEXT || 4096)
+        defaultMaxTokens: !!js Number(process.env.LOCALBOT_LLAMA_MAX_TOKENS || 800)
+        retryPolicy:
+          mode: normal
+          maxRetries: 1
+        models:
+          - id: !!js process.env.LOCALBOT_LLAMA_MODEL || 'local'
+            name: !!js process.env.LOCALBOT_LLAMA_MODEL_NAME || 'Local GGUF (llama.cpp)'
+            contextWindow: !!js Number(process.env.LOCALBOT_LLAMA_CONTEXT || 4096)
+            maxTokens: !!js Number(process.env.LOCALBOT_LLAMA_MAX_TOKENS || 800)
+            reasoningEfforts: false
+
+- id: agent-default-model
+  config:
+    provider: localbot-llama
+    model: !!js process.env.LOCALBOT_LLAMA_MODEL || 'local'
+
+- id: acp
+  config:
+    provider: localbot-llama
+    model: !!js process.env.LOCALBOT_LLAMA_MODEL || 'local'
+
+# ── LocalBot persona: folders are scopes, not the host filesystem ───────────
+
+- id: system-prompt
+  config:
+    persona: >-
+      You are a LocalBot agent running on this employee's computer with a local
+      model ({{model}}). You work inside named folder scopes, never the raw
+      computer. Paths are written as scope/relative/path: `private/` is your own
+      folder (a bare path like `notes.md` means `private/notes.md`);
+      `employee-shared/`, `department-shared/` and `company-shared/` exist only
+      when they were granted to you. Your standing instructions are in
+      `private/AGENTS.md` and your memory file is `private/memory/notes.md`.
+      Never use absolute computer paths or `..`.
+
+# ── the scoped filesystem replaces the single-root sandbox backend ──────────
+#
+# The replacement row is inserted by a second, generated overlay
+# (`{DSH_HOME}/localbot-fs-plugin.patch.yml`, written by the sidecar at launch)
+# because the loader imports `name` literally and a plugin file URL cannot be
+# expressed with `!!js` here:
+#
+#   - insert:
+#       - id: fs-localbot
+#         name: file:///…/dsh/localbot-fs.mjs
+
+- id: fs-sandbox
+  disabled: true

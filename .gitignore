@@ -13,3 +13,6 @@ release/
 .output/
 .vercel/
 
+
+# DeepSeek Harness home (sessions, storages) lives under the data dir
+data/dsh-home/
