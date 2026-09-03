@@ -25,7 +25,7 @@ import type { FoldersConfig } from "../fs/scope-model.ts";
 import { startFixtureOpenAI, writeThenDone, type FixtureScenario, type FixtureServer } from "./fixture-openai.ts";
 import { HarnessManager, type LaunchSpec } from "./index.ts";
 import { ACP_SDK_PIN, DSH_PIN, findHarnessNode, nodeVersionOk } from "./process.ts";
-import type { TurnEvent } from "./turns.ts";
+import { TurnRegistry, type TurnEvent } from "./turns.ts";
 
 const repo = process.cwd();
 const read = (p: string) => fs.readFileSync(path.join(repo, p), "utf8");
@@ -97,6 +97,33 @@ describe("Stage 4 default chat path", () => {
     for (const fn of ["harnessPrompt", "harnessPoll", "harnessCancel", "harnessDecide"]) {
       assert.ok(adapter.includes(fn), `adapter must call ${fn}`);
     }
+  });
+
+  it("a cancelled turn answers every parked permission request as cancelled", async () => {
+    const reg = new TurnRegistry();
+    const rec = reg.start("sess-1", "Writer");
+    reg.onSessionUpdate({
+      sessionId: "sess-1",
+      update: { sessionUpdate: "tool_call", toolCallId: "tc1", title: "bash", kind: "execute", status: "in_progress", rawInput: { command: "rm -rf x" } },
+    });
+    const answer = reg.onRequestPermission({
+      sessionId: "sess-1",
+      toolCall: { toolCallId: "tc1" },
+      options: [
+        { optionId: "allow-once", name: "Allow once", kind: "allow_once" },
+        { optionId: "reject-once", name: "Reject", kind: "reject_once" },
+      ],
+    });
+    const perm = reg.poll(rec.turnId, 0)!.events.find((e) => e.type === "permission");
+    assert.ok(perm && perm.type === "permission");
+    assert.equal(perm.title, "bash");
+    assert.equal(perm.kind, "execute");
+    assert.equal(perm.path, "rm -rf x");
+    reg.cancelPending(rec.turnId);
+    assert.deepEqual(await answer, { outcome: { outcome: "cancelled" } });
+    reg.finish(rec.turnId, "cancelled");
+    assert.equal(reg.poll(rec.turnId, 0)!.stopReason, "cancelled");
+    assert.equal(reg.activeForSession("sess-1"), undefined);
   });
 
   it("the server functions reach the Harness through ACP session/prompt and session/cancel", () => {
@@ -295,8 +322,67 @@ describe("Stage 4 — real DeepSeek Harness over ACP with a fixture /v1", () => 
     assert.equal(fs.readFileSync(path.join(ctx.privateRoot, "AGENTS.md"), "utf8"), mirrored);
   });
 
+  it("a scoped write never asks for permission, but shell side effects surface as ACP session/request_permission", { timeout: 60000 }, async () => {
+    const bash: FixtureScenario = (m) =>
+      m.at(-1)?.role === "tool"
+        ? { kind: "text", text: "ran it" }
+        : {
+            kind: "tool",
+            calls: [
+              {
+                name: "bash",
+                args: {
+                  command: "echo hi > from-bash.txt",
+                  description: "write a marker",
+                  sandbox_permissions: "workspace-write",
+                  justification: "needs to create a marker file",
+                },
+              },
+            ],
+          };
+    ctx.scenario.current = bash;
+    const rec = await ctx.mgr.prompt(ctx.spec, "Writer", "Run a command");
+    let permission: Extract<TurnEvent, { type: "permission" }> | undefined;
+    const start = Date.now();
+    while (!permission) {
+      const p = ctx.mgr.poll(rec.turnId, 0)!;
+      permission = p.events.find((e): e is Extract<TurnEvent, { type: "permission" }> => e.type === "permission");
+      if (p.status !== "running") throw new Error(`turn ended without asking: ${JSON.stringify(p.events)}`);
+      if (Date.now() - start > 20000) throw new Error("no permission request");
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    assert.equal(permission.title, "bash", "the card knows which tool is asking");
+    assert.match(permission.path ?? "", /from-bash\.txt/);
+    assert.ok(permission.options.some((o) => o.kind === "allow_once"));
+    assert.ok(permission.options.some((o) => o.kind.startsWith("reject")));
+    // Deny → the Harness reports the rejection to the model and nothing runs.
+    const reject = permission.options.find((o) => o.kind.startsWith("reject"))!;
+    assert.equal(ctx.mgr.decide(rec.turnId, permission.requestId, reject.optionId), true);
+    const done = await waitTurn(ctx.mgr, rec.turnId);
+    assert.equal(done.status, "done", done.error ?? "");
+    assert.match(toolResultText(done.events), /rejected/i);
+    assert.equal(fs.existsSync(path.join(ctx.privateRoot, "from-bash.txt")), false);
+
+    // Allow once → the command runs inside private/ (the session cwd).
+    const rec2 = await ctx.mgr.prompt(ctx.spec, "Writer", "Run it again");
+    let perm2: Extract<TurnEvent, { type: "permission" }> | undefined;
+    while (!perm2) {
+      const p = ctx.mgr.poll(rec2.turnId, 0)!;
+      perm2 = p.events.find((e): e is Extract<TurnEvent, { type: "permission" }> => e.type === "permission");
+      if (p.status !== "running") throw new Error(`turn ended without asking: ${JSON.stringify(p.events)}`);
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    const allow = perm2.options.find((o) => o.kind === "allow_once")!;
+    ctx.mgr.decide(rec2.turnId, perm2.requestId, allow.optionId);
+    const done2 = await waitTurn(ctx.mgr, rec2.turnId);
+    assert.equal(done2.status, "done", done2.error ?? "");
+    assert.equal(fs.readFileSync(path.join(ctx.privateRoot, "from-bash.txt"), "utf8"), "hi\n");
+    // A stale decision for an already-answered request is refused.
+    assert.equal(ctx.mgr.decide(rec2.turnId, perm2.requestId, allow.optionId), false);
+  });
+
   it("Stop → ACP session/cancel ends the turn with stopReason cancelled", { timeout: 60000 }, async () => {
-    ctx.scenario.current = () => ({ kind: "text", text: "too late", delayMs: 20000 });
+    ctx.scenario.current = () => ({ kind: "text", text: "too late", delayMs: 4000 });
     const rec = await ctx.mgr.prompt(ctx.spec, "Writer", "Slow");
     await new Promise((r) => setTimeout(r, 400));
     assert.equal(ctx.mgr.poll(rec.turnId, 0)?.status, "running");

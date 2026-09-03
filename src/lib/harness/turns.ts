@@ -161,14 +161,19 @@ export class TurnRegistry {
     const rec = this.activeForSession(p.sessionId);
     if (!rec) return Promise.resolve({ outcome: { outcome: "cancelled" } });
     const requestId = nextId("perm");
+    // The request carries only a ToolCallUpdate; borrow title / kind / path
+    // from the tool_call that introduced this id so the card can name it.
+    const origin = rec.events.find(
+      (e): e is Extract<TurnEvent, { type: "tool" }> => e.type === "tool" && e.toolCallId === p.toolCall.toolCallId,
+    );
     this.push(rec, {
       type: "permission",
       requestId,
       toolCallId: p.toolCall.toolCallId,
-      title: p.toolCall.title ?? "Tool",
-      kind: p.toolCall.kind ?? "other",
-      path: p.toolCall.locations?.[0]?.path ?? pathFromInput(p.toolCall.rawInput),
-      rawInput: asJson(p.toolCall.rawInput),
+      title: p.toolCall.title ?? origin?.title ?? "Tool",
+      kind: p.toolCall.kind ?? origin?.kind ?? "other",
+      path: p.toolCall.locations?.[0]?.path ?? pathFromInput(p.toolCall.rawInput) ?? origin?.path,
+      rawInput: asJson(p.toolCall.rawInput) ?? origin?.rawInput,
       options: p.options.map((o: { optionId: string; name: string; kind: string }) => ({ optionId: o.optionId, name: o.name, kind: o.kind })),
     });
     return new Promise((resolve) => {
