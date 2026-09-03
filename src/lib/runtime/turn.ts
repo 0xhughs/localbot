@@ -33,7 +33,13 @@ export const getAiStatus = createServerFn({ method: "POST" }).handler(async () =
   };
 });
 
-export const runHarnessTurn = createServerFn({ method: "POST" })
+/**
+ * One raw chat completion against the local engine (or the hosted demo when
+ * the Safety switch is on). Legacy since Stage 4: the default chat path is the
+ * DeepSeek Harness over ACP (`src/lib/runtime/harness.ts`), which owns the
+ * loop. Kept for Settings diagnostics; nothing in the chat pane calls it.
+ */
+export const runSingleCompletion = createServerFn({ method: "POST" })
   .validator((input: TurnInput) => input)
   .handler(async ({ data }): Promise<TurnOutput> => {
     const { executeTurn } = await import("./execute-turn.ts");

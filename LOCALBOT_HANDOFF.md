@@ -1,5 +1,27 @@
 # LOCALBOT_HANDOFF.md
 
+## Update after Stage 4 — Real DeepSeek Harness
+2026-09-03 · branch `stage-4-deepseek-harness` (PR #4)
+
+**What actually WORKS now**
+- The agent loop is the real **DeepSeek Harness**: `@deepseek-ai/dsh` pinned exactly at `0.1.2-alpha.5` (upstream `49a606b`), driven over the official Agent Client Protocol with `@agentclientprotocol/sdk` `1.4.0` (exact). The sidecar owns one `dsh --profile acp --patch dsh/localbot-acp.cordis.yml` process with an isolated `DSH_HOME` under the data dir; one ACP session per agent; `session/new` / `session/prompt` / `session/update` / `session/request_permission` / `session/cancel`. The renderer only calls the server functions in `src/lib/runtime/harness.ts`.
+- `src/runtime/harnessAdapter.ts` no longer owns a loop: the `while (rounds < 6)`, client-side tool execution and history replay are gone. It maps committed ACP updates onto the existing chips / assistant text, answers permission requests with the existing Allow once / Allow for this chat / Deny cards, and turns Stop into `session/cancel`.
+- The only model route the Harness knows is `localbot-llama` → llama.cpp on `127.0.0.1:18789/v1` (`ensureLocalServer` unchanged; fixed placeholder key-shaped value, no credential). Hosted DeepSeek, telemetry, web search/fetch and subagent tooling are disabled in the checked-in Cordis overlay. `Allow hosted demo` on → the chat path refuses instead of routing a key.
+- Harness file tools run through LocalBot's own `ctx.fs` provider (`dsh/localbot-fs.mjs`): every path resolves via `resolveScopePath({ scope, relPath, agentName })`; `..`, absolute, ungranted and symlink escapes are denied; a vanished share is `DISCONNECTED`; tool results show `private/hello.md`, never a host path.
+- Verified in the browser preview with a real GGUF (Qwen 2.5 1.5B Q4 on official llama.cpp b10749): Writer → "Create a file named hello.md …" → chip **Write** `private/hello.md` → committed reply → `hello.md` listed and previewed in the Computer pane (~16 s on 4 CPU cores). With the 0.5B GGUF the same path runs but the model picks the wrong tool and gives up — write **UNVERIFIED** on 0.5B.
+- `npm run lint`, `npm run typecheck`, `npm test` (195 + 102) exit 0. 20 new tests in `src/lib/harness/harness.test.ts` drive the real `dsh` over ACP against a fixture OpenAI `/v1` (no GGUF needed for `npm test`).
+- Also fixed on the way: llama-server is launched from the extracted `llama-b10749/` tree (the copied lone binary could not load ggml backends); llama-server context floors at 8192 so the Harness prompt fits.
+
+**Constraint found**
+- `dsh 0.1.2-alpha.5` needs **Node ≥ 22.15** (`node:zlib` zstd in `dsh-session-persistence-jsonl`, hard-injected by `dsh-acp`). Electron 36's embedded Node and this VM's default Node are 22.14.0 → `SyntaxError: The requested module 'node:zlib' does not provide an export named 'createZstdDecompress'`. The sidecar launches dsh with `LOCALBOT_DSH_NODE`, its own Node if new enough, or a newer nvm Node (here v22.22.2); otherwise it refuses with that reason. Electron was not upgraded and no second Node is bundled — packaged-mode Harness is Stage 8.
+
+**Still NOT BUILT**
+- Harness inside the packaged Electron binary (Node 22.14). Durable session ids / chats / roster off `localStorage` (item 7) — a sidecar restart starts fresh ACP sessions. Delete / rename / mkdir tools through the Harness. Token streaming (ACP emits committed blocks; not faked). Hosted demo through the Harness (refused; legacy `runSingleCompletion` kept off the chat path). Signed installers. Two-machine / NAS run **UNVERIFIED**. Bash sandbox on macOS / Windows **UNVERIFIED**. Wizard GGUF import keeps the card's catalog id (badge label bug, item 6).
+
+See `STAGE_HANDOFF.md` for the exact prove-it command, pass output, and in-app test steps.
+
+---
+
 ## Update after Stage 3 — Four-scope browser + watch/poll + Refresh
 2026-09-02 · branch `stage-3-watch-refresh`
 
@@ -227,13 +249,13 @@ General / Models / Company / Runtime / Safety.
 |---|---|
 | Embedded `node-llama-cpp` | **NOT BUILT.** No cmake in this sandbox. |
 | llama.cpp `llama-server` | **WORKS.** Official b10749, per-OS asset. Bind `127.0.0.1:18789`. Electron main also tries to spawn if a GGUF is registered. |
-| DeepSeek Harness (`dsh`) | **NOT BUILT.** `harnessAdapter.ts` is a custom 6-round tool loop. |
+| DeepSeek Harness (`dsh`) | **WORKS** (Stage 4). `@deepseek-ai/dsh` 0.1.2-alpha.5 over ACP owns the loop; `harnessAdapter.ts` is a thin ACP client. |
 | Ollama | **Not required.** Settings switch only; default off. |
-| Chat default | `src/lib/runtime/execute-turn.ts` → `runLocalTurn` (`src/lib/runtime/local-engine.ts`) |
+| Chat default | `src/lib/runtime/harness.ts` → `src/lib/harness/` → `dsh --profile acp` → `localbot-llama` route → llama-server (Stage 4). `execute-turn.ts` / `runLocalTurn` are legacy, off the chat path. |
 | Hosted grok-4.5 | `src/lib/runtime/hosted-turn.ts` **only if** `allowHostedDemo` |
-| `src/lib/runtime/turn.ts` | Server fns. **Does not contain** `api.x.ai` |
-| Tools | `read_file`, `write_file`, `str_replace`, `list_dir`, `delete_file`, `run_command`, `web_search` (gated) |
-| File tools | `harnessAdapter` → store → `src/lib/fs/server.ts` → `src/lib/fs/disk.ts` |
+| `src/lib/runtime/turn.ts` | Legacy single-completion server fn (`runSingleCompletion`). **Does not contain** `api.x.ai` |
+| Tools | Harness `read`, `write`, `edit`, `glob`, `grep`, `bash` (sandboxed to `private/`, escalations ask). No web tool. |
+| File tools | `dsh/localbot-fs.mjs` (in the Harness process) → `src/lib/fs/scopes.ts` `resolveScopePath` → `src/lib/fs/disk.ts` |
 
 `getAiStatus` returns the local badge unless the demo switch is on.
 
@@ -313,7 +335,7 @@ Disk grant tests kept. Added: server RAM (`ramSource: "os"`), Large disabled on 
 | GGUF download into the app | **WORKS** | Small 0.5B Hub file on disk, magic + size + sha256. Pause/resume Range. Import copies bytes |
 | Embedded local inference (no Ollama required) | **WORKS** | llama-server b10749, loopback OpenAI `/v1/chat/completions` |
 | Hosted grok-4.5 as default | **NOT BUILT** | Opt-in Settings switch only |
-| DeepSeek Harness as the loop | **NOT BUILT** | Custom `harnessAdapter.ts` |
+| DeepSeek Harness as the loop | **WORKS** (Stage 4) | Real `dsh` over ACP; no `while (rounds < 6)` |
 | Named multi-agent roster | **WORKS** | Sidebar mascots + `createBot` |
 | Permission Allow/Deny | **WORKS** | Cards + grants |
 | Company / department / employee / bot folders | **WORKS** | Disk seed |
@@ -344,7 +366,7 @@ Disk grant tests kept. Added: server RAM (`ramSource: "os"`), Large disabled on 
 - **0.5B tool calling is limited (annoying, expected).** The Small model that fits 4 GB RAM can miss tools on harder asks. First-run “write hello.md” did emit `write_file` and the file landed on disk. Larger catalog rows are real Hub files but greyed on this machine.
 - **Gemma 4 E2B / Qwen 3.5 not used.** 404 and gated 401. Replaced with Qwen 2.5 Instruct Q4 files. See `CATALOG.md`.
 - **Official Qwen 7B Q4_K_M is split.** Large card uses bartowski single file.
-- **Stop does not abort the HTTP call (annoying).** AbortSignal cannot be forwarded through `createServerFn`.
+- ~~Stop does not abort the HTTP call~~ — Stage 4: Stop is ACP `session/cancel`.
 - **No token streaming (annoying).** Full reply lands at once.
 - **`darkMode` / `denseUi` are dead (cosmetic).** Stored, not applied.
 - **Rename missing from sidebar (cosmetic).**

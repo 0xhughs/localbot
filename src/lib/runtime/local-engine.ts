@@ -33,6 +33,37 @@ function walkForBinary(root: string, name: string, depth = 0): string | null {
   return null;
 }
 
+function hasSharedLibs(dir: string): boolean {
+  try {
+    return fs.readdirSync(dir).some((n) => /\.(so(\.\d+)*|dylib|dll)$/i.test(n));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The official archives unpack into a versioned subfolder (`llama-b10749/`)
+ * holding the shared libraries and ggml backends next to the binary; ggml
+ * loads its backends from the executable's own directory, so the top-level
+ * copy cannot run alone. Prefer the binary that still sits with its libraries.
+ */
+export function runnableLlamaServer(binDir: string, name = llamaServerName()): string {
+  const top = path.join(binDir, name);
+  if (hasSharedLibs(binDir) && fs.existsSync(top)) return top;
+  let entries: fs.Dirent[] = [];
+  try {
+    entries = fs.readdirSync(binDir, { withFileTypes: true });
+  } catch {
+    return top;
+  }
+  for (const e of entries) {
+    if (!e.isDirectory()) continue;
+    const nested = path.join(binDir, e.name, name);
+    if (fs.existsSync(nested) && hasSharedLibs(path.dirname(nested))) return nested;
+  }
+  return top;
+}
+
 async function extractArchive(archive: string, dest: string, kind: "tar.gz" | "zip"): Promise<void> {
   fs.mkdirSync(dest, { recursive: true });
   const { execSync } = await import("node:child_process");
@@ -115,6 +146,19 @@ export function engineStatus(): {
   };
 }
 
+/**
+ * Context window handed to llama-server and declared to the Harness route.
+ * The DeepSeek Harness system prompt + tool catalog is ~4.5k tokens, so the
+ * floor is 8192 regardless of RAM class (KV cache for the 0.5B / 3B GGUFs at
+ * 8k stays well under 0.5 GB). Larger catalog windows are capped at 16k.
+ */
+export const HARNESS_MIN_CONTEXT = 8192;
+
+export function localContextTokens(model: { contextK?: number } | null | undefined): number {
+  const wanted = (model?.contextK ?? 4) * 1024;
+  return Math.max(HARNESS_MIN_CONTEXT, Math.min(16384, wanted));
+}
+
 async function waitForHealth(ms = 60000): Promise<boolean> {
   const start = Date.now();
   while (Date.now() - start < ms) {
@@ -177,9 +221,7 @@ export async function ensureLocalServer(): Promise<{ ok: true; url: string } | {
   const bin = await ensureLlamaBinary();
   if (!bin.ok) return bin;
   const model = getCatalogModel(ready.catalogId);
-  const totalGb = os.totalmem() / 1024 ** 3;
-  const ctxCap = totalGb < 8 ? 1024 : 4096;
-  const ctx = Math.max(512, Math.min(ctxCap, (model?.contextK ?? 4) * 1024));
+  const ctx = localContextTokens(model);
   const args = [
     "-m",
     ready.path,
@@ -195,12 +237,16 @@ export async function ensureLocalServer(): Promise<{ ok: true; url: string } | {
     "0",
     "--jinja",
   ];
-  child = childProcess.spawn(bin.bin, args, {
-    cwd: path.dirname(bin.bin),
+  const exe = runnableLlamaServer(path.dirname(bin.bin));
+  const exeDir = path.dirname(exe);
+  const sep = process.platform === "win32" ? ";" : ":";
+  child = childProcess.spawn(exe, args, {
+    cwd: exeDir,
     env: {
       ...process.env,
-      LD_LIBRARY_PATH: path.dirname(bin.bin),
-      DYLD_LIBRARY_PATH: path.dirname(bin.bin),
+      LD_LIBRARY_PATH: [exeDir, process.env.LD_LIBRARY_PATH].filter(Boolean).join(sep),
+      DYLD_LIBRARY_PATH: [exeDir, process.env.DYLD_LIBRARY_PATH].filter(Boolean).join(sep),
+      ...(process.platform === "win32" ? { PATH: [exeDir, process.env.PATH].filter(Boolean).join(sep) } : {}),
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
