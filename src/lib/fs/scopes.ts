@@ -39,7 +39,8 @@ export type ScopeErrorCode =
   | "SCOPE_UNSET"
   | "BAD_PATH"
   | "ESCAPE"
-  | "NOT_GRANTED";
+  | "NOT_GRANTED"
+  | "DISCONNECTED";
 
 export class ScopeError extends Error {
   code: ScopeErrorCode;
@@ -100,6 +101,38 @@ export function scopeRoot(folders: FoldersConfig, scope: ScopeId, agentName: str
     );
   }
   return root;
+}
+
+/**
+ * The configured folder behind a scope must be reachable right now. A missing
+ * or unmounted share is an error for that scope — never an empty listing, and
+ * never something a recursive mkdir is allowed to recreate locally.
+ */
+export function assertScopeConnected(folders: FoldersConfig, scope: ScopeId): string {
+  const configured = scope === "private" ? folders.employeeRoot : folderFor(folders, scope);
+  if (!configured) {
+    throw new ScopeError(
+      "SCOPE_UNSET",
+      `${SCOPE_META[scope].label} is not connected. Pick it in Settings → Folders.`,
+    );
+  }
+  let st: fs.Stats;
+  try {
+    st = fs.statSync(configured);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code ?? "EIO";
+    throw new ScopeError(
+      "DISCONNECTED",
+      `${SCOPE_META[scope].label} is disconnected (${code}). Reconnect the drive or share, then Refresh. Nothing was written elsewhere.`,
+    );
+  }
+  if (!st.isDirectory()) {
+    throw new ScopeError(
+      "DISCONNECTED",
+      `${SCOPE_META[scope].label} is not a folder any more. Fix it in Settings → Folders.`,
+    );
+  }
+  return configured;
 }
 
 /* ---------- relative path hygiene ---------- */
@@ -168,8 +201,9 @@ export function assertNoSymlinkEscape(root: string, abs: string): string {
 export type Resolved = { abs: string; root: string; display: string };
 
 export function resolveScopePath(folders: FoldersConfig, target: ScopedTarget): Resolved {
-  const root = scopeRoot(folders, target.scope, target.agentName);
   const segments = safeSegments(target.relPath ?? "");
+  const root = scopeRoot(folders, target.scope, target.agentName);
+  assertScopeConnected(folders, target.scope);
   const abs = segments.length ? path.join(root, ...segments) : root;
   if (abs !== root && !isUnderDir(root, abs)) {
     throw new ScopeError("ESCAPE", `Denied: ${target.relPath} leaves ${target.scope}.`);

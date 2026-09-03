@@ -66,7 +66,7 @@ Work folders are wherever you pointed the four scopes; see [FOLDER_CONTRACT.md](
 
 llama.cpp binaries are resolved for **macOS arm64, macOS x64, Windows x64, Linux x64**.
 
-Two people share work only if they point at the **same real folder**.
+Two people share work only if they point at the **same real folder**. Files another person or program drops into a connected folder show up in the Computer pane on their own (the sidecar watches each folder; on network shares it polls metadata). **Refresh** re-lists everything now. A share that goes away shows **Disconnected** on that section; LocalBot does not switch to a local copy. In the desktop app, **reveal** opens the folder in Finder / Explorer.
 
 ## Keyboard
 

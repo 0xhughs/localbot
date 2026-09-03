@@ -40,6 +40,30 @@ function applyPaths() {
   fs.mkdirSync(path.join(process.env.LOCALBOT_DATA_DIR, "bin"), { recursive: true });
 }
 
+function isUnderDir(root, target) {
+  const r = path.resolve(root);
+  const t = path.resolve(target);
+  if (t === r) return true;
+  const rel = path.relative(r, t);
+  return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+}
+
+/** The four scope folders from localbot-config.json (v2). Empty when unset. */
+function configuredFolderRoots() {
+  try {
+    const file = path.join(process.env.LOCALBOT_DATA_DIR, "localbot-config.json");
+    const cfg = JSON.parse(fs.readFileSync(file, "utf8"));
+    const f = cfg && cfg.folders;
+    if (!f || typeof f !== "object") return [];
+    return ["employeeRoot", "employeeShared", "departmentShared", "companyShared"]
+      .map((k) => f[k])
+      .filter((v) => typeof v === "string" && v.trim())
+      .map((v) => path.resolve(v));
+  } catch {
+    return [];
+  }
+}
+
 function packagedServerDir() {
   if (process.env.LOCALBOT_SERVER_DIR) return process.env.LOCALBOT_SERVER_DIR;
   if (packaged()) return path.join(process.resourcesPath, "localbot-server");
@@ -202,6 +226,26 @@ async function createWindow(uiUrl) {
   ipcMain.removeAllListeners("localbot:maximize");
   ipcMain.removeAllListeners("localbot:close");
   ipcMain.removeHandler("localbot:pickFolder");
+  ipcMain.removeHandler("localbot:revealPath");
+
+  // Reveal in Finder / Explorer. The renderer gets the host path from the
+  // sidecar (browseHostPath) and hands it here; main re-checks that it sits
+  // inside one of the configured scope folders before showing it.
+  ipcMain.handle("localbot:revealPath", async (_e, hostPath) => {
+    if (typeof hostPath !== "string" || !hostPath.trim()) {
+      return { ok: false, error: "No path." };
+    }
+    const target = path.resolve(hostPath);
+    const roots = configuredFolderRoots();
+    if (!roots.some((r) => isUnderDir(r, target))) {
+      return { ok: false, error: "Path is outside the configured folders." };
+    }
+    if (!fs.existsSync(target)) {
+      return { ok: false, error: "That file or folder is not on disk (disconnected or deleted)." };
+    }
+    shell.showItemInFolder(target);
+    return { ok: true };
+  });
 
   // Native folder dialog. Returns one absolute path or null. The renderer
   // still sends the result through the sidecar's folder validation before it

@@ -92,6 +92,13 @@ A suggestion for the pickers, not a required company layout:
 - Agent tool calls also require the scope to be in that agent's `agent.json` `scopes`.
 - The workspace shell tool runs only inside `private/`.
 - Changing a folder in Settings does **not** move old files. LocalBot shows the old and new locations.
+- The configured folder behind a scope must be reachable at the moment of the call. If it cannot be stat'ed (unmounted share, unplugged drive, deleted folder) every read, list, and write on that scope fails with `DISCONNECTED`. LocalBot never lists it as empty, never recreates it locally, and never redirects the work to another scope.
+
+## Watching (enforced in `src/lib/fs/watch.ts`)
+
+- The sidecar watches each configured folder: recursive `fs.watch` + a 15 s safety poll where the OS delivers events; a bounded metadata poll (2 s, depth 4, 2000 entries) as the only source on network mounts, UNC paths, or when `fs.watch` cannot attach. `LOCALBOT_WATCH_MODE=poll` forces poll mode; `LOCALBOT_WATCH_POLL_MS` sets its interval.
+- Watchers only read metadata. They never create, move, or write files.
+- The Computer pane re-lists a section when its root's `version` moves and shows a **Disconnected** banner for a root that vanished; **Refresh** rescans every root now.
 
 ## Handoff
 

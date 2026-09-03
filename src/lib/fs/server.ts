@@ -4,6 +4,7 @@
  * resolved here from `localbot-config.json`. Nothing in this file accepts a
  * root directory from the browser.
  */
+import fs from "node:fs";
 import { createServerFn } from "@tanstack/react-start";
 import type { DiskConfig, FoldersConfig, ScopedEntry, ScopeId } from "../types.ts";
 import {
@@ -31,9 +32,11 @@ import {
   setAgentScopes,
   setFolders,
   validateFolder,
+  resolveScopePath,
   type EnsureAgentInput,
   type ScopedTarget,
 } from "./scopes.ts";
+import { refreshScopes, scopeStatuses, type ScopeStatus } from "./watch.ts";
 
 type Fail = { ok: false; error: string; code: string };
 
@@ -262,6 +265,53 @@ export const browseStat = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<{ ok: true; entry: ScopedEntry | null } | Fail> => {
     try {
       return { ok: true, entry: scopedStat(requireFolders(), data, false) };
+    } catch (err) {
+      return fail(err);
+    }
+  });
+
+/* ---------- Computer pane: watch / poll / Refresh ---------- */
+
+export type ScopesStatusResult = { ok: true; scopes: ScopeStatus[] } | Fail;
+
+/**
+ * Per-scope watcher status. Starts the sidecar watchers on first call and
+ * keeps them in sync with the configured folders. Null scopes are absent.
+ * The pane polls this and re-lists a section when its `version` moves.
+ */
+export const scopesStatus = createServerFn({ method: "POST" }).handler(
+  async (): Promise<ScopesStatusResult> => {
+    try {
+      return { ok: true, scopes: scopeStatuses(loadConfig().folders) };
+    } catch (err) {
+      return fail(err);
+    }
+  },
+);
+
+/** Refresh button: rescan every configured root right now, then report. */
+export const browseRefresh = createServerFn({ method: "POST" }).handler(
+  async (): Promise<ScopesStatusResult> => {
+    try {
+      return { ok: true, scopes: refreshScopes(loadConfig().folders) };
+    } catch (err) {
+      return fail(err);
+    }
+  },
+);
+
+/**
+ * Host path of a scoped target, for the desktop "Reveal in Finder/Explorer"
+ * action only. The browser never sends a host path in; it receives one here
+ * and hands it to the narrow Electron IPC, which re-checks it against the
+ * configured folders before showing it.
+ */
+export const browseHostPath = createServerFn({ method: "POST" })
+  .validator((input: ScopedArgs) => input)
+  .handler(async ({ data }): Promise<{ ok: true; hostPath: string; exists: boolean } | Fail> => {
+    try {
+      const r = resolveScopePath(requireFolders(), data);
+      return { ok: true, hostPath: r.abs, exists: fs.existsSync(r.abs) };
     } catch (err) {
       return fail(err);
     }
