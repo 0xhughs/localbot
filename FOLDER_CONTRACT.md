@@ -162,3 +162,9 @@ A suggestion for the pickers, not a required company layout:
 ## Sharing
 
 Two people see the same files only if their LocalBot installs point a scope at the **same real folder** (NAS / mapped drive / shared disk). LocalBot does not sync, copy, or assign permissions; the OS does.
+
+Verified in Stage 8 as **two processes on one host** (`npm run prove:two-process`): a packaged LocalBot and a dev LocalBot with different data dirs and the same `departmentShared` folder; a file written by one appears in the other's Computer pane through the Stage 3 watcher in ~0.5–3 s. Two computers or a real NAS share remain UNVERIFIED.
+
+## Install footprint
+
+The installed app lives under the OS app location (`/opt/LocalBot` for the `.deb`, the AppImage file, `Applications`, `Program Files` / `%LOCALAPPDATA%\Programs`), its bundled Node and Harness under `resources/`. Everything it writes goes to `{appData}/LocalBot` (config, index, chats, `models/`, `bin/`, `dsh-home/`). Uninstalling or deleting either location never touches the four scope folders; they are the employee's or the company's files, chosen with the picker, and LocalBot never creates them under the app or deletes them.

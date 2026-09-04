@@ -272,7 +272,7 @@ export function ChatPane() {
         )}
         <ol className="mx-auto flex max-w-2xl flex-col gap-4">
           {messages.map((m) => (
-            <li key={m.id} className={m.role === "user" ? "ml-8" : "mr-4"}>
+            <li key={m.id} data-role={m.role} className={m.role === "user" ? "ml-8" : "mr-4"}>
               {m.role === "system" ? (
                 <p className="font-mono text-[11px] text-subtle">{m.content}</p>
               ) : m.role === "user" ? (

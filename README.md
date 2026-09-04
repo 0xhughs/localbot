@@ -4,7 +4,7 @@ Named agents in a **desktop window**. Chat uses a **local GGUF** via llama.cpp o
 
 No API key is required on the default path. Hosted models stay off unless you turn on **Allow hosted demo (breaks policy)** in Settings.
 
-This pass ships an **unsigned unpacked Electron app**. It is not notarized and is not a store build. Opening the packaged app does **not** require Node on PATH.
+Stage 8 ships **UNSIGNED installers**: Linux AppImage + `.deb` (built and run here), macOS `.dmg` and Windows NSIS `.exe` (configured, not built on this Linux host). Nothing is signed or notarized — there is no signing identity in this repo (`mac.identity: null`). Running the installed app does **not** require Node, npm or Python on the employee's machine: it carries its own Node for DeepSeek Harness.
 
 ## First run
 
@@ -13,15 +13,15 @@ This pass ships an **unsigned unpacked Electron app**. It is not notarized and i
 npm install
 npm run desktop
 
-# Packaged (this pass)
+# Installers for this OS (UNSIGNED; build machine needs Node + npm + network)
 npm run build:desktop
-# then open:
-#   dist/desktop/mac/LocalBot.app
-#   dist/desktop/win-unpacked/LocalBot.exe
-#   dist/desktop/linux-unpacked/LocalBot
+# Linux:   dist/desktop/LocalBot-<version>-linux-x86_64.AppImage, dist/desktop/LocalBot-<version>-linux-amd64.deb
+# macOS:   dist/desktop/LocalBot-<version>-mac-<arch>.dmg      (not built here)
+# Windows: dist/desktop/LocalBot-<version>-win-x64.exe         (not built here)
+# checksums: dist/desktop/SHA256SUMS.txt
 ```
 
-`npm run desktop` is the developer window (it may start the Vite UI). `npm run build:desktop` is the employee binary: Electron starts a bundled Node sidecar on loopback and loads that UI. It does not run `npm run dev`.
+`npm run desktop` is the developer window (it may start the Vite UI). `npm run build:desktop` is the employee build: Electron starts a bundled Node sidecar on loopback and loads that UI. It does not run `npm run dev`. Proof scripts: `npm run prove:packaged` (installer targets, bundled Node, dsh starts with node removed from PATH, packaged launch), `npm run prove:two-process` (two processes, one host, one shared folder), `npm run prove:packaged-chat -- --gguf <file>` (a real turn inside the packaged app). See `STAGE_HANDOFF.md`.
 
 Also keep the browser preview:
 
@@ -43,6 +43,10 @@ The agent loop is the real **DeepSeek Harness** (`@deepseek-ai/dsh` `0.1.2-alpha
 ## How the packaged app runs
 
 Electron's own Node starts the already-built Nitro server (`resources/localbot-sidecar/sidecar.mjs`, not a file inside the asar) on `127.0.0.1:18790`. The window loads that URL. llama.cpp still binds `127.0.0.1:18789`. No global `node` / `npm` is used in packaged mode.
+
+DeepSeek Harness needs Node ≥ 22.15 and Electron 36 embeds 22.14, so the installer carries an official **Node v22.23.2** at `resources/localbot-node/` (pinned with sha256 in `catalog/node-runtime.json`) and the Harness itself at `resources/localbot-harness/` (`dsh/` overlay, the fs-plugin sources, and the `@deepseek-ai/dsh` tree installed at build time with exact pins). Electron main points the sidecar at them (`LOCALBOT_DSH_NODE`, `LOCALBOT_DSH_DIR`, `LOCALBOT_DSH_MODULES`); in packaged mode the sidecar never looks for `node` on PATH or in `~/.nvm` — if the bundled runtime is missing it refuses and says so.
+
+Installing / uninstalling touches only the app and `{appData}/LocalBot`. The folders you picked (agents, shared folders) are never created under the app and never deleted by it.
 
 ## Where files go
 

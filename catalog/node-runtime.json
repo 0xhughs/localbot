@@ -1,0 +1,32 @@
+{
+  "pin": "v22.23.2",
+  "minimum": "22.15.0",
+  "why": "DeepSeek Harness 0.1.2-alpha.5 imports the node:zlib zstd API (>= 22.15). Electron 36 embeds Node 22.14, so the packaged app ships this official Node next to it and launches dsh with it. Packaged mode never uses node from PATH or ~/.nvm.",
+  "base": "https://nodejs.org/dist",
+  "targets": {
+    "linux-x64": {
+      "file": "node-v22.23.2-linux-x64.tar.xz",
+      "sha256": "d60acfe00a2932254bb0ad20e01b0d74397a0875595de719654b214f4b03f307",
+      "bin": "node-v22.23.2-linux-x64/bin/node",
+      "license": "node-v22.23.2-linux-x64/LICENSE"
+    },
+    "darwin-arm64": {
+      "file": "node-v22.23.2-darwin-arm64.tar.gz",
+      "sha256": "61130f394c1630d211dd50aecc4353d379480f36d3ac913cd85dbba1aed585c6",
+      "bin": "node-v22.23.2-darwin-arm64/bin/node",
+      "license": "node-v22.23.2-darwin-arm64/LICENSE"
+    },
+    "darwin-x64": {
+      "file": "node-v22.23.2-darwin-x64.tar.gz",
+      "sha256": "58e99022c2ff89395576cc7fd4d98cea24bb68081475d5f88b801ee8729fb026",
+      "bin": "node-v22.23.2-darwin-x64/bin/node",
+      "license": "node-v22.23.2-darwin-x64/LICENSE"
+    },
+    "win32-x64": {
+      "file": "node-v22.23.2-win-x64.zip",
+      "sha256": "1177b4137ba5adaa56354ae40f1080c7450e8ae09cecb47da459d1c52ac99f97",
+      "bin": "node-v22.23.2-win-x64/node.exe",
+      "license": "node-v22.23.2-win-x64/LICENSE"
+    }
+  }
+}

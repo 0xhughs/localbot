@@ -1,5 +1,22 @@
 # LOCALBOT_HANDOFF.md
 
+## Update after Stage 8 — Installers + two-process share
+2026-09-04 · branch `stage-8-installers-nas` (PR → `main`, off `58abaed`) · AGENTS.md item 8, the last item
+
+**What actually WORKS now**
+- **UNSIGNED installers for this host.** `npm run build:desktop` no longer passes `--dir`; `build.linux.target` is `["AppImage","deb"]`, `mac.target` `["dmg"]`, `win.target` `["nsis"]`. Built here (linux-x64): `LocalBot-0.1.0-linux-x86_64.AppImage` sha256 `8d02fad2bd81ebc8e8654b1763ffbdd0543285efdd3501991e28b81f19f14e38` (217 MB) and `LocalBot-0.1.0-linux-amd64.deb` sha256 `5dfada7605fdc6bbb0837f115994d0c66db6305fb0987a1e60f62f68cd699b68` (157 MB); the build writes `dist/desktop/SHA256SUMS.txt`. `mac.identity` is `null` and stays null — there is no signing identity or certificate here, so nothing is signed and nothing is notarized; a test fails the suite if a handoff line says otherwise. `.dmg` / NSIS are configured but not produced on this Linux host (**UNVERIFIED**).
+- **Packaged DeepSeek Harness (linux-x64).** Electron stays 36.3.1; the build bundles the official **Node v22.23.2** (`catalog/node-runtime.json`, sha256-verified) at `resources/localbot-node/node` and the Harness tree at `resources/localbot-harness/` — `dsh/` overlay, the traced fs-plugin sources (`src/lib/fs/*.ts`, `llama-platform.ts`, `catalog/llama-assets.json`), and a fresh `npm install` of `@deepseek-ai/dsh@0.1.2-alpha.5` (195 packages) as an explicit `extraResources` entry. `desktop/main.mjs` sets `LOCALBOT_DSH_NODE` / `LOCALBOT_DSH_DIR` / `LOCALBOT_DSH_MODULES` for the sidecar; `findHarnessNode()` with `LOCALBOT_PACKAGED=1` never scans `~/.nvm` or PATH. Proven with node/npm/npx removed from PATH: `HarnessProcess.start()` against the extracted AppImage spawned dsh from the bundled Node (`/proc/<pid>/exe`) and completed ACP initialize; a real chat turn inside the packaged window on the 0.5B GGUF in AppData replied in ~25 s with dsh running on the bundled Node (recorded).
+- **Two-process share, one host.** `npm run prove:two-process`: packaged app (`:18790`, its own AppData) + `npm run dev` (`:8080`, its own `LOCALBOT_DATA_DIR`), both with `department-shared` on the same real folder. A's `@Editor` handoff wrote `task-…md` through A's sidecar; B's Computer pane listed it after 3021 ms with no reload / no Refresh; reverse direction 505 ms. Two processes on one computer — **not** two laptops, **not** a NAS (**UNVERIFIED**).
+- **Clean packaged launch.** `npm run prove:packaged`: the AppImage's `LocalBot` started with a node-less PATH and a seeded `$XDG_CONFIG_HOME/LocalBot`; sidecar on `127.0.0.1:18790`; every child process's executable under the app dir; `{appData}/models` + `bin` created; repo `data/` untouched; deleting AppData left every work folder in place. Roster came from the Stage 7 disk state; llama.cpp b10749 was downloaded into `{appData}/bin/linux-x64/cpu/` and the GGUF verified under `{appData}/models/`.
+- `npm run lint`, `npm run typecheck`, `npm test` (203 + 179) exit 0. New: `scripts/desktop-stage.test.mjs` (8), `src/lib/desktop-packaging.test.ts` (14), scripts `prove:packaged`, `prove:two-process`, `prove:packaged-chat`.
+
+**Still NOT BUILT / UNVERIFIED**
+- Signed / notarized `.dmg` / `.exe`: **NOT BUILT** (no identity, no certificate, no notarization account). The mac / win installers themselves and their bundled Node rows: **UNVERIFIED** (no such host). Two physical machines / NAS / SMB / NFS: **UNVERIFIED**. AppImage double-click with FUSE + setuid sandbox: **UNVERIFIED** (proofs used `--appimage-extract` and `--no-sandbox`). Release CI / publishing / auto-update: **NOT BUILT**, out of scope. Carried over: painted GPU, 3B / 7B hashes, `pagehide` flush on Electron close, live Ollama, bash sandbox on mac / win — all **UNVERIFIED**.
+
+See `STAGE_HANDOFF.md` for the exact prove-it commands, pass output, and in-app test steps. Sections below that say "unsigned unpacked Electron app" / "`--dir`" / "Harness in the packaged Electron is Stage 8" describe the pre-Stage-8 state.
+
+---
+
 ## Update after Stage 7 — Durable AppData state
 2026-09-04 · branch `stage-7-durable-state` (PR #7)
 

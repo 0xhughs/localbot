@@ -63,7 +63,15 @@ export type HarnessClientHooks = {
 
 const req = createRequire(import.meta.url);
 
-export function dshBinPath(): string {
+/**
+ * `@deepseek-ai/dsh/lib/bin.js`. Stage 8: the packaged app ships its own
+ * Harness tree at `resources/localbot-harness/node_modules` (an explicit
+ * extraResources entry, not Nitro tracing) and points `LOCALBOT_DSH_MODULES`
+ * at it; that wins over the sidecar's own resolution.
+ */
+export function dshBinPath(env: NodeJS.ProcessEnv = process.env): string {
+  const bundled = env.LOCALBOT_DSH_MODULES;
+  if (bundled) return path.join(path.resolve(bundled), "@deepseek-ai", "dsh", "lib", "bin.js");
   try {
     return req.resolve("@deepseek-ai/dsh/lib/bin.js");
   } catch {
@@ -71,8 +79,8 @@ export function dshBinPath(): string {
   }
 }
 
-export function defaultDshDir(): string {
-  if (process.env.LOCALBOT_DSH_DIR) return path.resolve(process.env.LOCALBOT_DSH_DIR);
+export function defaultDshDir(env: NodeJS.ProcessEnv = process.env): string {
+  if (env.LOCALBOT_DSH_DIR) return path.resolve(env.LOCALBOT_DSH_DIR);
   return path.join(process.cwd(), "dsh");
 }
 
@@ -106,29 +114,57 @@ function nodeVersionOf(bin: string): string | null {
   }
 }
 
+export type HarnessNodeLookup = {
+  env?: NodeJS.ProcessEnv;
+  /** The running process's Node version / binary (defaults: this process). */
+  ownVersion?: string;
+  ownExecPath?: string;
+  /** Home directory scanned for nvm in dev mode (default: os.homedir()). */
+  homedir?: string;
+};
+
+export type HarnessNodeResult = { ok: true; bin: string; version: string; source: "explicit" | "own" | "nvm" } | { ok: false; error: string };
+
 /**
  * The Node that launches dsh. Order: `LOCALBOT_DSH_NODE`, the sidecar's own
- * Node if new enough, then a newer Node from nvm in the home directory (dev
- * convenience). Never `node` from PATH blindly. Returns an error instead of
- * a binary when nothing qualifies — the caller must not fall back to a fake
+ * Node if new enough, then — dev mode only — a newer Node from nvm in the
+ * home directory. Never `node` from PATH. Returns an error instead of a
+ * binary when nothing qualifies — the caller must not fall back to a fake
  * loop.
+ *
+ * Stage 8: with `LOCALBOT_PACKAGED=1` the only acceptable binaries are the
+ * bundled one named by `LOCALBOT_DSH_NODE` (set by Electron main to
+ * `resources/localbot-node/node`) or the process's own Node when it is new
+ * enough. The `~/.nvm` scan is skipped: an installed app must not depend on
+ * a developer's Node.
  */
-export function findHarnessNode(): { ok: true; bin: string; version: string } | { ok: false; error: string } {
-  const explicit = process.env.LOCALBOT_DSH_NODE;
+export function findHarnessNode(lookup: HarnessNodeLookup = {}): HarnessNodeResult {
+  const env = lookup.env ?? process.env;
+  const packaged = env.LOCALBOT_PACKAGED === "1";
+  const explicit = env.LOCALBOT_DSH_NODE;
   if (explicit) {
     const v = nodeVersionOf(explicit);
-    if (v && nodeVersionOk(v)) return { ok: true, bin: explicit, version: v };
+    if (v && nodeVersionOk(v)) return { ok: true, bin: explicit, version: v, source: "explicit" };
     return {
       ok: false,
       error: `LOCALBOT_DSH_NODE=${explicit} is ${v ?? "not runnable"}; DeepSeek Harness ${DSH_PIN} needs Node >= ${HARNESS_MIN_NODE.join(".")}.`,
     };
   }
-  const own = `v${process.versions.node}`;
-  if (nodeVersionOk(own)) return { ok: true, bin: process.execPath, version: own };
+  const own = lookup.ownVersion ?? `v${process.versions.node}`;
+  if (nodeVersionOk(own)) return { ok: true, bin: lookup.ownExecPath ?? process.execPath, version: own, source: "own" };
+  if (packaged) {
+    return {
+      ok: false,
+      error:
+        `This packaged LocalBot has no bundled Node for DeepSeek Harness (LOCALBOT_DSH_NODE is unset and Electron's Node is ${own}; ` +
+        `dsh ${DSH_PIN} needs >= ${HARNESS_MIN_NODE.join(".")}). Packaged mode never uses node from PATH or ~/.nvm. ` +
+        `Rebuild with npm run build:desktop so resources/localbot-node is present.`,
+    };
+  }
   const candidates: string[] = [];
   try {
     const os = req("node:os") as typeof import("node:os");
-    const nvm = path.join(os.homedir(), ".nvm", "versions", "node");
+    const nvm = path.join(lookup.homedir ?? os.homedir(), ".nvm", "versions", "node");
     for (const d of fs.readdirSync(nvm)) {
       const bin = path.join(nvm, d, "bin", process.platform === "win32" ? "node.exe" : "node");
       if (nodeVersionOk(d) && fs.existsSync(bin)) candidates.push(bin);
@@ -139,7 +175,7 @@ export function findHarnessNode(): { ok: true; bin: string; version: string } | 
   candidates.sort().reverse();
   for (const bin of candidates) {
     const v = nodeVersionOf(bin);
-    if (v && nodeVersionOk(v)) return { ok: true, bin, version: v };
+    if (v && nodeVersionOk(v)) return { ok: true, bin, version: v, source: "nvm" };
   }
   return {
     ok: false,

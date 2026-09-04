@@ -10,6 +10,7 @@ import {
   SIDECAR_PORT,
   SIDECAR_URL,
   isPackagedMode,
+  packagedHarnessEnv,
   resolveUiLoad,
   sidecarScriptPath,
   sidecarServerEntry,
@@ -111,8 +112,21 @@ async function startSidecar() {
   }
   if (await up(SIDECAR_URL, 800)) return true;
 
+  // Stage 8: the Harness runs from the app's own resources — bundled Node
+  // (Electron 36's Node 22.14 cannot load dsh), the dsh/ overlay, and the
+  // @deepseek-ai/dsh tree. The sidecar's findHarnessNode never looks at PATH
+  // or ~/.nvm in packaged mode; if a piece is missing it refuses and says so.
+  const harness = packagedHarnessEnv({
+    resourcesPath: process.resourcesPath,
+    exists: (p) => fs.existsSync(p),
+  });
+  for (const k of ["LOCALBOT_DSH_NODE", "LOCALBOT_DSH_DIR", "LOCALBOT_DSH_MODULES"]) {
+    if (!harness[k]) console.error(`[desktop] packaged Harness resource missing: ${k} (dsh will refuse to start)`);
+  }
+
   const env = {
     ...process.env,
+    ...harness,
     ELECTRON_RUN_AS_NODE: "1",
     LOCALBOT_SERVER_DIR: serverDir,
     LOCALBOT_ELECTRON: "1",
