@@ -51,6 +51,53 @@ export function resolveUiLoad({
   };
 }
 
+/**
+ * Stage 9: microphone permission policy for the renderer, pure so the tests
+ * lock it. Electron with no handler grants every permission to every origin;
+ * this is the one place that decides instead.
+ *
+ *   - `media` for an allowed origin (the sidecar, or the dev UI) is granted
+ *     only when every requested media type is `audio`. Video is never granted.
+ *   - `media` for any other origin is denied.
+ *   - non-media permissions keep today's behaviour for the app's own origin
+ *     (granted) and are denied for every other origin.
+ *
+ * Request handler details carry `mediaTypes: string[]`; the check handler
+ * carries `mediaType: string`. Both shapes are accepted.
+ *
+ * @param {{
+ *   permission: string,
+ *   requestingOrigin: string | null | undefined,
+ *   allowedOrigins: readonly string[],
+ *   details?: { mediaTypes?: readonly string[], mediaType?: string } | null,
+ * }} input
+ * @returns {boolean}
+ */
+export function mediaPermissionDecision({ permission, requestingOrigin, allowedOrigins, details }) {
+  const origin = normalizeOrigin(requestingOrigin);
+  const allowed = Boolean(origin) && allowedOrigins.map(normalizeOrigin).includes(origin);
+  if (!allowed) return false;
+  if (permission !== "media" && permission !== "audioCapture" && permission !== "videoCapture") return true;
+  if (permission === "videoCapture") return false;
+  if (permission === "audioCapture") return true;
+  const types = details?.mediaTypes ?? (details?.mediaType ? [details.mediaType] : []);
+  if (types.length === 0) return false;
+  return types.every((t) => t === "audio");
+}
+
+/**
+ * `http://127.0.0.1:18790/` → `http://127.0.0.1:18790`; unparsable → "".
+ * @param {unknown} value
+ */
+export function normalizeOrigin(value) {
+  if (!value || typeof value !== "string") return "";
+  try {
+    return new URL(value).origin;
+  } catch {
+    return "";
+  }
+}
+
 /** @param {string} serverDir */
 export function sidecarServerEntry(serverDir) {
   if (!serverDir) return null;

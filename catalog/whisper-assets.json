@@ -1,0 +1,49 @@
+{
+  "release": "v1.9.2",
+  "notes": "Stage 9 hold-to-talk STT. Official ggml-org/whisper.cpp v1.9.2 release assets (2026-08-04) and the ggerganov/whisper.cpp ggml models on Hugging Face. Every sha256 here was computed from a real download on 2026-09-04; nothing is invented. One-shot whisper-cli only: whisper-server is never started and no GPU / cuBLAS / BLAS row is pinned. The runtime unpacks (flattened) into {dataDir}/bin/{target}/whisper/ - its own folder, never inside a llama.cpp bin/{target}/{runtime}/ tree, because both ship a libggml. darwin has no whisper-cli asset in this release (upstream ships whisper-v1.9.2-xcframework.zip, a library, not a CLI): NOT BUILT, no row, no invented URL.",
+  "language": "en",
+  "defaultModel": "base.en",
+  "targets": {
+    "linux-x64": {
+      "filename": "whisper-bin-ubuntu-x64.tar.gz",
+      "kind": "tar.gz",
+      "binary": "whisper-cli",
+      "sizeBytes": 9497583,
+      "sha256": "46811a3ecf584307480a220b9ef5ff81b7b22dc41577cbc274ce3afc61f753b1",
+      "url": "https://github.com/ggml-org/whisper.cpp/releases/download/v1.9.2/whisper-bin-ubuntu-x64.tar.gz"
+    },
+    "win32-x64": {
+      "filename": "whisper-bin-x64.zip",
+      "kind": "zip",
+      "binary": "whisper-cli.exe",
+      "sizeBytes": 8194445,
+      "sha256": "49dcc16de826f20bd53d44f947a1ae49dfa81f86cad67a64d80820cb192d674a",
+      "url": "https://github.com/ggml-org/whisper.cpp/releases/download/v1.9.2/whisper-bin-x64.zip"
+    }
+  },
+  "models": {
+    "base.en": {
+      "label": "Whisper base.en",
+      "filename": "ggml-base.en.bin",
+      "sizeBytes": 147964211,
+      "sha256": "a03779c86df3323075f5e796cb2ce5029f00ec8869eee3fdfb897afe36c6d002",
+      "ramGb": 0.5,
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin"
+    },
+    "tiny.en": {
+      "label": "Whisper tiny.en (low RAM)",
+      "filename": "ggml-tiny.en.bin",
+      "sizeBytes": 77704715,
+      "sha256": "921e4cf8686fdd993dcd081a5da5b6c365bfde1162e72b08d75ac75289920b1f",
+      "ramGb": 0.4,
+      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin"
+    }
+  },
+  "fixture": {
+    "filename": "jfk.wav",
+    "sizeBytes": 352078,
+    "sha256": "59dfb9a4acb36fe2a2affc14bacbee2920ff435cb13cc314a08c13f66ba7860e",
+    "url": "https://github.com/ggml-org/whisper.cpp/raw/v1.9.2/samples/jfk.wav",
+    "expectPhrase": "ask not what your country can do for you"
+  }
+}
