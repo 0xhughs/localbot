@@ -1,102 +1,99 @@
-## Stage 9 — Voice-to-text with whisper.cpp (hold-to-talk → composer → existing `runAgentTurn`)
+## Stage 10 — Mac unsigned package + whisper-cli + proofs
 
 Date: 2026-09-04
-Branch: `stage-9-whisper-stt` (PR → `main`, off `3d45a7a`)
+Branch: `stage-10-macos-package` (PR → `main`, off `7608856` = merge of PR #9)
+Host: Darwin 25.5.0 (macOS 26.5.2, build 25F84) · arch **arm64** (Mac mini, Apple M4 Pro, 12 cores, Metal GPU `MTL0` with 18186 MiB recommended working set) · RAM 24 GiB · disk 263 GiB free on `/` · Xcode CLT `/Library/Developer/CommandLineTools` (Apple clang 21.0.0) · cmake 4.4.3 (Homebrew) · default audio input **MateView GT** (USB, 2 ch), default output ZQE-CAA
 
-Hold-to-talk local speech-to-text and nothing else. Status words: WORKS / STUB / NOT BUILT / UNVERIFIED. Audio never leaves the machine: the renderer captures it, the sidecar on loopback transcribes it with a one-shot `whisper-cli`, the text lands in the composer, the employee presses Enter. No cloud STT, no hosted fallback, no auto-send, no `whisper-server`, no second port.
+Status words: WORKS / STUB / NOT BUILT / UNVERIFIED. Everything below is **UNSIGNED**: `build.mac.identity` is `null`, electron-builder logged `skipped macOS code signing reason=identity explicitly is set to null`, `codesign -dvv` on the produced app shows only Electron's ad-hoc signature with `TeamIdentifier=not set` and no Authority. No Developer ID, not notarized, nothing was paid to Apple. No Windows work. Electron not upgraded. `runAgentTurn`, the four scopes, the Stage 3 watch, the host index and the dsh / ACP pins are untouched.
 
 ### Built
 
-- **Catalog — WORKS.** `catalog/whisper-assets.json` pins `ggml-org/whisper.cpp` **v1.9.2** (2026-08-04; v1.9.3 exists but is marked Pre-release). Rows and hashes, every one computed from a real download on this host on 2026-09-04:
+- **Gate A — UNSIGNED Mac app: WORKS.** `npm run build:desktop` on this host → `dist/desktop/mac-arm64/LocalBot.app` (696 MB) and `dist/desktop/LocalBot-0.1.0-mac-arm64.dmg` (199,859,680 B):
 
-  | row | file | bytes | sha256 |
-  |---|---|---|---|
-  | `linux-x64` | `whisper-bin-ubuntu-x64.tar.gz` → `whisper-cli` | 9,497,583 | `46811a3ecf584307480a220b9ef5ff81b7b22dc41577cbc274ce3afc61f753b1` |
-  | `win32-x64` | `whisper-bin-x64.zip` → `Release/whisper-cli.exe` | 8,194,445 | `49dcc16de826f20bd53d44f947a1ae49dfa81f86cad67a64d80820cb192d674a` |
-  | model `base.en` (default) | `ggml-base.en.bin` | 147,964,211 | `a03779c86df3323075f5e796cb2ce5029f00ec8869eee3fdfb897afe36c6d002` |
-  | model `tiny.en` (low RAM) | `ggml-tiny.en.bin` | 77,704,715 | `921e4cf8686fdd993dcd081a5da5b6c365bfde1162e72b08d75ac75289920b1f` |
-  | fixture | `samples/jfk.wav` @ v1.9.2 | 352,078 | `59dfb9a4acb36fe2a2affc14bacbee2920ff435cb13cc314a08c13f66ba7860e` |
+  ```
+  sha256  4eff4caab6daafabfaf8f49f6137c4d23a7150ac84c5e2fee4e6c3f9cc9b34e6  LocalBot-0.1.0-mac-arm64.dmg
+  ```
 
-  No darwin row: the v1.9.2 release ships `whisper-v1.9.2-xcframework.zip` (a library) and no CLI — **NOT BUILT** on macOS, no URL invented. No GPU / cuBLAS / BLAS rows. The `tiny.en` row is pinned and hashed but the app only uses `base.en` this stage (no picker) — **UNVERIFIED** in the UI.
-- **Sidecar `sttTranscribe({ wavBase64, language: "en" })` — WORKS** (`src/lib/runtime/stt.ts`, `stt-server.ts`). Refuses anything that is not RIFF/WAVE, PCM (format 1), mono, 16 kHz, 16-bit, non-empty, ≤ 60 s and ≤ 2 MiB (`validateSttWav`, walks RIFF chunks so a `LIST` chunk before `data` — as in jfk.wav — is fine). Writes `{dataDir}/stt/{uuid}.wav` (mode 0600) after `assertSttOutsideScopes` refuses a clip dir under any of the four roots. First use downloads the runtime archive to `{binRoot}/`, verifies size + sha256, unpacks it **flattened** into `{binRoot}/{target}/whisper/` (so `whisper-cli` and its `libggml*.so` / `libwhisper.so` sit in the one folder `LD_LIBRARY_PATH` / `PATH` points at) and deletes the archive's `whisper-server`; the model downloads into `{modelsDir}/whisper/` and passes size + ggml magic (`6c 6d 67 67`, "lmgg") + sha256 — never `verifyGgufFile`. Spawns `whisper-cli -m <model> -f <wav> -l en -nt -np` from that folder; 60 s → `SIGKILL`; one job at a time (a second call gets `BUSY`); `finally` deletes the clip whatever happened. Returns `{ text, ms, model, seconds }`; the transcript is never logged (`stt.ts` has no `console.*`); nothing imports dsh. `assertWhisperExe` refuses to spawn from any `bin/{target}/{runtime}/` or any folder that also holds `llama-server` (both ship a libggml — the collision this layout avoids). `sttStatus()` tells the UI `supported` / `reason` / `runtimeReady` / `modelReady`.
-- **Renderer capture — WORKS in Chromium.** `src/lib/audio/mic-capture.ts`: `getUserMedia({ audio, video: false })` → `AudioContext({ sampleRate: 16000 })` → `ScriptProcessorNode` Float32 blocks → (resample if the context refused 16 kHz) → PCM16 → hand-built 44-byte WAV (`src/lib/audio/wav.ts`, shared with the sidecar gate). No `MediaRecorder`, no ffmpeg, no codec. Clip capped at 60 s in the renderer too.
-- **Chat UI — WORKS.** Mic button (`aria-label="Hold to talk"`, `data-testid="mic-button"`) next to Attach in `chat.tsx`. Hold with the pointer (pointer capture; right-click ignored) or hold Space with the button focused. Header slot (where **Working** / **Switching model** live) shows **Listening** while held and **Transcribing** after release. The transcript is appended to `ui.composer` with a space (`appendTranscript`); **Enter still goes through the existing `send()` → `runAgentTurn`** — the voice hook (`use-voice-input.ts`) has no `send(`, no `runAgentTurn`, no `appendMessage`. Disabled (with the reason in the tooltip) while `session.running`, when `mediaDevices` / `AudioContext` are missing (e.g. a non-secure origin), when the sidecar reports `supported: false` (darwin), and while a clip is transcribing. Clips under 0.4 s are ignored ("Hold the Mic while you speak."). Errors and the "Heard 11.8 s · base.en · 1022 ms" note replace the footer path line until the next press; nothing goes into the chat transcript.
-- **Electron — WORKS (code), UNVERIFIED (window).** `desktop/main.mjs` installs `setPermissionRequestHandler` + `setPermissionCheckHandler` on the default session before the window is created; `mediaPermissionDecision` (`desktop/packaged.mjs`, pure) grants `media` only when every requested media type is `audio` and the requesting origin is the UI origin — `http://127.0.0.1:18790` packaged, `http://127.0.0.1:8080` dev — denies media to every other origin and denies video always. This tightens today's default (Electron with no handler grants everything). `build.mac.extendInfo.NSMicrophoneUsageDescription` is set even though the mac CLI is NOT BUILT. Not exercised in a running Electron window on this VM (no mic; the AppImage was not rebuilt) — the decision function is tested.
-- **Kept:** `@deepseek-ai/dsh` `0.1.2-alpha.5` and `@agentclientprotocol/sdk` `1.4.0` exact; `dsh/localbot-acp.cordis.yml` untouched; `chat.tsx` → `runAgentTurn`; four scopes; Stage 3 watch; rename / archive / duplicate; host index; llama.cpp `bin/{target}/{runtime}/` untouched. No UI redesign — one icon button, one header label, one footer note.
-- **Tests.** `src/lib/runtime/stt.test.ts` (26) in `npm test` → 205 in the TS suite (was 179) + 203 in `scripts/`. Fails when: any runtime / model / fixture row lacks a 64-hex sha256; a darwin row appears; a `whisper-server` or GPU row appears; a non-WAV, stereo, 44.1 kHz, 8-bit, float, > 60 s or > 2 MiB clip is accepted; `assertSttOutsideScopes` accepts a clip dir under a root; a fake `whisper-cli` in `bin/linux-x64/cpu/` (or beside a `llama-server`) is spawned; the args are not exactly `-m … -f … -l en -nt -np`; `LD_LIBRARY_PATH` does not start with the whisper dir; the clip survives success, a non-zero exit, or a `SIGKILL`ed hang; two jobs overlap; `stt.ts` logs, imports dsh or calls `verifyGgufFile`; the renderer files mention `MediaRecorder` / ffmpeg / a remote URL; the voice hook can send; `chat.tsx` drops `runAgentTurn`; the dsh / ACP pins float; Electron grants video, grants media to another origin, or `main.mjs` lacks the handlers; `NSMicrophoneUsageDescription` is missing. Mutation-checked: blanking the `base.en` sha256 (suite 2 fail, proof `FAIL: catalog model row base.en has no sha256`), aliasing the `runAgentTurn` import (suite 1 fail, proof `FAIL: chat.tsx dropped runAgentTurn`), and removing the `finally` delete (suite 6 fail, proof `FAIL: clip left on disk: …wav`).
+  Node **v22.23.2** for `darwin-arm64` from `catalog/node-runtime.json` is bundled at `Contents/Resources/localbot-node/node` (the build script checks the version after packing). `npm run prove:packaged` (now darwin-aware: mounts the `.dmg` with `hdiutil`, copies the `.app`, checks `codesign` has no Developer ID / TeamIdentifier, walks the process tree with `ps`) launched the packaged binary with `PATH` containing no `node` / `npm` / `npx`: the sidecar answered on `127.0.0.1:18790`, every child executable was under the app bundle, and AppData resolved to **`~/Library/Application Support/LocalBot`** (`app.getPath("appData")` — Electron ignores `$HOME` for this on macOS, so the proof no longer expects a temp AppData on darwin and never deletes a pre-existing one). Output: `STAGE8_PACKAGED_PASS node=v22.23.2 app=…/LocalBot-0.1.0-mac-arm64.dmg platform=darwin-arm64`. The artifact is not committed (`dist/` is ignored). No GGUF / ggml model is inside the `.dmg` (the whisper model and the llama models live in AppData).
+- **Gate B — Mac `whisper-cli` from source: WORKS on darwin-arm64.** Upstream v1.9.2 ships no darwin CLI and none is invented. `npm run build:whisper-mac` (`scripts/build-whisper-mac.mjs`, new) clones `ggml-org/whisper.cpp` at tag **v1.9.2** (commit `306c88f4d1286aec1bf96e544632897886af5501`), configures with exactly `-DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DGGML_METAL=ON -DGGML_METAL_EMBED_LIBRARY=ON -DGGML_NATIVE=OFF -DWHISPER_BUILD_EXAMPLES=ON -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_SERVER=OFF -DWHISPER_SDL2=OFF`, builds `whisper-cli`, refuses any non-system dylib (`otool -L`), installs to **`~/Library/Application Support/LocalBot/bin/darwin-arm64/whisper/whisper-cli`** (3,275,928 B, static: Accelerate + Metal + MetalKit only, so `dylibs: []`) and writes `whisper-build.json` beside it (release, commit, target, sha256, cmake flags, host). `catalog/whisper-assets.json` gained a `darwin-arm64` row of **`kind: "built"`** with `url: null`, the source tag + commit, the cmake flags and this host's binary sha256 `fbd2a54cf4835af4ee45b26515a21fa97add9599601d0f6ca7acddfe2cd21f6e`; `linux-x64` / `win32-x64` rows are unchanged. `src/lib/runtime/stt.ts` now knows `darwin-arm64` / `darwin-x64` targets, verifies a built row against its manifest (`verifyBuiltWhisper`: file present, size, sha256 = manifest, release = catalog) instead of an archive, and reports **NOT BUILT** with the build command when the binary is missing (`sttStatus().reason`, `transcribeWav` code `NOT_BUILT`) — the Mic is enabled on darwin exactly when the binary exists. `npm run prove:stt -- --data-dir ~/Library/Application\ Support/LocalBot` → `runtime ok (built from v1.9.2 @ 306c88f4d1) … = catalog`, transcript `"And so my fellow Americans, ask not what your country can do for you, ask what you can do for your country."` in 354 ms, `STAGE9_STT_PASS … kind=built`. Standalone `whisper-cli` on `jfk.wav` logs `ggml_metal_device_init: GPU name: MTL0 (Apple M4 Pro)`.
+- **Gate C — real microphone: WORKS.** The app was rebuilt after Gate B (the `.dmg` sha256 above is that rebuild) and `npm run prove:mac` (`scripts/prove-mac.mjs`, new) launched `dist/desktop/mac-arm64/LocalBot.app` with the node-less `PATH`, seeded one agent because AppData had no config yet (removed again afterwards), opened it, and waited for the Mic button: `Hold to talk (release to transcribe on this computer)` — enabled. `systemPreferences.getMediaAccessStatus("microphone")` was `not-determined`; the app asked, macOS showed the TCC prompt with the `NSMicrophoneUsageDescription` text, **Allow was clicked**, status became `granted`. The proof then held the Mic with a real pointer-down, played `jfk.wav` (352,078 B, catalog sha256) out of the speakers for 11 s while this Mac's real microphone listened, released, and read the composer:
+
+  ```
+  voice note: "Voice · Heard 12.0 s · base.en · 379 ms"
+  composer:   "Oh my fellow America! Ask not what your country can do for you. Ask what you can do for your country."
+  STAGE10_MAC_MIC_PASS tcc=granted heard_s=12.0 model=base.en ms=379 …
+  ```
+
+  No message was sent (user-message count unchanged), the clip was deleted from `{AppData}/stt/`, and Enter is still the composer's `send()` → `runAgentTurn` (static gate in the proof). Speaker → mic acoustics account for "Oh my fellow America!" vs. the fixture's "And so my fellow Americans"; the pinned phrase was heard.
+- **Gate D — models + Metal GPU: WORKS on darwin-arm64.** Downloaded `qwen2.5-3b-instruct-q4_k_m.gguf` (2,104,932,768 B) and `Qwen2.5-7B-Instruct-Q4_K_M.gguf` (4,683,074,240 B) into `~/Library/Application Support/LocalBot/models/` and hashed them:
+
+  ```
+  626b4a6678b86442240e33df819e00132d3ba7dddfe1cdc4fbb18e0a9615c62d  qwen2.5-3b-instruct-q4_k_m.gguf   = catalog
+  65b8fcd92af6b4fefa935c625d1ac27ea29dcb6ee14589c55a8f115ceaaa1423  Qwen2.5-7B-Instruct-Q4_K_M.gguf   = catalog
+  ```
+
+  Both equal the catalog's etag-derived values, so `catalog/models.json` notes now read **"sha256 confirmed by download (Stage 10, 2026-09-04)"** — no hash was rewritten. `pickLlamaRuntime("darwin-arm64", …)` selects **`metal`** ("Apple Silicon: the official macos-arm64 build is the Metal build."), `gpuLayersFor` returns **99** (Metal shares system memory, the probe has no VRAM figure → offload everything). `npm run prove:packaged-chat -- --gguf <file>` (now darwin-aware, and on darwin-arm64 it also requires the Metal tree, `--n-gpu-layers > 0`, `/props`, and the Settings line) ran one real turn in the **packaged** app on each model, DeepSeek Harness on the bundled Node, llama-server from **`bin/darwin-arm64/metal/llama-b10749/llama-server`** (b10749-dfc29b64e):
+
+  ```
+  3B  llama-server … -m …/qwen2.5-3b-instruct-q4_k_m.gguf --host 127.0.0.1 --port 18789 -c 8192 -t 4 --n-gpu-layers 99 --jinja
+      reply "Hello, how can I assist you today?" in 5118 ms (first run incl. Metal runtime download + GGUF hash: 26312 ms)
+  7B  llama-server … -m …/Qwen2.5-7B-Instruct-Q4_K_M.gguf --host 127.0.0.1 --port 18789 -c 8192 -t 4 --n-gpu-layers 99 --jinja
+      reply "Hello!" in 11442 ms
+  Settings › Models: "Selected: Metal (Apple Silicon) · --n-gpu-layers 99 · Apple Silicon: the official macos-arm64 build is the Metal build."
+  STAGE10_MAC_GPU_PASS runtime=metal n_gpu_layers=99 llama_server=…/bin/darwin-arm64/metal/llama-b10749/llama-server gguf=…
+  ```
+
+  The same binary with `-lv 4` on the same files logs the layer placement: **3B `load_tensors: offloaded 37/37 layers to GPU`** (CPU_Mapped 166.92 MiB), **7B `load_tensors: offloaded 29/29 layers to GPU`**, `MTL0_Mapped model buffer size = 4168.09 MiB`, `MTL0 KV buffer size = 448.00 MiB`, `ggml_metal_init: picking default device: Apple M4 Pro`; `/props` names the served file and `build_info b10749-dfc29b64e`.
+- **Tests.** `npm test` → 203 (scripts) + **207** (TS suite, was 205) pass on this Mac; `npm run lint` and `npx tsc --noEmit` clean. New in `stt.test.ts`: a built row has no URL and carries source / cmake / sha256; `whisperTarget()` is `darwin-arm64` on Apple Silicon and null on Intel; `verifyBuiltWhisper` fails on a missing binary, a missing manifest, or a hash mismatch; `build-whisper-mac.mjs` emits exactly the catalog's cmake flags (Metal only on arm64) and installs under `~/Library/Application Support/LocalBot/bin/{target}/whisper`. Two darwin test-helper fixes (no product code): `makeTempRoot` resolves `realpath` because macOS's `$TMPDIR` is a symlink (`/var → /private/var`) that the scope resolver's symlink-escape check correctly rejects; `localbot.test.ts` expects the target's default runtime tree (`metal` on darwin-arm64) rather than a literal `cpu`; `watch.test.ts` waits 500 ms on darwin before the "colleague" writes, because the FSEvents stream behind a recursive `fs.watch` starts asynchronously and does not replay a write made before it is live (the test passed alone and failed 3/3 under the parallel suite without it; the app's safety poll covers that gap in production). `src/lib/fs/watch.ts` is untouched.
 
 ### Not built
 
-- **macOS whisper-cli: NOT BUILT.** Upstream ships no darwin CLI for v1.9.2. The Mic is disabled on a mac sidecar with the tooltip "Voice input is NOT BUILT on macOS: whisper.cpp v1.9.2 ships an xcframework, not a whisper-cli binary." Building one from source, or a Metal/Core ML path, is not in this stage.
-- **Real microphone: UNVERIFIED.** This VM has no audio device. The renderer path was exercised with Chromium's fake capture device playing `jfk.wav` (`--use-fake-device-for-media-stream --use-file-for-fake-audio-capture`) — real renderer code, real sidecar, real `whisper-cli`, fake device. A human with a headset is the remaining step.
-- **Windows: UNVERIFIED.** `whisper-bin-x64.zip` is pinned and hashed, `Release/whisper-cli.exe` is found by the same walk, `PATH` is prefixed with the whisper dir; never run here.
-- **Electron window with a mic: UNVERIFIED** (see above). `tiny.en` in the UI, a model picker, streaming partials, auto-send on release, multilingual models, speaker diarization, `whisper-server`, GPU whisper builds: **NOT BUILT** (out of scope).
-- Out of scope and untouched: sidecar auth token, `pagehide` flush handshake, `session/close`, template auth / db / PWA deletion, Harness mkdir / delete / rename / copy tools, installer signing (still NOT BUILT — everything is UNSIGNED), two-laptop NAS, painted GPU, 3B / 7B re-hash, UI redesign.
+- **Any signing or notarization: NOT BUILT** — by rule. First launch shows Gatekeeper's unidentified-developer dialog (right-click › Open, or Privacy & Security › Open Anyway).
+- **darwin-x64 whisper-cli: NOT BUILT.** No catalog row (this host cannot build or run x86_64 without cross-compiling, which was ruled out); `build-whisper-mac.mjs` would produce a CPU-only binary there but it is UNVERIFIED. The Mic on an Intel Mac says so in its tooltip.
+- **darwin-x64 GPU: NOT BUILT** (no upstream asset for b10749) — unchanged. darwin-x64 llama.cpp CPU rows are UNVERIFIED (no Intel Mac here).
+- **whisper-cli rebuilt on another Mac: UNVERIFIED.** The catalog sha256 is this host's build; another machine's build records its own hash in `whisper-build.json`, which is what `stt.ts` verifies (the catalog hash is informational for built rows).
+- **Windows packaging, NSIS, sidecar auth token, `pagehide` handshake, template deletion, two-laptop NAS, auto-send voice, `whisper-server`, Electron upgrade, model picker for whisper, CUDA / Vulkan hosts:** out of scope, unchanged, UNVERIFIED where applicable.
+- Prompting a **fresh** TCC grant is a one-time manual click; `prove:mac` waits up to `--tcc-wait` seconds (default 90) and fails as UNVERIFIED if nobody clicks. It cannot click the system dialog itself.
 
 ### Files changed
 
-- `catalog/whisper-assets.json` (new) — v1.9.2 runtime rows, `base.en` / `tiny.en` model rows, jfk.wav fixture row, all with sha256 + size.
-- `src/lib/runtime/stt.ts` (new) — catalog accessors, `whisperTarget` / `whisperUnsupportedReason`, paths (`whisperDir`, `whisperModelsDir`, `sttDir`), `assertSttOutsideScopes`, `assertWhisperExe`, `verifyWhisperModel` / `verifyWhisperArchive`, `ensureWhisperRuntime` / `ensureWhisperModel`, `whisperSpawnPlan`, `cleanTranscript`, `transcribeWav`, `sttStatus`.
-- `src/lib/runtime/stt-server.ts` (new) — `sttStatus`, `sttTranscribe` server functions.
-- `src/lib/audio/wav.ts` (new) — `inspectWav`, `validateSttWav`, `encodeWavPcm16Mono`, `floatTo16BitPCM`, `resampleLinear`, `concatFloat32`, `bytesToBase64`. `src/lib/audio/mic-capture.ts` (new) — `micSupported`, `micUnavailableReason`, `startMicCapture`. `src/lib/audio/voice-text.ts` (new) — `appendTranscript`, `MIN_CLIP_SECONDS`.
-- `src/components/localbot/use-voice-input.ts` (new) — `useVoiceInput` (idle / listening / transcribing, disabled reasons, notes). `src/components/localbot/chat.tsx` — Mic button, header label, footer note, `onText` → composer only.
-- `desktop/packaged.mjs` — `mediaPermissionDecision`, `normalizeOrigin`. `desktop/main.mjs` — `installPermissionHandlers(uiUrl)` before `BrowserWindow`.
-- `package.json` — `build.mac.extendInfo.NSMicrophoneUsageDescription`; `npm test` adds `src/lib/runtime/stt.test.ts`; script `prove:stt`.
-- `src/lib/runtime/stt.test.ts` (new, 26), `scripts/prove-stt.mjs` (new).
-- `STAGE_HANDOFF.md`, `LOCALBOT_HANDOFF.md`, `README.md`, `ARCHITECTURE.md`, `FOLDER_CONTRACT.md`, `CATALOG.md`.
+- `scripts/build-whisper-mac.mjs` (new) — clone v1.9.2, cmake (Metal on arm64, CPU on x64), build `whisper-cli`, refuse foreign dylibs, install to AppData, write `whisper-build.json`.
+- `scripts/prove-mac.mjs` (new) — Stage 10 prove-it: static gates + built whisper check + live hold-to-talk in the packaged app with the real mic.
+- `scripts/prove-packaged.mjs` — `.dmg` mount/extract, `codesign` no-Developer-ID check, `ps` process tree, real AppData on darwin (never deleted if pre-existing).
+- `scripts/prove-packaged-chat.mjs` — `LocalBot.app` path, `ps` tree, real AppData with seed-and-restore, selects the given GGUF as the config default, counts only new replies; on darwin-arm64 adds the Metal / `--n-gpu-layers` / `/props` / Settings gates → `STAGE10_MAC_GPU_PASS`.
+- `scripts/prove-stt.mjs` — darwin rows allowed only as `kind: "built"` without a URL; prints `kind=` in the pass line.
+- `src/lib/runtime/stt.ts` — darwin targets, `kind: "built"` rows, `WHISPER_BUILD_MANIFEST`, `verifyBuiltWhisper`, NOT BUILT reasons per arch, `NOT_BUILT` error code.
+- `src/lib/runtime/stt.test.ts`, `src/lib/localbot.test.ts`, `src/lib/fs/watch.test.ts` (darwin settle), `src/lib/fs/disk.ts` (`makeTempRoot` realpath, test helper only).
+- `catalog/whisper-assets.json` (darwin-arm64 built row), `catalog/models.json` (3B / 7B "confirmed by download"), `CATALOG.md`, `README.md`, `ARCHITECTURE.md`, `package.json` (`build:whisper-mac`, `prove:mac`).
+- `STAGE_HANDOFF.md`, `LOCALBOT_HANDOFF.md`.
 
 ### Prove it
 
-Command (linux-x64 or win32-x64; Node ≥ 22.15 on PATH for the Stage 4–8 Harness suite, as before; `npm install` first; network for the 9.5 MB runtime archive, the 148 MB model and the 352 KB fixture on the first run — they are cached in `$TMPDIR/localbot-prove-stt` and reused; `--fresh` deletes that cache first):
+Command (on this Mac, from the repo, with `dist/desktop` built):
 
 ```
-npm run lint && npm run typecheck && npm test && \
-  npm run prove:stt && \
-  echo STAGE9_PASS
+npm test && npm run prove:mac
 ```
 
-Pass looks like (this host, 2026-09-04, `--fresh`):
+Pass looks like:
 
 ```
-# tests 203
-# pass 203
-# fail 0
-# tests 205
-# pass 205
-# fail 0
-[prove-stt] static gates ok: 2 runtime rows, 2 model rows hashed | runAgentTurn kept | dsh 0.1.2-alpha.5
-[prove-stt] fixture jfk.wav sha256 ok (352078 B)
-[prove-stt] fixture shape ok: PCM16 mono 16000 Hz, 11.00 s
-[prove-stt] runtime ok: …/bin/linux-x64/whisper/whisper-cli (323 ms; archive sha256 46811a3ecf58…)
-[prove-stt] model ok: …/models/whisper/ggml-base.en.bin sha256 a03779c86df3… (1951 ms)
-[prove-stt] non-WAV refused: Not a WAV file (missing RIFF/WAVE header).
-[prove-stt] scoped clip dir refused: Refusing to write voice clips under a scope folder (…)
-[prove-stt] whisper-cli …/bin/linux-x64/whisper/whisper-cli
-[prove-stt] args -m {dataDir}/models/whisper/ggml-base.en.bin -f {dataDir}/stt/<uuid>.wav -l en -nt -np
-[prove-stt] transcript (832 ms, model base.en, 11.00 s of audio): "And so my fellow Americans, ask not what your country can do for you, ask what you can do for your country."
-[prove-stt] clip deleted: …/stt is empty
-STAGE9_STT_PASS text="And so my fellow Americans, ask not what your country can do for you, ask what you can do for your country." ms=832 model=base.en release=v1.9.2 exe=…/bin/linux-x64/whisper/whisper-cli total_ms=832
-STAGE9_PASS
+ℹ pass 207
+[prove-mac] static gates ok: identity null | dmg LocalBot-0.1.0-mac-arm64.dmg sha256 4eff4caab6da… in STAGE_HANDOFF | no signed/notarized claim | runAgentTurn kept | dsh 0.1.2-alpha.5
+[prove-mac] whisper-cli built: …/bin/darwin-arm64/whisper/whisper-cli sha256 fbd2a54cf483… = catalog · v1.9.2 @ 306c88f4d1
+[prove-mac] TCC microphone status: granted
+[prove-mac] composer: "… ask not what your country can do for you …"
+STAGE10_MAC_MIC_PASS tcc=granted heard_s=… model=base.en ms=… text="…" whisper=… app=… dmg_sha256=4eff4caab6daafabfaf8f49f6137c4d23a7150ac84c5e2fee4e6c3f9cc9b34e6
 ```
 
-(205 = 179 Stage 1–8 tests + 26 in `stt.test.ts`.) On `main` (`3d45a7a`) `npm run prove:stt` fails as a missing script and `npm test` lists no Stage 9 suite. The proof goes through the real `transcribeWav` with the spawn seam instrumented; it fails with `WAV_NEVER_REACHED` when `transcribeWav` returns without spawning `whisper-cli` or when the `-f` path does not exist at spawn time, and fails when: any catalog row has an empty sha256; the fixture's sha256 differs from the pin; a non-WAV buffer is accepted; a clip dir under a scope root is accepted; `whisper-cli` is spawned from anywhere but `{dataDir}/bin/{target}/whisper/`, or a `llama-server` / `whisper-server` sits in that folder; the library path does not include the whisper dir; the args are not `-m … -f … -l en -nt -np`; the clip is still on disk afterwards; the transcript lacks "ask not what your country can do for you"; `chat.tsx` dropped `runAgentTurn`; the dsh / ACP pins float. `npm run prove:stt -- --wav <file.wav> --expect "<phrase>"` runs another PCM16 mono 16 kHz clip; `-- --data-dir ~/.config/LocalBot` reuses a real install's whisper folder.
+`prove:mac` fails when `build.mac.identity` is not null, when no `dist/desktop/*.dmg` exists or its sha256 is not in this file, when this file makes a signing or notarization claim that is not negated, when `chat.tsx` drops `runAgentTurn` or the dsh pin floats, when a darwin catalog row is not `kind: "built"` or carries a URL, when the built `whisper-cli` is missing (prints the build command), when the app has a Developer ID / TeamIdentifier, when TCC is not granted within `--tcc-wait`, when the Mic never enters listening, when the transcript does not contain the fixture phrase, when a message was sent, or when the clip survives. `npm run prove:mac -- --no-mic` runs the static half only.
 
-### How I test in the app
-
-Done on this Linux VM (X display `:1`) against `npm run dev` with `LOCALBOT_DATA_DIR=/tmp/lb-stt-demo/data` (seeded with `scripts/seed-localbot-data.mjs`: employee Sam, agent Writer, no GGUF) in Chromium launched with `--use-fake-device-for-media-stream --use-file-for-fake-audio-capture=jfk.wav%noloop` because the VM has no microphone; recording and screenshot attached to the PR.
-
-1. **Mic next to Attach.** Select **Writer**. Under the composer, right of the paperclip, a microphone icon; hover → tooltip "Hold to talk (release to transcribe on this computer)". With no model downloaded the header badge says **Local model not ready** and the Mic is still enabled — voice input does not need llama.cpp.
-2. **Hold, speak, release.** Type `Draft a note:` first. Press and hold the Mic (the button goes red, the header shows **Listening**). Speak — here the fake device played the 11 s JFK clip. Release: header shows **Transcribing** for ~1 s (first use adds the runtime + model download, ~5 s on this host). The composer now reads `Draft a note: And so my fellow Americans ask not what your country can do for you, ask what you can do for your country.` and the footer line reads `Voice · Heard 11.8 s · base.en · 1022 ms`. **No message was sent** — the chat area still shows the empty-state suggestions; `li[data-role]` count is 0. Enter (or Send) is the employee's move and goes through the same `send()` as typed text.
-3. **On disk.** `ls /tmp/lb-stt-demo/data/LocalBot/bin/linux-x64/` → `whisper/` beside no llama runtime dir (llama.cpp was never downloaded here); `ls …/whisper` → `whisper-cli`, `libwhisper.so*`, `libggml*.so`, no `whisper-server`; `ls …/data/models/whisper` → `ggml-base.en.bin`; `ls …/data/stt` → empty after every clip. Nothing appears under `/tmp/lb-stt-demo/work` (the employee root).
-4. **Refusals.** Send a non-WAV body to the server function (the proof does this) → `Not a WAV file (missing RIFF/WAVE header).`, nothing written. Point `employeeRoot` at the data dir → `Refusing to write voice clips under a scope folder`. Press and release in under 0.4 s → footer `Voice · Hold the Mic while you speak.`, no sidecar call. While a turn is **Working** the Mic is disabled with "Wait for the current turn to finish."
-5. **macOS (not done here, by design).** On a mac sidecar `sttStatus().supported` is `false`; the Mic renders disabled with the tooltip "Voice input is NOT BUILT on macOS: whisper.cpp v1.9.2 ships an xcframework, not a whisper-cli binary." No download is attempted.
+Gate D repro: `npm run prove:packaged-chat -- --gguf ~/Library/Application\ Support/LocalBot/models/qwen2.5-3b-instruct-q4_k_m.gguf` → `STAGE8_PACKAGED_CHAT_PASS …` then `STAGE10_MAC_GPU_PASS runtime=metal n_gpu_layers=99 …`. Gate A repro: `npm run prove:packaged` → `STAGE8_PACKAGED_PASS node=v22.23.2 … platform=darwin-arm64`. Gate B repro: `npm run prove:stt -- --data-dir ~/Library/Application\ Support/LocalBot` → `STAGE9_STT_PASS … kind=built`.
 
 ### Ready for
 
-Stage 10, once the human says GO. Leftover **UNVERIFIED** / **NOT BUILT** from this stage: a real microphone through the Electron window (the permission handlers are code-tested only); Windows `whisper-cli.exe`; macOS CLI (NOT BUILT upstream); `tiny.en` in the UI. Carried from earlier stages, unchanged: signed / notarized installers (NOT BUILT), two laptops / NAS, painted GPU, 3B / 7B hashes, `pagehide` flush, live Ollama, bash sandbox on mac / win (all UNVERIFIED).
-
----
+Windows packaging — only after you say GO. Nothing Windows-side was touched in this stage.
 
 ## Stage 8 — Installers + two-process share (previous stage; still true)
 
-Full text in `LOCALBOT_HANDOFF.md` → "Update after Stage 8". The invariants this file's Stage 8 tests still check: every installer is **UNSIGNED** — `mac.identity` is `null`, no certificate, nothing notarized, and no handoff line may claim otherwise (`claimsSigned` in `src/lib/desktop-packaging.test.ts`). Stage 9 did not rebuild the AppImage / `.deb`; the Stage 8 checksums in that section stand for the last build made here.
+Full text in `LOCALBOT_HANDOFF.md` → "Update after Stage 8". The invariants this file's Stage 8 tests still check: every installer is **UNSIGNED** — `mac.identity` is `null`, no certificate, nothing notarized, and no handoff line may claim otherwise (`claimsSigned` in `src/lib/desktop-packaging.test.ts`, and now `scripts/prove-mac.mjs` for this file). Stage 10 built the macOS `.dmg` on a Mac (sha256 above); the Linux AppImage / `.deb` were not rebuilt — the Stage 8 checksums in that section stand for the last Linux build.

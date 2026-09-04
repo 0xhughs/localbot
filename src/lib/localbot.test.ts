@@ -23,7 +23,7 @@ import { scanServerHardwareFrom } from "./hardware-server.ts";
 import { classifyToolCall, pathAllowed } from "./permissions.ts";
 import { mascotIdForTemplate } from "./mascots.ts";
 import { executeTurn } from "./runtime/execute-turn.ts";
-import { llamaAssetFor, llamaAssetMap, llamaTarget } from "./runtime/llama-platform.ts";
+import { defaultRuntimeFor, llamaAssetFor, llamaAssetMap, llamaTarget } from "./runtime/llama-platform.ts";
 import {
   DEV_UI_URL,
   SIDECAR_URL,
@@ -363,7 +363,9 @@ describe("electron data dirs", () => {
       );
       // Stage 6 layout: bin/{target}/{runtime}/ so CPU and GPU trees coexist.
       const target = llamaTarget() ?? `${process.platform}-${process.arch}`;
-      assert.equal(llamaBinDir(), path.join(process.env.LOCALBOT_DATA_DIR, "bin", target, "cpu"));
+      // The default tree is the target's default runtime: cpu everywhere except darwin-arm64, whose only row is metal.
+      const def = llamaTarget() ? defaultRuntimeFor(llamaTarget()!) : "cpu";
+      assert.equal(llamaBinDir(), path.join(process.env.LOCALBOT_DATA_DIR, "bin", target, def));
       assert.equal(llamaBinDir("vulkan"), path.join(process.env.LOCALBOT_DATA_DIR, "bin", target, "vulkan"));
     } finally {
       if (prevE === undefined) delete process.env.LOCALBOT_ELECTRON;

@@ -3,8 +3,13 @@
  *
  *   - `catalog/whisper-assets.json` pins ggml-org/whisper.cpp v1.9.2 CLI
  *     archives (linux-x64, win32-x64; sha256 per row) and the ggml models
- *     (sha256 from a real download). darwin has no CLI asset upstream:
- *     `whisperTarget()` is null there and the UI disables the Mic (NOT BUILT).
+ *     (sha256 from a real download). darwin has no CLI asset upstream, so
+ *     Stage 10 adds a `kind: "built"` row (darwin-arm64): whisper-cli compiled
+ *     from the pinned source tag by `scripts/build-whisper-mac.mjs` into the
+ *     same `bin/{target}/whisper/` folder, with `whisper-build.json` beside
+ *     it. A built row is never downloaded: the Mic is on only when that
+ *     binary exists and matches its manifest (same tag, same sha256).
+ *     Targets without a row (darwin-x64) stay NOT BUILT and the UI says so.
  *   - the runtime is unpacked flat into `{binRoot}/{target}/whisper/`, a
  *     sibling of the llama.cpp `bin/{target}/{runtime}/` trees. Both ship a
  *     libggml; they must never share a folder, so `assertWhisperExe` refuses
@@ -35,17 +40,38 @@ export const STT_TIMEOUT_MS = 60_000;
 /** ggml file magic: bytes "lmgg" (0x67676d6c little-endian). Not GGUF; never `verifyGgufFile`. */
 export const GGML_MAGIC = Buffer.from([0x6c, 0x6d, 0x67, 0x67]);
 
-export type WhisperTarget = "linux-x64" | "win32-x64";
-export const WHISPER_TARGETS: readonly WhisperTarget[] = ["linux-x64", "win32-x64"];
+export type WhisperTarget = "linux-x64" | "win32-x64" | "darwin-arm64" | "darwin-x64";
+const KNOWN_TARGETS: readonly WhisperTarget[] = ["linux-x64", "win32-x64", "darwin-arm64", "darwin-x64"];
 
 export type WhisperRuntimeAsset = {
   target: WhisperTarget;
+  /** Archive name for downloaded rows; the binary name for built rows. */
   filename: string;
-  kind: "tar.gz" | "zip";
+  /** `tar.gz` / `zip` rows are downloaded and unpacked; `built` rows are compiled on the host by `build`. */
+  kind: "tar.gz" | "zip" | "built";
   binary: string;
   sizeBytes: number;
   sha256: string;
-  url: string;
+  /** Release asset URL; null on built rows (nothing to download, nothing invented). */
+  url: string | null;
+  /** Built rows only: the pinned source and configure line. */
+  source: { repo: string; tag: string; commit: string } | null;
+  cmake: string[];
+  build: string | null;
+};
+
+/** Name of the manifest `scripts/build-whisper-mac.mjs` writes beside a built whisper-cli. */
+export const WHISPER_BUILD_MANIFEST = "whisper-build.json";
+
+export type WhisperBuildManifest = {
+  release: string;
+  commit: string;
+  target: string;
+  binary: string;
+  sha256: string;
+  sizeBytes: number;
+  cmake: string[];
+  dylibs: string[];
 };
 
 export type WhisperModelAsset = {
@@ -58,44 +84,74 @@ export type WhisperModelAsset = {
   url: string;
 };
 
-type RawTarget = { filename: string; kind: string; binary: string; sizeBytes: number; sha256: string; url: string };
+type RawTarget = {
+  filename?: string;
+  kind: string;
+  binary: string;
+  sizeBytes: number;
+  sha256: string;
+  url?: string;
+  source?: { repo: string; tag: string; commit: string };
+  cmake?: string[];
+  build?: string;
+};
 type RawModel = { label: string; filename: string; sizeBytes: number; sha256: string; ramGb?: number; url: string };
 
 const RAW_TARGETS = assetsFile.targets as Record<string, RawTarget>;
 const RAW_MODELS = assetsFile.models as Record<string, RawModel>;
 export const WHISPER_DEFAULT_MODEL: string = assetsFile.defaultModel;
 
+/** Targets with a row in the catalog (downloaded or built), in catalog order. */
+export const WHISPER_TARGETS: readonly WhisperTarget[] = Object.keys(RAW_TARGETS).filter((k): k is WhisperTarget =>
+  (KNOWN_TARGETS as readonly string[]).includes(k),
+);
+
 // ── catalog ──────────────────────────────────────────────────────────────────
 
-export function whisperTarget(platform: string = process.platform, arch: string = process.arch): WhisperTarget | null {
+function targetKey(platform: string, arch: string): string {
   const p = String(platform);
   const a = String(arch);
-  if (p === "linux" && (a === "x64" || a === "x86_64")) return "linux-x64";
-  if (p === "win32" && (a === "x64" || a === "x86_64")) return "win32-x64";
-  return null;
+  const normArch = a === "x86_64" ? "x64" : a === "aarch64" ? "arm64" : a;
+  return `${p}-${normArch}`;
 }
 
-/** Why the Mic is off on this host, or null when whisper-cli is pinned for it. */
+/** The catalog row key for this host, or null when no row (downloaded or built) is pinned for it. */
+export function whisperTarget(platform: string = process.platform, arch: string = process.arch): WhisperTarget | null {
+  const key = targetKey(platform, arch);
+  return (WHISPER_TARGETS as readonly string[]).includes(key) ? (key as WhisperTarget) : null;
+}
+
+/** Why the Mic is off on this host, or null when a whisper-cli row is pinned for it. */
 export function whisperUnsupportedReason(platform: string = process.platform, arch: string = process.arch): string | null {
   if (whisperTarget(platform, arch)) return null;
   if (String(platform) === "darwin") {
-    return `Voice input is NOT BUILT on macOS: whisper.cpp ${WHISPER_RELEASE} ships an xcframework, not a whisper-cli binary.`;
+    return `Voice input is NOT BUILT for macOS ${arch}: whisper.cpp ${WHISPER_RELEASE} ships an xcframework, not a whisper-cli binary, and no ${targetKey(platform, arch)} row is pinned in catalog/whisper-assets.json (npm run build:whisper-mac builds one from source).`;
   }
   return `Voice input is NOT BUILT for ${platform}-${arch}: no whisper-cli asset is pinned in catalog/whisper-assets.json.`;
+}
+
+/** Built rows only: the message shown while the compiled binary is not on this machine yet. */
+export function whisperNotBuiltReason(target: WhisperTarget, dir: string): string {
+  const r = RAW_TARGETS[target];
+  return `Voice input is NOT BUILT on this Mac yet: whisper-cli must be compiled from whisper.cpp ${WHISPER_RELEASE} source (${r?.build ?? "npm run build:whisper-mac"}) into ${dir}.`;
 }
 
 export function whisperRuntimeAsset(target: WhisperTarget | null = whisperTarget()): WhisperRuntimeAsset | null {
   if (!target) return null;
   const r = RAW_TARGETS[target];
   if (!r) return null;
+  const kind = r.kind as WhisperRuntimeAsset["kind"];
   return {
     target,
-    filename: r.filename,
-    kind: r.kind as WhisperRuntimeAsset["kind"],
+    filename: r.filename ?? r.binary,
+    kind,
     binary: r.binary,
     sizeBytes: r.sizeBytes,
     sha256: String(r.sha256 ?? "").toLowerCase(),
-    url: r.url,
+    url: kind === "built" ? null : (r.url ?? null),
+    source: r.source ?? null,
+    cmake: r.cmake ?? [],
+    build: r.build ?? null,
   };
 }
 
@@ -233,7 +289,42 @@ export function verifyWhisperModel(file: string, asset: WhisperModelAsset): Veri
   return { ok: true, path: file, sha256, size };
 }
 
+/**
+ * Built rows (darwin): the binary must sit beside the `whisper-build.json`
+ * its build wrote, that manifest must name this catalog's release tag and
+ * this target, and the file on disk must hash to the manifest's sha256. The
+ * catalog's own sha256 is the author's build and is reported, not enforced —
+ * a different clang produces a different, equally valid binary.
+ */
+export function verifyBuiltWhisper(exe: string, asset: WhisperRuntimeAsset): VerifyResult & { manifest?: WhisperBuildManifest; matchesCatalog?: boolean } {
+  if (asset.kind !== "built") return { ok: false, error: `${asset.target} is not a built row.` };
+  if (!fs.existsSync(exe)) return { ok: false, error: whisperNotBuiltReason(asset.target, path.dirname(exe)) };
+  const manifestPath = path.join(path.dirname(exe), WHISPER_BUILD_MANIFEST);
+  if (!fs.existsSync(manifestPath)) {
+    return { ok: false, error: `${exe} has no ${WHISPER_BUILD_MANIFEST} beside it; rebuild with ${asset.build ?? "npm run build:whisper-mac"}.` };
+  }
+  let manifest: WhisperBuildManifest;
+  try {
+    manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as WhisperBuildManifest;
+  } catch (err) {
+    return { ok: false, error: `${manifestPath} is not JSON: ${err instanceof Error ? err.message : String(err)}` };
+  }
+  if (manifest.release !== WHISPER_RELEASE) {
+    return { ok: false, error: `${manifestPath} says whisper.cpp ${manifest.release}; the catalog pins ${WHISPER_RELEASE}. Rebuild.` };
+  }
+  if (manifest.target !== asset.target) return { ok: false, error: `${manifestPath} was built for ${manifest.target}, not ${asset.target}.` };
+  if (asset.source && manifest.commit !== asset.source.commit) {
+    return { ok: false, error: `${manifestPath} was built from ${manifest.commit}, not the pinned ${asset.source.commit}.` };
+  }
+  if (!/^[0-9a-f]{64}$/.test(String(manifest.sha256 ?? ""))) return { ok: false, error: `${manifestPath} has no sha256.` };
+  const size = fs.statSync(exe).size;
+  const sha256 = sha256File(exe);
+  if (sha256 !== manifest.sha256) return { ok: false, error: `${exe}: sha256 ${sha256} ≠ ${WHISPER_BUILD_MANIFEST} ${manifest.sha256} (binary changed since it was built)` };
+  return { ok: true, path: exe, sha256, size, manifest, matchesCatalog: sha256 === asset.sha256 };
+}
+
 export function verifyWhisperArchive(file: string, asset: WhisperRuntimeAsset): VerifyResult {
+  if (asset.kind === "built") return { ok: false, error: `${asset.target} is a built row; there is no archive to verify.` };
   const want = expectSha(asset);
   if (!want.ok) return want;
   if (!fs.existsSync(file)) return { ok: false, error: `Archive is missing: ${file}` };
@@ -327,21 +418,34 @@ function flattenInto(dir: string, found: string): void {
   fs.rmSync(from, { recursive: true, force: true });
 }
 
-export type EnsureRuntime = { ok: true; exe: string; dir: string; target: WhisperTarget } | { ok: false; error: string };
+export type EnsureRuntime =
+  | { ok: true; exe: string; dir: string; target: WhisperTarget; built?: boolean }
+  | { ok: false; error: string; code?: "NOT_BUILT" };
 
-/** whisper-cli for this host, downloaded and sha256-verified on first use. */
+/**
+ * whisper-cli for this host: downloaded and sha256-verified on first use for
+ * archive rows; for built rows (darwin) only found — never downloaded — and
+ * checked against the manifest its build wrote.
+ */
 export async function ensureWhisperRuntime(): Promise<EnsureRuntime> {
   const target = whisperTarget();
   const asset = whisperRuntimeAsset(target);
-  if (!target || !asset) return { ok: false, error: whisperUnsupportedReason() ?? "No whisper-cli for this host." };
+  if (!target || !asset) return { ok: false, error: whisperUnsupportedReason() ?? "No whisper-cli for this host.", code: "NOT_BUILT" };
   const dir = whisperDir(target);
   const exe = path.join(dir, whisperCliName());
+  if (asset.kind === "built") {
+    const v = verifyBuiltWhisper(exe, asset);
+    if (!v.ok) return { ok: false, error: v.error, code: fs.existsSync(exe) ? undefined : "NOT_BUILT" };
+    assertWhisperExe(exe);
+    return { ok: true, exe, dir, target, built: true };
+  }
   if (fs.existsSync(exe)) {
     assertWhisperExe(exe);
     return { ok: true, exe, dir, target };
   }
   const want = expectSha(asset);
   if (!want.ok) return want;
+  if (!asset.url) return { ok: false, error: `catalog/whisper-assets.json row ${target} has no url.` };
   fs.mkdirSync(dir, { recursive: true });
   const archivePath = path.join(llamaBinRoot(), asset.filename);
   try {
@@ -401,11 +505,16 @@ export async function ensureWhisperModel(id: string = WHISPER_DEFAULT_MODEL): Pr
 // ── status ───────────────────────────────────────────────────────────────────
 
 export type SttStatus = {
-  /** False on darwin and any other host without a pinned whisper-cli. */
+  /**
+   * False on any host without a pinned whisper-cli row, and on a built-row
+   * host (darwin) until the compiled binary + manifest are in place.
+   */
   supported: boolean;
   reason: string | null;
   release: string;
   target: WhisperTarget | null;
+  /** `built` when this host compiles its CLI (darwin); the archive kind otherwise. */
+  kind: WhisperRuntimeAsset["kind"] | null;
   model: string;
   runtimeReady: boolean;
   modelReady: boolean;
@@ -413,16 +522,39 @@ export type SttStatus = {
   language: typeof STT_LANGUAGE;
 };
 
+/** Pure: the (supported, reason) pair for a host. `exeVerified` is the built-row check result. */
+export function sttSupport(input: {
+  target: WhisperTarget | null;
+  asset: WhisperRuntimeAsset | null;
+  dir: string;
+  builtOk: boolean;
+  builtError: string | null;
+  platform?: string;
+  arch?: string;
+}): { supported: boolean; reason: string | null } {
+  if (!input.target || !input.asset) return { supported: false, reason: whisperUnsupportedReason(input.platform, input.arch) };
+  if (input.asset.kind === "built" && !input.builtOk) {
+    return { supported: false, reason: input.builtError ?? whisperNotBuiltReason(input.target, input.dir) };
+  }
+  return { supported: true, reason: null };
+}
+
 export function sttStatus(): SttStatus {
   const target = whisperTarget();
+  const asset = whisperRuntimeAsset(target);
   const modelPath = whisperModelPath();
+  const dir = whisperDir(target ?? undefined);
+  const exe = path.join(dir, whisperCliName());
+  const built = asset?.kind === "built" ? verifyBuiltWhisper(exe, asset) : null;
+  const { supported, reason } = sttSupport({ target, asset, dir, builtOk: Boolean(built?.ok), builtError: built && !built.ok ? built.error : null });
   return {
-    supported: Boolean(target),
-    reason: whisperUnsupportedReason(),
+    supported,
+    reason,
     release: WHISPER_RELEASE,
     target,
+    kind: asset?.kind ?? null,
     model: WHISPER_DEFAULT_MODEL,
-    runtimeReady: Boolean(target) && fs.existsSync(whisperCliPath(target ?? undefined)),
+    runtimeReady: supported && fs.existsSync(exe),
     modelReady: Boolean(modelPath && fs.existsSync(modelPath)),
     busy: g().busy,
     language: STT_LANGUAGE,
@@ -562,7 +694,7 @@ export async function transcribeWav(wav: Uint8Array, deps: SttDeps = {}): Promis
     }
 
     const runtime = await (deps.runtime ?? ensureWhisperRuntime)();
-    if (!runtime.ok) return { ok: false, code: "RUNTIME", error: runtime.error };
+    if (!runtime.ok) return { ok: false, code: runtime.code === "NOT_BUILT" ? "NOT_BUILT" : "RUNTIME", error: runtime.error };
     const model = await (deps.model ?? (() => ensureWhisperModel()))();
     if (!model.ok) return { ok: false, code: "MODEL", error: model.error };
 

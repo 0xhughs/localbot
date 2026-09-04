@@ -12,7 +12,14 @@
  *
  * Usage:
  *   npm run prove:packaged-chat -- --gguf /path/to/qwen2.5-0.5b-instruct-q4_k_m.gguf
- *       [--app <AppImage | unpacked dir>] [--shots <dir>] [--keep] [--prompt "…"]
+ *       [--app <AppImage | unpacked dir | LocalBot.app>] [--shots <dir>] [--keep] [--prompt "…"]
+ *
+ * macOS (Stage 10): the app is dist/desktop/mac-arm64/LocalBot.app, the process
+ * tree comes from `ps`, and AppData is the real ~/Library/Application Support/LocalBot
+ * (Electron ignores $HOME for appData on macOS) — a config is seeded there only
+ * if none exists and removed again afterwards. On darwin-arm64 the proof also
+ * requires llama-server to run from bin/darwin-arm64/metal/ with --n-gpu-layers > 0
+ * and Settings to show the Metal build (STAGE10_MAC_GPU_PASS).
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -67,8 +74,35 @@ function killTree(pid) {
   }
 }
 
+/** macOS: one `ps` pass gives pid, ppid and the executable path for every process. */
+function descendantsMac(rootPid) {
+  const out = [];
+  const ps = spawnSync("ps", ["-axo", "pid=,ppid=,comm="], { encoding: "utf8" });
+  if (ps.status !== 0) return out;
+  const byParent = new Map();
+  for (const line of ps.stdout.split("\n")) {
+    const m = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
+    if (!m) continue;
+    const pid = Number(m[1]);
+    const ppid = Number(m[2]);
+    if (!byParent.has(ppid)) byParent.set(ppid, []);
+    byParent.get(ppid).push({ pid, exe: m[3].trim() });
+  }
+  const stack = [rootPid];
+  while (stack.length) {
+    const p = stack.pop();
+    for (const c of byParent.get(p) ?? []) {
+      const args = spawnSync("ps", ["-o", "args=", "-ww", "-p", String(c.pid)], { encoding: "utf8" }).stdout.trim();
+      out.push({ pid: c.pid, exe: c.exe, cmd: args.split(/\s+/) });
+      stack.push(c.pid);
+    }
+  }
+  return out;
+}
+
 function descendants(rootPid) {
   const out = [];
+  if (process.platform === "darwin") return descendantsMac(rootPid);
   if (process.platform !== "linux") return out;
   const byParent = new Map();
   for (const n of fs.readdirSync("/proc")) {
@@ -151,6 +185,7 @@ if (spawnSync("/bin/sh", ["-c", "command -v node || command -v npm || command -v
 
 function newestApp() {
   const out = path.join(root, "dist/desktop");
+  if (process.platform === "darwin") return path.join(out, process.arch === "arm64" ? "mac-arm64" : "mac", "LocalBot.app");
   if (fs.existsSync(out)) {
     const names = fs.readdirSync(out).filter((n) => n.endsWith(".AppImage"));
     names.sort((a, b) => fs.statSync(path.join(out, b)).mtimeMs - fs.statSync(path.join(out, a)).mtimeMs);
@@ -165,33 +200,66 @@ if (appDir.endsWith(".AppImage")) {
   if (r.status !== 0) fail(`--appimage-extract failed: ${r.stderr}`);
   appDir = path.join(tmp, "squashfs-root");
 }
-const exe = path.join(appDir, process.platform === "win32" ? "LocalBot.exe" : "LocalBot");
+const mac = process.platform === "darwin";
+const exe = mac ? path.join(appDir, "Contents/MacOS/LocalBot") : path.join(appDir, process.platform === "win32" ? "LocalBot.exe" : "LocalBot");
 if (!fs.existsSync(exe)) fail(`no packaged app at ${exe}; run npm run build:desktop`);
-const res = harnessResourcePaths({ resourcesPath: path.join(appDir, "resources") });
+const res = harnessResourcePaths({ resourcesPath: path.join(appDir, mac ? "Contents/Resources" : "resources") });
 const bundledNode = fs.realpathSync(res.nodeBin);
 
 if (await up(SIDECAR_URL, 500)) fail(`${SIDECAR_URL} already answering — stop the other LocalBot first`);
 
-const home = path.join(tmp, "home");
-const appData = path.join(home, ".config", "LocalBot");
+const home = mac ? os.homedir() : path.join(tmp, "home");
+const appData = mac ? path.join(home, "Library", "Application Support", "LocalBot") : path.join(home, ".config", "LocalBot");
 const work = path.join(tmp, "work");
-seedLocalBotData({
-  dataDir: appData,
-  folders: { employeeRoot: path.join(work, "employees/Sam"), employeeShared: null, departmentShared: path.join(work, "departments/Ops/shared"), companyShared: null },
-  agents: [{ name: "Writer" }],
-  idPrefix: "chat",
-});
+const configPath = path.join(appData, "localbot-config.json");
+const seeded = !fs.existsSync(configPath);
+if (seeded) {
+  seedLocalBotData({
+    dataDir: appData,
+    folders: { employeeRoot: path.join(work, "employees/Sam"), employeeShared: null, departmentShared: path.join(work, "departments/Ops/shared"), companyShared: null },
+    agents: [{ name: "Writer" }],
+    idPrefix: "chat",
+  });
+  if (mac) {
+    log("AppData had no localbot-config.json — seeded one agent (Writer); removed again afterwards");
+    cleanup.push(() => {
+      fs.rmSync(configPath, { force: true });
+      fs.rmSync(path.join(appData, "agents"), { recursive: true, force: true });
+    });
+  }
+} else {
+  log("AppData config exists at", configPath, "— using it as is");
+}
 fs.mkdirSync(path.join(appData, "models"), { recursive: true });
-fs.copyFileSync(gguf, path.join(appData, "models", path.basename(gguf)));
-fs.mkdirSync(path.join(home, ".local/share"), { recursive: true });
+const ggufDest = path.join(appData, "models", path.basename(gguf));
+if (path.resolve(gguf) !== path.resolve(ggufDest)) fs.copyFileSync(gguf, ggufDest);
+{
+  // The turn must run on THIS file even when models/ holds others: point the
+  // config's default at it (the sidecar re-verifies size + magic + sha256 before
+  // loading). The previous default is restored on exit when the config was not seeded.
+  const cfg = JSON.parse(fs.readFileSync(configPath, "utf8"));
+  const prev = { activeModelId: cfg.activeModelId ?? null, activeModelPath: cfg.activeModelPath ?? null };
+  const catalogRow = JSON.parse(fs.readFileSync(path.join(root, "catalog/models.json"), "utf8")).models.find((m) => m.filename === path.basename(gguf));
+  cfg.activeModelId = catalogRow?.id ?? null;
+  cfg.activeModelPath = ggufDest;
+  fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2) + "\n");
+  if (!seeded)
+    cleanup.push(() => {
+      const c = JSON.parse(fs.readFileSync(configPath, "utf8"));
+      Object.assign(c, prev);
+      fs.writeFileSync(configPath, JSON.stringify(c, null, 2) + "\n");
+    });
+}
+if (!mac) fs.mkdirSync(path.join(home, ".local/share"), { recursive: true });
 log("AppData", appData, "| GGUF", path.basename(gguf), "→ models/");
 
 const electronApp = await _electron.launch({
   executablePath: exe,
-  args: ["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"],
+  args: mac ? [] : ["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"],
   env: {
     PATH: cleanBin,
     HOME: home,
+    TMPDIR: process.env.TMPDIR ?? "/tmp",
     XAUTHORITY: process.env.XAUTHORITY || (fs.existsSync(xauthority) ? xauthority : ""),
     DISPLAY: process.env.DISPLAY ?? "",
     XDG_CONFIG_HOME: path.join(home, ".config"),
@@ -207,11 +275,16 @@ const page = await electronApp.firstWindow({ timeout: 90000 });
 if (!(await up(SIDECAR_URL, 60000))) fail("packaged sidecar never answered on " + SIDECAR_URL);
 log("packaged app up: pid", aPid, "sidecar", SIDECAR_URL);
 
-await page.getByText("Writer", { exact: true }).first().waitFor({ timeout: 60000 });
-await page.getByText("Writer", { exact: true }).first().click();
-const box = page.getByPlaceholder(/Message Writer/);
+if (seeded) {
+  await page.getByText("Writer", { exact: true }).first().waitFor({ timeout: 60000 });
+  await page.getByText("Writer", { exact: true }).first().click();
+}
+const box = page.getByPlaceholder(seeded ? /Message Writer/ : /Message /);
 await box.waitFor({ timeout: 30000 });
 const prompt = opt("--prompt") ?? "Reply with one short sentence saying hello.";
+// Chats live in the renderer's localStorage: an earlier run against the same AppData leaves its replies on screen.
+const before = await page.locator("li[data-role='assistant']").count();
+if (before) log(`chat already shows ${before} assistant message(s) from an earlier run; waiting for a new one`);
 const t0 = Date.now();
 await box.fill(prompt);
 await box.press("Enter");
@@ -230,12 +303,13 @@ while (Date.now() < deadline) {
     log("dsh cmdline:", dsh.cmd.join(" "));
   }
   const llama = tree.find((p) => /llama-server/.test(p.exe ?? ""));
-  if (llama && !globalThis.__llamaLogged) {
-    globalThis.__llamaLogged = true;
+  if (llama && !globalThis.__llamaSeen) {
+    globalThis.__llamaSeen = llama;
     log("llama-server running from", llama.exe);
+    log("llama-server cmdline:", llama.cmd.join(" "));
   }
   const msgs = await page.locator("li[data-role='assistant']").allInnerTexts().catch(() => []);
-  if (msgs.length) {
+  if (msgs.length > before) {
     reply = msgs[msgs.length - 1];
     break;
   }
@@ -268,5 +342,27 @@ if (!cfg.activeModelPath || !cfg.activeModelPath.startsWith(appData)) fail(`acti
 log("activeModelPath", cfg.activeModelPath, "| verified:", Object.keys(cfg.verifiedModels ?? {}).length, "file(s)");
 
 console.log(`STAGE8_PACKAGED_CHAT_PASS dsh_node=${dshSeen.exe} reply_ms=${ms} gguf=${path.basename(gguf)}`);
+
+// ---- Stage 10, darwin-arm64: the turn ran on the Metal build with layers on the GPU.
+if (mac && process.arch === "arm64") {
+  const llama = globalThis.__llamaSeen ?? descendants(aPid).find((p) => /llama-server/.test(p.exe ?? ""));
+  if (!llama) fail("no llama-server process was observed under the packaged app");
+  const metalDir = path.join(appData, "bin", "darwin-arm64", "metal");
+  if (!llama.exe.startsWith(metalDir)) fail(`llama-server ran from ${llama.exe}, not the macos-arm64 Metal tree ${metalDir}`);
+  const ngl = Number(llama.cmd[llama.cmd.indexOf("--n-gpu-layers") + 1]);
+  if (!(ngl > 0)) fail(`llama-server --n-gpu-layers is ${llama.cmd[llama.cmd.indexOf("--n-gpu-layers") + 1] ?? "absent"}; Metal must offload layers`);
+  const props = await fetch("http://127.0.0.1:18789/props", { signal: AbortSignal.timeout(5000) }).then((r) => r.json()).catch(() => null);
+  if (!props) fail("llama-server /props did not answer on 127.0.0.1:18789");
+  log("llama-server /props:", JSON.stringify({ model_path: props.model_path, build_info: props.build_info, n_ctx: props.default_generation_settings?.n_ctx, total_slots: props.total_slots }));
+  await page.getByRole("button", { name: "Settings" }).first().click();
+  await page.getByRole("button", { name: "Models", exact: true }).first().click({ timeout: 30000 });
+  const choice = page.getByTestId("runtime-choice"); // Settings › Models › "llama.cpp build"
+  await choice.waitFor({ timeout: 30000 });
+  const choiceText = (await choice.textContent()) ?? "";
+  if (!/Metal/.test(choiceText)) fail(`Settings runtime line does not say Metal: "${choiceText}"`);
+  log("Settings:", choiceText.trim());
+  if (shots) await page.screenshot({ path: path.join(shots, "packaged-settings-metal.png") });
+  console.log(`STAGE10_MAC_GPU_PASS runtime=metal n_gpu_layers=${ngl} llama_server=${llama.exe} gguf=${path.basename(gguf)} reply_ms=${ms}`);
+}
 await electronApp.close().catch(() => {});
 process.exit(0);

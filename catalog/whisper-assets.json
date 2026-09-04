@@ -1,6 +1,6 @@
 {
   "release": "v1.9.2",
-  "notes": "Stage 9 hold-to-talk STT. Official ggml-org/whisper.cpp v1.9.2 release assets (2026-08-04) and the ggerganov/whisper.cpp ggml models on Hugging Face. Every sha256 here was computed from a real download on 2026-09-04; nothing is invented. One-shot whisper-cli only: whisper-server is never started and no GPU / cuBLAS / BLAS row is pinned. The runtime unpacks (flattened) into {dataDir}/bin/{target}/whisper/ - its own folder, never inside a llama.cpp bin/{target}/{runtime}/ tree, because both ship a libggml. darwin has no whisper-cli asset in this release (upstream ships whisper-v1.9.2-xcframework.zip, a library, not a CLI): NOT BUILT, no row, no invented URL.",
+  "notes": "Stage 9 hold-to-talk STT. Official ggml-org/whisper.cpp v1.9.2 release assets (2026-08-04) and the ggerganov/whisper.cpp ggml models on Hugging Face. Every sha256 here was computed from a real download on 2026-09-04; nothing is invented. One-shot whisper-cli only: whisper-server is never started and no cuBLAS / BLAS / Vulkan row is pinned. The runtime unpacks (flattened) into {dataDir}/bin/{target}/whisper/ - its own folder, never inside a llama.cpp bin/{target}/{runtime}/ tree, because both ship a libggml. darwin has no whisper-cli asset in this release (upstream ships whisper-v1.9.2-xcframework.zip, a library, not a CLI) and no URL is invented: Stage 10 adds a darwin-arm64 row of kind 'built' - whisper-cli compiled from the v1.9.2 source tag by scripts/build-whisper-mac.mjs (static, Metal embedded) into the same bin/{target}/whisper/ folder, with whisper-build.json beside it. The sha256 on that row is the binary this host produced; the sidecar verifies an install against its own whisper-build.json (same tag, same file). darwin-x64: no row, NOT BUILT (the same script would build a CPU CLI on an Intel Mac; never run here).",
   "language": "en",
   "defaultModel": "base.en",
   "targets": {
@@ -19,6 +19,32 @@
       "sizeBytes": 8194445,
       "sha256": "49dcc16de826f20bd53d44f947a1ae49dfa81f86cad67a64d80820cb192d674a",
       "url": "https://github.com/ggml-org/whisper.cpp/releases/download/v1.9.2/whisper-bin-x64.zip"
+    },
+    "darwin-arm64": {
+      "kind": "built",
+      "binary": "whisper-cli",
+      "build": "npm run build:whisper-mac",
+      "source": {
+        "repo": "https://github.com/ggml-org/whisper.cpp",
+        "tag": "v1.9.2",
+        "commit": "306c88f4d1286aec1bf96e544632897886af5501"
+      },
+      "cmake": [
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DBUILD_SHARED_LIBS=OFF",
+        "-DGGML_METAL=ON",
+        "-DGGML_METAL_EMBED_LIBRARY=ON",
+        "-DGGML_NATIVE=OFF",
+        "-DWHISPER_BUILD_EXAMPLES=ON",
+        "-DWHISPER_BUILD_TESTS=OFF",
+        "-DWHISPER_BUILD_SERVER=OFF",
+        "-DWHISPER_SDL2=OFF"
+      ],
+      "sizeBytes": 3275928,
+      "sha256": "fbd2a54cf4835af4ee45b26515a21fa97add9599601d0f6ca7acddfe2cd21f6e",
+      "builtOn": "2026-09-04 · Mac mini Apple M4 Pro · macOS 26.5.2 (Darwin 25.5.0) · Apple clang 21.0.0 (clang-2100.1.1.101) · cmake 4.4.3",
+      "dylibs": [],
+      "notes": "Built from source, not downloaded: no darwin CLI exists in the v1.9.2 release. Static binary (Accelerate + Metal + MetalKit system frameworks only), Metal kernels embedded; whisper-cli on jfk.wav here logs 'ggml_metal_device_init: GPU name: MTL0 (Apple M4 Pro)'. sha256 is this host's build; a rebuild elsewhere records its own hash in whisper-build.json."
     }
   },
   "models": {

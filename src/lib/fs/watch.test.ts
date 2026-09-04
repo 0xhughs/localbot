@@ -79,6 +79,11 @@ describe("external writes are seen without this process writing them", () => {
     const w = new RootWatcher(folders.departmentShared!, { forcePoll: false, safetyPollMs: 60_000 });
     try {
       assert.equal(w.mode, "watch", "recursive fs.watch did not attach on this OS");
+      // macOS: the FSEvents stream behind a recursive fs.watch starts asynchronously and
+      // does not replay writes made before it is live; under a parallel test run that
+      // gap is long enough to swallow an immediate write (the app's safety poll covers
+      // it in production). Let the stream come up before "the colleague" writes.
+      if (process.platform === "darwin") await new Promise((r) => setTimeout(r, 500));
       const v0 = w.version;
       // Not through scopedWrite: this simulates another machine / Explorer.
       fs.writeFileSync(path.join(folders.departmentShared!, "from-colleague.md"), "hi\n");
