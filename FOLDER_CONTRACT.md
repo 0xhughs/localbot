@@ -52,7 +52,12 @@ A bare path like `hello.md` means `private/hello.md`.
 {dataDir}/localbot-agents.json.bak    # previous copy (every host JSON write is temp + rename)
 {dataDir}/chats/{agentId}.json        # one transcript per agent: messages, chatGrants, lastReadAt
 {dataDir}/localbot-state-v3.migrated.json   # the browser copy imported on first launch (recovery only)
+{dataDir}/stt/{uuid}.wav              # Stage 9: one voice clip while whisper-cli runs; deleted in finally. Refused if stt/ is under a scope root.
+{dataDir}/…/bin/{target}/whisper/     # Stage 9: whisper-cli + libs, flattened; a sibling of bin/{target}/{runtime}/, never inside one
+{dataDir}/…/models/whisper/           # Stage 9: ggml-base.en.bin (size + ggml magic + sha256)
 ```
+
+(`…` is `LocalBot/` in the dev layout and nothing in the packaged layout, exactly as for `models/` and `bin/`.)
 
 ```json
 {
