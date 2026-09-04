@@ -4,7 +4,7 @@ Named agents in a **desktop window**. Chat uses a **local GGUF** via llama.cpp o
 
 No API key is required on the default path. Hosted models stay off unless you turn on **Allow hosted demo (breaks policy)** in Settings.
 
-Stage 8 ships **UNSIGNED installers**: Linux AppImage + `.deb` (built and run here), macOS `.dmg` and Windows NSIS `.exe` (configured, not built on this Linux host). Nothing is signed or notarized — there is no signing identity in this repo (`mac.identity: null`). Running the installed app does **not** require Node, npm or Python on the employee's machine: it carries its own Node for DeepSeek Harness.
+Stage 8 ships **UNSIGNED installers**: Linux AppImage + `.deb` (built and run on a Linux host), macOS `.dmg` (Stage 10: built and run on a darwin-arm64 host), Windows NSIS `.exe` (configured, not built). Nothing is signed or notarized — there is no signing identity in this repo (`mac.identity: null`); macOS shows the usual unidentified-developer dialog (right-click › Open, or System Settings › Privacy & Security › Open Anyway). Running the installed app does **not** require Node, npm or Python on the employee's machine: it carries its own Node for DeepSeek Harness.
 
 ## First run
 
@@ -16,7 +16,7 @@ npm run desktop
 # Installers for this OS (UNSIGNED; build machine needs Node + npm + network)
 npm run build:desktop
 # Linux:   dist/desktop/LocalBot-<version>-linux-x86_64.AppImage, dist/desktop/LocalBot-<version>-linux-amd64.deb
-# macOS:   dist/desktop/LocalBot-<version>-mac-<arch>.dmg      (not built here)
+# macOS:   dist/desktop/LocalBot-<version>-mac-<arch>.dmg      (UNSIGNED; built on a Mac: npm run build:desktop, proof: npm run prove:mac)
 # Windows: dist/desktop/LocalBot-<version>-win-x64.exe         (not built here)
 # checksums: dist/desktop/SHA256SUMS.txt
 ```
@@ -85,11 +85,11 @@ Since Stage 7 the browser's `localStorage` holds UI chrome only (theme / density
 
 Agent menu (sidebar `…`): **Pin**, **Rename** (moves `agents/{Old}/` → `agents/{New}/`, memory and output included; refused while the agent is working), **Duplicate** (copies the agent's `private/` and standing instructions into `agents/{Name copy}/`), **Archive** (leaves the roster, files stay; restore from **Archived** at the bottom of the sidebar), **Hide** (roster filter stored in the host index), **Delete** (removes the folder and the chat file). Changing a folder in Settings still does not move old files; renaming an agent does move that agent's own folder.
 
-llama.cpp b10749 builds are pinned per (target, runtime): **macOS arm64** (Metal), **macOS x64** (CPU only — no GPU asset), **Windows x64** (CPU / CUDA 12.4 / Vulkan), **Linux x64** (CPU / Vulkan). The sidecar probes the GPU (`nvidia-smi`, `/dev/dri`, Vulkan ICDs, WMI, arch) and picks the build; `--n-gpu-layers` is 0 on a CPU build and > 0 only on a GPU build. Settings → Models shows the probe and lets you pin a build. GPU execution is UNVERIFIED in this repo (CPU-only host).
+llama.cpp b10749 builds are pinned per (target, runtime): **macOS arm64** (Metal), **macOS x64** (CPU only — no GPU asset), **Windows x64** (CPU / CUDA 12.4 / Vulkan), **Linux x64** (CPU / Vulkan). The sidecar probes the GPU (`nvidia-smi`, `/dev/dri`, Vulkan ICDs, WMI, arch) and picks the build; `--n-gpu-layers` is 0 on a CPU build and > 0 only on a GPU build. Settings → Models shows the probe and lets you pin a build. GPU execution WORKS on darwin-arm64 (Stage 10: Metal build, `--n-gpu-layers 99`, 3B and 7B turns in the packaged app — `npm run prove:packaged-chat -- --gguf …` prints `STAGE10_MAC_GPU_PASS`); CUDA / Vulkan hosts are UNVERIFIED.
 
 Every GGUF is verified (size, GGUF magic, sha256 from the catalog) before it can be loaded; a mismatch is refused. Each agent picks its own file (Settings → Agents, New agent); one llama-server restarts onto the selected agent's file after a health check. **Use existing Ollama** (Settings → Safety) lists the tags on `127.0.0.1:11434` and routes the Harness at the one you pick; if nothing answers, chat is refused with that error — it never falls back to a hosted model.
 
-**Hold to talk** (Stage 9): the Mic next to Attach records while held and, on release, transcribes on this computer with whisper.cpp v1.9.2 (`whisper-cli`, one shot, `ggml-base.en.bin`, English) — first use downloads and sha256-verifies both into the data dir. The text lands in the composer; you press Enter. Audio never leaves the machine and there is no cloud fallback. Linux x64 and Windows x64 are pinned (Windows UNVERIFIED — never run here); macOS is NOT BUILT (upstream ships no CLI), so the Mic is disabled there with the reason in its tooltip. `npm run prove:stt` runs the whole sidecar path on whisper.cpp's `jfk.wav`.
+**Hold to talk** (Stage 9): the Mic next to Attach records while held and, on release, transcribes on this computer with whisper.cpp v1.9.2 (`whisper-cli`, one shot, `ggml-base.en.bin`, English) — first use downloads and sha256-verifies both into the data dir. The text lands in the composer; you press Enter. Audio never leaves the machine and there is no cloud fallback. Linux x64 and Windows x64 are pinned downloads (Windows UNVERIFIED — never run here). Upstream ships no macOS CLI, so on darwin-arm64 `npm run build:whisper-mac` compiles `whisper-cli` from the pinned v1.9.2 tag (static, Metal) into `~/Library/Application Support/LocalBot/bin/darwin-arm64/whisper/`; the Mic is enabled once that binary exists and disabled with the build command in its tooltip until then (Intel Mac: NOT BUILT). `npm run prove:mac` holds the Mic in the packaged app with the real microphone. `npm run prove:stt` runs the whole sidecar path on whisper.cpp's `jfk.wav`.
 
 Two people share work only if they point at the **same real folder**. Files another person or program drops into a connected folder show up in the Computer pane on their own (the sidecar watches each folder; on network shares it polls metadata). **Refresh** re-lists everything now. A share that goes away shows **Disconnected** on that section; LocalBot does not switch to a local copy. In the desktop app, **reveal** opens the folder in Finder / Explorer.
 

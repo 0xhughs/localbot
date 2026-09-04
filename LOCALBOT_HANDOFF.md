@@ -1,5 +1,32 @@
 # LOCALBOT_HANDOFF.md
 
+## Stage 10 — Mac unsigned package + whisper-cli + proofs
+Date: 2026-09-04
+Branch: `stage-10-macos-package` (PR → `main`, off `7608856`)
+Host: Darwin 25.5.0 (macOS 26.5.2) · arch arm64 (Mac mini, Apple M4 Pro, Metal `MTL0`) · RAM 24 GiB · disk 263 GiB free · Xcode CLT, cmake 4.4.3 · real USB microphone (MateView GT)
+
+Everything here is **UNSIGNED** (`build.mac.identity: null`, electron-builder "skipped macOS code signing", `codesign` shows `TeamIdentifier=not set`, no Authority). Not notarized. No Windows work. Electron not upgraded. `runAgentTurn`, four scopes, watch, host index, dsh / ACP pins untouched. Full detail, hashes and log lines: `STAGE_HANDOFF.md`.
+
+### Built
+- **Gate A — WORKS.** `npm run build:desktop` on darwin-arm64 → `dist/desktop/mac-arm64/LocalBot.app` + `dist/desktop/LocalBot-0.1.0-mac-arm64.dmg`, sha256 `4eff4caab6daafabfaf8f49f6137c4d23a7150ac84c5e2fee4e6c3f9cc9b34e6` (not committed). Bundled Node v22.23.2 for darwin-arm64. `npm run prove:packaged` (darwin-aware now: `hdiutil` mount, `codesign` no-Developer-ID check, `ps` tree) launched it with no `node`/`npm`/`npx` on `PATH`; AppData is `~/Library/Application Support/LocalBot`. `STAGE8_PACKAGED_PASS node=v22.23.2 … platform=darwin-arm64`.
+- **Gate B — WORKS (darwin-arm64).** `npm run build:whisper-mac` (new) clones whisper.cpp **v1.9.2** (`306c88f4`), cmake `BUILD_SHARED_LIBS=OFF GGML_METAL=ON GGML_METAL_EMBED_LIBRARY=ON GGML_NATIVE=OFF` (no SDL2 / server / tests), installs a static `whisper-cli` (3,275,928 B, sha256 `fbd2a54c…21f6e`) + `whisper-build.json` into `{AppData}/bin/darwin-arm64/whisper/`. `catalog/whisper-assets.json` gained the `darwin-arm64` row as `kind: "built"` (source tag + commit, cmake flags, sha256, `url: null`); linux / win rows kept. `stt.ts` verifies built rows against the manifest and reports NOT BUILT with the build command until the binary exists — Mic enabled on darwin exactly then. `npm run prove:stt -- --data-dir ~/Library/Application\ Support/LocalBot` → `STAGE9_STT_PASS … kind=built` (354 ms).
+- **Gate C — WORKS.** `npm run prove:mac` (new) launched the packaged app (rebuilt after Gate B) node-less, Mic button enabled, TCC went `not-determined` → prompt shown → **Allow clicked** → `granted`; real pointer hold, `jfk.wav` played through the speakers into this Mac's real microphone, release → composer = `"Oh my fellow America! Ask not what your country can do for you. Ask what you can do for your country."` (`Heard 12.0 s · base.en · 379 ms`), zero messages sent, clip deleted, Enter still `send()` → `runAgentTurn`. `STAGE10_MAC_MIC_PASS tcc=granted …`.
+- **Gate D — WORKS (darwin-arm64).** Downloaded and hashed 3B `626b4a66…c62d` and 7B `65b8fcd9…a1423` — both **equal the catalog**; notes now say "confirmed by download", nothing rewritten. `pickLlamaRuntime` → `metal`, `gpuLayersFor` → 99, Settings › Models shows `Selected: Metal (Apple Silicon) · --n-gpu-layers 99`. `npm run prove:packaged-chat -- --gguf …` (darwin-aware, plus Metal gates) ran one real turn in the packaged app on **3B** (5.1 s; 26.3 s on the first run that downloaded the Metal runtime) and on **7B** (11.4 s), llama-server from `bin/darwin-arm64/metal/llama-b10749/`, `--n-gpu-layers 99`, `/props build_info b10749-dfc29b64e`. Log lines from the same binary: 3B `offloaded 37/37 layers to GPU`, 7B `offloaded 29/29 layers to GPU`, `MTL0_Mapped model buffer size = 4168.09 MiB`. `STAGE10_MAC_GPU_PASS runtime=metal n_gpu_layers=99 …` for both.
+- `npm test` 203 + 207, `lint`, `tsc --noEmit` clean on this Mac (two darwin test-helper fixes: `makeTempRoot` realpath for the `/var → /private/var` symlink; `localbot.test.ts` expects the target's default runtime tree; `watch.test.ts` lets the FSEvents stream come up for 500 ms on darwin before the external write — `watch.ts` untouched).
+
+### Not built
+- Signing / notarization — NOT BUILT by rule (Gatekeeper unidentified-developer dialog on first open).
+- darwin-x64 whisper-cli — NOT BUILT (no row; the script would build CPU-only, UNVERIFIED). darwin-x64 GPU — NOT BUILT (no upstream asset). Intel Mac in general — UNVERIFIED.
+- whisper-cli built on another Mac — UNVERIFIED (its own hash lands in `whisper-build.json`, which is what is verified).
+- Windows packaging / NSIS, sidecar token, `pagehide` handshake, template deletion, two-laptop NAS, auto-send voice, `whisper-server`, Electron upgrade — out of scope, untouched.
+
+### Prove it
+Command: `npm test && npm run prove:mac`
+Pass looks like: `ℹ pass 207` … `[prove-mac] static gates ok: identity null | dmg LocalBot-0.1.0-mac-arm64.dmg sha256 4eff4caab6da… in STAGE_HANDOFF | no signed/notarized claim | runAgentTurn kept` … `[prove-mac] TCC microphone status: granted` … `STAGE10_MAC_MIC_PASS tcc=granted … dmg_sha256=4eff4caab6daafabfaf8f49f6137c4d23a7150ac84c5e2fee4e6c3f9cc9b34e6`. The proof exits 1 if the handoff claims a signed or notarized build while identity is null, if no `.dmg` exists, or if `chat.tsx` drops `runAgentTurn`. GPU repro: `npm run prove:packaged-chat -- --gguf ~/Library/Application\ Support/LocalBot/models/qwen2.5-3b-instruct-q4_k_m.gguf` → `STAGE10_MAC_GPU_PASS`.
+
+### Ready for
+Windows packaging only after you say GO.
+
 ## Update after Stage 9 — Voice-to-text with whisper.cpp (hold-to-talk)
 2026-09-04 · branch `stage-9-whisper-stt` (PR → `main`, off `3d45a7a`) · beyond AGENTS.md items 1–8, requested after them
 

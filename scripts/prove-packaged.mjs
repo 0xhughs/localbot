@@ -79,20 +79,51 @@ process.on("exit", () => {
   else log("kept", tmp);
 });
 
+const isMac = process.platform === "darwin";
+
 function newestInstaller() {
   const out = path.join(root, "dist/desktop");
   if (!fs.existsSync(out)) return null;
-  const names = fs.readdirSync(out).filter((n) => n.endsWith(".AppImage"));
+  const ext = isMac ? ".dmg" : ".AppImage";
+  const names = fs.readdirSync(out).filter((n) => n.endsWith(ext));
   names.sort((a, b) => fs.statSync(path.join(out, b)).mtimeMs - fs.statSync(path.join(out, a)).mtimeMs);
   return names[0] ? path.join(out, names[0]) : null;
 }
 
-let appInput = opt("--app") ?? newestInstaller() ?? path.join(root, "dist/desktop/linux-unpacked");
+const defaultUnpacked = isMac
+  ? [path.join(root, "dist/desktop/mac-arm64/LocalBot.app"), path.join(root, "dist/desktop/mac/LocalBot.app"), path.join(root, "dist/desktop/mac-x64/LocalBot.app")].find((p) => fs.existsSync(p))
+  : path.join(root, "dist/desktop/linux-unpacked");
+let appInput = opt("--app") ?? newestInstaller() ?? defaultUnpacked ?? path.join(root, "dist/desktop/linux-unpacked");
 appInput = path.resolve(appInput);
 if (!fs.existsSync(appInput)) fail(`no app at ${appInput}; run npm run build:desktop first`);
 
+/**
+ * Stage 10 (macOS): mount the UNSIGNED .dmg read-only, copy LocalBot.app out
+ * to the temp dir, detach. The copy is what gets launched, exactly like a
+ * drag-to-Applications install.
+ */
+function extractDmg(dmg) {
+  const mount = path.join(tmp, "dmg-mount");
+  fs.mkdirSync(mount, { recursive: true });
+  const at = spawnSync("hdiutil", ["attach", "-nobrowse", "-readonly", "-noverify", "-mountpoint", mount, dmg], { encoding: "utf8" });
+  if (at.status !== 0) fail(`hdiutil attach failed: ${at.stderr}`);
+  try {
+    const app = fs.readdirSync(mount).find((n) => n.endsWith(".app"));
+    if (!app) fail(`no .app inside ${dmg}`);
+    const dest = path.join(tmp, app);
+    const cp = spawnSync("cp", ["-R", path.join(mount, app), dest], { encoding: "utf8" });
+    if (cp.status !== 0) fail(`copying ${app} out of the dmg failed: ${cp.stderr}`);
+    return dest;
+  } finally {
+    spawnSync("hdiutil", ["detach", mount, "-force"], { encoding: "utf8" });
+  }
+}
+
 let appDir;
-if (appInput.endsWith(".AppImage")) {
+if (appInput.endsWith(".dmg")) {
+  log("mounting", path.basename(appInput));
+  appDir = extractDmg(appInput);
+} else if (appInput.endsWith(".AppImage")) {
   log("extracting", path.basename(appInput));
   fs.chmodSync(appInput, 0o755);
   const r = spawnSync(appInput, ["--appimage-extract"], { cwd: tmp, encoding: "utf8", stdio: ["ignore", "ignore", "pipe"], maxBuffer: 64 * 1024 * 1024 });
@@ -108,11 +139,25 @@ if (appInput.endsWith(".AppImage")) {
 } else {
   appDir = appInput;
 }
-const resources = path.join(appDir, "resources");
+// A .app bundle keeps resources under Contents/Resources and the binary under Contents/MacOS.
+const isAppBundle = appDir.endsWith(".app");
+const resources = isAppBundle ? path.join(appDir, "Contents/Resources") : path.join(appDir, "resources");
 const exeName = process.platform === "win32" ? "LocalBot.exe" : "LocalBot";
-const exe = path.join(appDir, exeName);
-if (!fs.existsSync(resources) || !fs.existsSync(exe)) fail(`${appDir} is not an unpacked LocalBot (need ${exeName} + resources/)`);
+const exe = isAppBundle ? path.join(appDir, "Contents/MacOS", exeName) : path.join(appDir, exeName);
+if (!fs.existsSync(resources) || !fs.existsSync(exe)) fail(`${appDir} is not an unpacked LocalBot (need ${exeName} + ${isAppBundle ? "Contents/Resources" : "resources/"})`);
 log("app dir", appDir);
+if (isMac) {
+  // Stage 10: UNSIGNED. mac.identity is null, so the only signature on the
+  // binary is the linker's ad-hoc one Electron ships with — no team, no
+  // Developer ID, nothing notarized. A TeamIdentifier here means someone signed it.
+  const cs = spawnSync("codesign", ["-dv", "--verbose=2", appDir], { encoding: "utf8" });
+  const info = `${cs.stdout}\n${cs.stderr}`;
+  const team = /TeamIdentifier=(.*)$/m.exec(info)?.[1]?.trim() ?? "not set";
+  if (team !== "not set") fail(`the app carries TeamIdentifier=${team}; this repo ships UNSIGNED (mac.identity null)`);
+  if (/Authority=Developer ID/.test(info)) fail("the app is signed with a Developer ID; this repo ships UNSIGNED");
+  const sig = /Signature=(\S+)/.exec(info)?.[1] ?? (/code object is not signed/.test(info) ? "none" : "?");
+  log(`codesign: Signature=${sig} TeamIdentifier=${team} (UNSIGNED: no identity, not notarized)`);
+}
 
 // ---- 2. layout ------------------------------------------------------------------
 const res = harnessResourcePaths({ resourcesPath: resources });
@@ -197,10 +242,19 @@ if (process.platform === "linux" && dshPid) {
   } catch {
     dshExe = null;
   }
+} else if (isMac && dshPid) {
+  // No /proc on macOS: `ps -o comm=` prints the executable path the kernel launched.
+  const ps = spawnSync("ps", ["-o", "comm=", "-p", String(dshPid)], { encoding: "utf8" });
+  dshExe = ps.status === 0 && ps.stdout.trim() ? ps.stdout.trim() : null;
 }
 if (proc.nodeBin !== res.nodeBin) fail(`HarnessProcess launched dsh with ${proc.nodeBin}`);
 if (dshExe && fs.realpathSync(dshExe) !== fs.realpathSync(res.nodeBin)) fail(`dsh pid ${dshPid} exe is ${dshExe}, not the bundled node`);
-const cmdline = process.platform === "linux" && dshPid ? fs.readFileSync(`/proc/${dshPid}/cmdline`, "utf8").split("\0").filter(Boolean) : [];
+const cmdline =
+  process.platform === "linux" && dshPid
+    ? fs.readFileSync(`/proc/${dshPid}/cmdline`, "utf8").split("\0").filter(Boolean)
+    : isMac && dshPid
+      ? (spawnSync("ps", ["-o", "args=", "-ww", "-p", String(dshPid)], { encoding: "utf8" }).stdout.trim().split(/\s+/).filter(Boolean))
+      : [];
 if (cmdline.length && !cmdline.some((a) => a.startsWith(res.modulesDir))) fail(`dsh cmdline does not use the bundled tree: ${cmdline.join(" ")}`);
 log("dsh started: pid", dshPid, "exe", dshExe ?? "(n/a)", "agent", init.agentInfo?.name, init.agentInfo?.version ?? "");
 log("dsh cmdline:", cmdline.length ? cmdline.join(" ") : "(n/a)");
@@ -225,8 +279,35 @@ async function up(url, ms) {
   return null;
 }
 
+/** macOS: one `ps` pass gives pid, ppid and the executable path for every process. */
+function descendantsMac(rootPid) {
+  const out = [];
+  const ps = spawnSync("ps", ["-axo", "pid=,ppid=,comm="], { encoding: "utf8" });
+  if (ps.status !== 0) return out;
+  const byParent = new Map();
+  for (const line of ps.stdout.split("\n")) {
+    const m = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
+    if (!m) continue;
+    const pid = Number(m[1]);
+    const ppid = Number(m[2]);
+    if (!byParent.has(ppid)) byParent.set(ppid, []);
+    byParent.get(ppid).push({ pid, exe: m[3].trim() });
+  }
+  const stack = [rootPid];
+  while (stack.length) {
+    const p = stack.pop();
+    for (const c of byParent.get(p) ?? []) {
+      const args = spawnSync("ps", ["-o", "args=", "-ww", "-p", String(c.pid)], { encoding: "utf8" }).stdout.trim();
+      out.push({ pid: c.pid, exe: c.exe, cmd: args.split(/\s+/).slice(0, 3).join(" ") });
+      stack.push(c.pid);
+    }
+  }
+  return out;
+}
+
 function descendants(rootPid) {
   const out = [];
+  if (isMac) return descendantsMac(rootPid);
   if (process.platform !== "linux") return out;
   const byParent = new Map();
   for (const n of fs.readdirSync("/proc")) {
@@ -265,19 +346,29 @@ if (flag("--no-launch")) {
   if (await up(SIDECAR_URL, 500)) fail(`${SIDECAR_URL} is already answering — stop the other LocalBot first`);
   const home = path.join(tmp, "home");
   const xdgConfig = path.join(home, ".config");
-  const appData = path.join(xdgConfig, "LocalBot");
+  // Electron's app.getPath("appData"): $XDG_CONFIG_HOME on Linux. On macOS it
+  // is ~/Library/Application Support of the *real* account (NSSearchPath, not
+  // $HOME), so the packaged app always lands in the same place a user's
+  // install does. Stage 10: seed only when that folder does not exist yet,
+  // and remove it afterwards only if this proof created it.
+  const appData = isMac ? path.join(os.homedir(), "Library/Application Support/LocalBot") : path.join(xdgConfig, "LocalBot");
+  const appDataPreexisting = fs.existsSync(appData);
   const work = path.join(tmp, "work");
-  seedLocalBotData({
-    dataDir: appData,
-    folders: {
-      employeeRoot: path.join(work, "employees/Sam"),
-      employeeShared: path.join(work, "employees/Sam/shared"),
-      departmentShared: path.join(work, "departments/Ops/shared"),
-      companyShared: null,
-    },
-    agents: [{ name: "Writer" }, { name: "Editor", mascotId: "researcher" }],
-    idPrefix: "prove",
-  });
+  if (!appDataPreexisting) {
+    seedLocalBotData({
+      dataDir: appData,
+      folders: {
+        employeeRoot: path.join(work, "employees/Sam"),
+        employeeShared: path.join(work, "employees/Sam/shared"),
+        departmentShared: path.join(work, "departments/Ops/shared"),
+        companyShared: null,
+      },
+      agents: [{ name: "Writer" }, { name: "Editor", mascotId: "researcher" }],
+      idPrefix: "prove",
+    });
+  } else {
+    log("AppData already exists at", appData, "— launching against it, leaving it in place");
+  }
   const repoData = path.join(root, "data");
   const repoDataBefore = fs.existsSync(repoData) ? fs.readdirSync(repoData).sort().join(",") : null;
 
@@ -295,7 +386,15 @@ if (flag("--no-launch")) {
   fs.mkdirSync(env.XDG_DATA_HOME, { recursive: true });
   fs.mkdirSync(env.XDG_CACHE_HOME, { recursive: true });
   log("launching", exe, "(PATH has no node; HOME =", home + ")");
-  const child = spawn(exe, ["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"], { cwd: tmp, env, stdio: ["ignore", "pipe", "pipe"] });
+  const launchArgs = isMac ? [] : ["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"];
+  const child = spawn(exe, launchArgs, { cwd: tmp, env, stdio: ["ignore", "pipe", "pipe"] });
+  process.on("exit", () => {
+    try {
+      if (child.exitCode === null) child.kill("SIGKILL");
+    } catch {
+      /* gone */
+    }
+  });
   let stderr = "";
   child.stderr.on("data", (b) => {
     stderr += String(b);
@@ -319,9 +418,16 @@ if (flag("--no-launch")) {
   const tree = descendants(child.pid);
   for (const p of tree) log(`  pid ${p.pid}  exe ${p.exe ?? "?"}  ${p.cmd}`);
   const appReal = fs.realpathSync(appDir);
-  const foreign = tree.filter((p) => p.exe && !fs.realpathSync(p.exe).startsWith(appReal));
+  const realOf = (p) => {
+    try {
+      return fs.realpathSync(p);
+    } catch {
+      return p;
+    }
+  };
+  const foreign = tree.filter((p) => p.exe && !realOf(p.exe).startsWith(appReal));
   if (foreign.length) fail(`child processes outside the app dir: ${foreign.map((p) => p.exe).join(", ")}`);
-  const hostNode = tree.filter((p) => /(^|\/)(node|npm|npx)(\.exe)?$/.test(p.exe ?? "") && !p.exe.startsWith(appReal));
+  const hostNode = tree.filter((p) => /(^|\/)(node|npm|npx)(\.exe)?$/.test(p.exe ?? "") && !realOf(p.exe).startsWith(appReal));
   if (hostNode.length) fail(`a host node/npm is in the packaged spawn tree: ${hostNode.map((p) => p.exe).join(", ")}`);
   log("process tree: every executable is under the app dir; no host node/npm/npx");
 
@@ -338,15 +444,19 @@ if (flag("--no-launch")) {
   if (exited === null) child.kill("SIGKILL");
   await new Promise((r) => setTimeout(r, 1000));
   if (await up(SIDECAR_URL, 1500)) fail("sidecar still answering after the app exited");
-  const cfg = JSON.parse(fs.readFileSync(path.join(appData, "localbot-config.json"), "utf8"));
-  for (const p of Object.values(cfg.folders)) {
-    if (p && !fs.existsSync(p)) fail(`work folder ${p} vanished`);
+  if (appDataPreexisting) {
+    log("app exited cleanly; AppData at", appData, "was there before this proof and is left untouched");
+  } else {
+    const cfg = JSON.parse(fs.readFileSync(path.join(appData, "localbot-config.json"), "utf8"));
+    for (const p of Object.values(cfg.folders ?? {})) {
+      if (p && !fs.existsSync(p)) fail(`work folder ${p} vanished`);
+    }
+    fs.rmSync(appData, { recursive: true, force: true });
+    for (const p of Object.values(cfg.folders ?? {})) {
+      if (p && !fs.existsSync(p)) fail(`deleting AppData removed the work folder ${p}`);
+    }
+    log("app exited cleanly; deleting AppData left every work folder in place");
   }
-  fs.rmSync(appData, { recursive: true, force: true });
-  for (const p of Object.values(cfg.folders)) {
-    if (p && !fs.existsSync(p)) fail(`deleting AppData removed the work folder ${p}`);
-  }
-  log("app exited cleanly; deleting AppData left every work folder in place");
 }
 
-console.log(`STAGE8_PACKAGED_PASS node=${bv} app=${appInput}`);
+console.log(`STAGE8_PACKAGED_PASS node=${bv} app=${appInput} platform=${process.platform}-${process.arch}`);

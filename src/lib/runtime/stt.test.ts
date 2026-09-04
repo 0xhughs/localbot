@@ -31,6 +31,7 @@ import { LLAMA_RUNTIME_IDS } from "./llama-platform.ts";
 import {
   GGML_MAGIC,
   STT_TIMEOUT_MS,
+  WHISPER_BUILD_MANIFEST,
   WHISPER_DEFAULT_MODEL,
   WHISPER_RELEASE,
   WHISPER_TARGETS,
@@ -39,7 +40,10 @@ import {
   assertWhisperExe,
   cleanTranscript,
   sttDir,
+  sttSupport,
   transcribeWav,
+  verifyBuiltWhisper,
+  verifyWhisperArchive,
   verifyWhisperModel,
   whisperDir,
   whisperModelAsset,
@@ -99,9 +103,25 @@ describe("Stage 9: catalog/whisper-assets.json", () => {
     assert.deepEqual(Object.keys(catalog.targets).sort(), [...WHISPER_TARGETS].sort());
     for (const [target, row] of Object.entries(catalog.targets) as [string, Record<string, unknown>][]) {
       assert.match(String(row.sha256 ?? ""), HEX64, `${target} has no sha256`);
+      assert.match(String(row.binary), /^whisper-cli(\.exe)?$/, "only whisper-cli, never whisper-server");
+      if (row.kind === "built") {
+        // Stage 10: compiled on the host from the pinned tag; nothing to download, so no URL may appear.
+        assert.equal(row.url, undefined, `${target} is built; it must not carry a download URL`);
+        assert.equal(row.filename, undefined);
+        assert.ok(typeof row.sizeBytes === "number" && row.sizeBytes > 500_000, `${target} sizeBytes`);
+        const source = row.source as { repo: string; tag: string; commit: string };
+        assert.equal(source.repo, "https://github.com/ggml-org/whisper.cpp");
+        assert.equal(source.tag, "v1.9.2");
+        assert.match(source.commit, /^[0-9a-f]{40}$/);
+        const cmake = row.cmake as string[];
+        assert.ok(cmake.includes("-DWHISPER_BUILD_SERVER=OFF"), "built rows never build whisper-server");
+        assert.ok(cmake.includes("-DBUILD_SHARED_LIBS=OFF"));
+        assert.ok(cmake.includes("-DWHISPER_BUILD_EXAMPLES=ON"));
+        assert.equal(row.build, "npm run build:whisper-mac");
+        continue;
+      }
       assert.ok(typeof row.sizeBytes === "number" && row.sizeBytes > 1_000_000, `${target} sizeBytes`);
       assert.match(String(row.url), /^https:\/\/github\.com\/ggml-org\/whisper\.cpp\/releases\/download\/v1\.9\.2\//);
-      assert.match(String(row.binary), /^whisper-cli(\.exe)?$/, "only whisper-cli, never whisper-server");
       assert.equal(/cublas|cuda|blas|vulkan|metal/i.test(String(row.filename)), false, `${target} is a GPU/BLAS row`);
     }
     for (const [id, row] of Object.entries(catalog.models) as [string, Record<string, unknown>][]) {
@@ -127,19 +147,106 @@ describe("Stage 9: catalog/whisper-assets.json", () => {
     assert.equal(whisperModelAsset("tiny.en")?.sha256, "921e4cf8686fdd993dcd081a5da5b6c365bfde1162e72b08d75ac75289920b1f");
   });
 
-  it("darwin is NOT BUILT: no row, null target, an honest reason, no invented URL", () => {
-    assert.equal(catalog.targets["darwin-arm64"], undefined);
+  it("darwin-arm64 is a built row (Stage 10): no URL, pinned tag + commit; darwin-x64 stays NOT BUILT with an honest reason", () => {
+    const mac = whisperRuntimeAsset("darwin-arm64");
+    assert.ok(mac, "darwin-arm64 row missing");
+    assert.equal(mac?.kind, "built");
+    assert.equal(mac?.url, null);
+    assert.equal(mac?.source?.tag, "v1.9.2");
+    assert.equal(mac?.source?.commit, "306c88f4d1286aec1bf96e544632897886af5501");
+    assert.equal(mac?.sha256, "fbd2a54cf4835af4ee45b26515a21fa97add9599601d0f6ca7acddfe2cd21f6e");
+    assert.equal(mac?.sizeBytes, 3275928);
+    assert.ok(mac?.cmake.includes("-DGGML_METAL=ON"), "Apple Silicon build is the Metal build");
+    assert.equal(mac?.build, "npm run build:whisper-mac");
+    assert.equal(whisperTarget("darwin", "arm64"), "darwin-arm64");
+    assert.equal(whisperTarget("darwin", "aarch64"), "darwin-arm64");
+    assert.equal(whisperUnsupportedReason("darwin", "arm64"), null);
+
     assert.equal(catalog.targets["darwin-x64"], undefined);
-    assert.equal(whisperTarget("darwin", "arm64"), null);
     assert.equal(whisperTarget("darwin", "x64"), null);
-    assert.match(whisperUnsupportedReason("darwin", "arm64") ?? "", /NOT BUILT on macOS/);
-    assert.match(whisperUnsupportedReason("darwin", "arm64") ?? "", /xcframework/);
+    assert.match(whisperUnsupportedReason("darwin", "x64") ?? "", /NOT BUILT for macOS x64/);
+    assert.match(whisperUnsupportedReason("darwin", "x64") ?? "", /xcframework/);
+    assert.match(whisperUnsupportedReason("darwin", "x64") ?? "", /build:whisper-mac/);
     assert.equal(whisperRuntimeAsset(null), null);
     assert.equal(whisperTarget("linux", "x64"), "linux-x64");
     assert.equal(whisperTarget("win32", "x64"), "win32-x64");
     assert.equal(whisperTarget("linux", "arm64"), null);
     assert.equal(whisperUnsupportedReason("linux", "x64"), null);
-    assert.equal(read("catalog/whisper-assets.json").includes("macos"), false, "no darwin URL may appear");
+    // Still no invented darwin download: the only URLs in the file are the linux/win archives and the HF models.
+    const urls = [...read("catalog/whisper-assets.json").matchAll(/"url":\s*"([^"]+)"/g)].map((m) => m[1]);
+    assert.equal(urls.some((u) => /macos|darwin|arm64/i.test(u)), false, `a darwin URL appeared: ${urls.join(", ")}`);
+    assert.equal(urls.length, 5, "two archive rows + two model rows + the jfk.wav fixture");
+  });
+
+  it("Stage 10: a built row is verified against its whisper-build.json, never downloaded, and is NOT BUILT until it exists", () => {
+    const asset = whisperRuntimeAsset("darwin-arm64")!;
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lb-stt-built-"));
+    const dir = path.join(tmp, "bin/darwin-arm64/whisper");
+    const exe = path.join(dir, "whisper-cli");
+
+    const missing = verifyBuiltWhisper(exe, asset);
+    assert.equal(missing.ok, false);
+    if (!missing.ok) assert.match(missing.error, /NOT BUILT on this Mac yet.*build:whisper-mac/);
+    assert.deepEqual(sttSupport({ target: "darwin-arm64", asset, dir, builtOk: false, builtError: missing.ok ? null : missing.error }), {
+      supported: false,
+      reason: missing.ok ? null : missing.error,
+    });
+
+    fs.mkdirSync(dir, { recursive: true });
+    const body = Buffer.from("#!/bin/sh\nprintf ' hello'\n");
+    fs.writeFileSync(exe, body, { mode: 0o755 });
+    const noManifest = verifyBuiltWhisper(exe, asset);
+    assert.equal(noManifest.ok, false);
+    if (!noManifest.ok) assert.match(noManifest.error, new RegExp(WHISPER_BUILD_MANIFEST));
+
+    const sha = crypto.createHash("sha256").update(body).digest("hex");
+    const manifest = { release: "v1.9.2", commit: asset.source!.commit, target: "darwin-arm64", binary: "whisper-cli", sha256: sha, sizeBytes: body.length, cmake: asset.cmake, dylibs: [] };
+    const write = (m: unknown) => fs.writeFileSync(path.join(dir, WHISPER_BUILD_MANIFEST), JSON.stringify(m));
+    write(manifest);
+    const ok = verifyBuiltWhisper(exe, asset);
+    assert.equal(ok.ok, true, JSON.stringify(ok));
+    if (ok.ok) {
+      assert.equal(ok.sha256, sha);
+      assert.equal(ok.matchesCatalog, false, "a different build is valid but is not the catalog's binary");
+    }
+    assert.deepEqual(sttSupport({ target: "darwin-arm64", asset, dir, builtOk: true, builtError: null }), { supported: true, reason: null });
+
+    write({ ...manifest, release: "v1.9.3" });
+    assert.match((verifyBuiltWhisper(exe, asset) as { error: string }).error, /says whisper\.cpp v1\.9\.3/);
+    write({ ...manifest, commit: "0".repeat(40) });
+    assert.match((verifyBuiltWhisper(exe, asset) as { error: string }).error, /not the pinned/);
+    write({ ...manifest, target: "darwin-x64" });
+    assert.match((verifyBuiltWhisper(exe, asset) as { error: string }).error, /built for darwin-x64/);
+    write({ ...manifest, sha256: "0".repeat(64) });
+    assert.match((verifyBuiltWhisper(exe, asset) as { error: string }).error, /sha256 .* ≠ whisper-build\.json/);
+    write(manifest);
+    fs.appendFileSync(exe, "\n# tampered\n");
+    assert.match((verifyBuiltWhisper(exe, asset) as { error: string }).error, /binary changed since it was built/);
+
+    // Archive verification refuses a built row outright — there is no archive.
+    assert.match((verifyWhisperArchive(path.join(tmp, "x.tar.gz"), asset) as { error: string }).error, /built row/);
+    // The download path in stt.ts is never reached for built rows.
+    const src = read("src/lib/runtime/stt.ts");
+    assert.match(src, /if \(asset\.kind === "built"\) \{\s*const v = verifyBuiltWhisper\(exe, asset\);/);
+    assert.equal(sttSupport({ target: null, asset: null, dir, builtOk: false, builtError: null, platform: "darwin", arch: "x64" }).supported, false);
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it("Stage 10: the mac build script pins the same flags as the catalog and installs only into …/whisper/", async () => {
+    const mod = await import("../../../scripts/build-whisper-mac.mjs");
+    assert.deepEqual(mod.whisperCmakeFlags("arm64"), catalog.targets["darwin-arm64"].cmake);
+    assert.ok(mod.whisperCmakeFlags("x64").includes("-DGGML_METAL=OFF"), "Intel Mac gets a CPU build");
+    assert.equal(mod.macWhisperTarget("arm64"), "darwin-arm64");
+    assert.equal(mod.macWhisperTarget("x64"), "darwin-x64");
+    assert.equal(mod.defaultMacBinRoot("/Users/sam"), "/Users/sam/Library/Application Support/LocalBot/bin");
+    assert.equal(mod.WHISPER_REPO, catalog.targets["darwin-arm64"].source.repo);
+    assert.deepEqual(mod.foreignDylibs("x:\n\t/usr/lib/libc++.1.dylib (compatibility version 1.0.0)\n\t/System/Library/Frameworks/Metal.framework/Versions/A/Metal (x)\n\t@rpath/libggml.dylib (y)"), ["@rpath/libggml.dylib"]);
+    const src = read("scripts/build-whisper-mac.mjs");
+    assert.match(src, /path\.join\(binRoot, target, "whisper"\)/);
+    assert.match(src, /whisper-build\.json/);
+    assert.equal(src.includes("releases/download"), false, "the build script never downloads a darwin CLI");
+    assert.match(src, /--target", "whisper-cli"/);
+    assert.match(pkg.scripts["build:whisper-mac"] ?? "", /scripts\/build-whisper-mac\.mjs/);
   });
 });
 

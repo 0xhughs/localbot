@@ -55,7 +55,14 @@ if (catalog.fixture?.expectPhrase !== JFK_PHRASE) fail(`catalog fixture phrase d
 for (const [t, row] of Object.entries(catalog.targets)) if (!HEX.test(row.sha256 ?? "")) fail(`catalog runtime row ${t} has no sha256`);
 for (const [m, row] of Object.entries(catalog.models)) if (!HEX.test(row.sha256 ?? "")) fail(`catalog model row ${m} has no sha256`);
 if (!HEX.test(catalog.fixture?.sha256 ?? "")) fail("catalog fixture has no sha256");
-if (catalog.targets["darwin-arm64"] || catalog.targets["darwin-x64"]) fail("a darwin whisper-cli row exists; upstream ships none");
+// Upstream ships no darwin CLI. A darwin row is allowed only as `kind: "built"` (Stage 10: compiled from the pinned tag) and must carry no URL.
+for (const t of ["darwin-arm64", "darwin-x64"]) {
+  const row = catalog.targets[t];
+  if (!row) continue;
+  if (row.kind !== "built") fail(`${t} row is kind ${row.kind}; upstream ships no darwin CLI, only a built row is honest`);
+  if (row.url) fail(`${t} built row carries a URL (${row.url}); nothing may be invented`);
+  if (row.source?.tag !== catalog.release) fail(`${t} built row is from ${row.source?.tag}, not ${catalog.release}`);
+}
 const chat = fs.readFileSync(path.join(root, "src/components/localbot/chat.tsx"), "utf8");
 if (!/import \{ runAgentTurn \} from "@\/runtime\/harnessAdapter"/.test(chat)) fail("chat.tsx dropped runAgentTurn");
 const { DSH_PIN, ACP_SDK_PIN } = await import("../src/lib/harness/process.ts");
@@ -73,8 +80,14 @@ const stt = await import("../src/lib/runtime/stt.ts");
 const { LLAMA_RUNTIME_IDS } = await import("../src/lib/runtime/llama-platform.ts");
 
 const target = stt.whisperTarget();
-if (!target) fail(`${stt.whisperUnsupportedReason()} — this proof needs linux-x64 or win32-x64`);
+if (!target) fail(`${stt.whisperUnsupportedReason()} — this proof needs linux-x64, win32-x64, or a Mac with whisper-cli built (npm run build:whisper-mac)`);
+const asset = stt.whisperRuntimeAsset(target);
 const whisperDir = stt.whisperDir(target);
+if (asset?.kind === "built" && !opt("--data-dir")) {
+  // Built rows are never downloaded: a Mac proof points at the install the
+  // build script wrote (Electron layout: ~/Library/Application Support/LocalBot).
+  fail(`${target} is a built row; pass --data-dir <dir> whose bin/${target}/whisper/ holds the compiled whisper-cli (default install: ${path.join(os.homedir(), "Library/Application Support/LocalBot")})`);
+}
 const sttDir = stt.sttDir();
 log(`data dir ${dataDir}`);
 log(`whisper dir ${whisperDir}`);
@@ -112,8 +125,16 @@ if (path.resolve(path.dirname(runtime.exe)) !== path.resolve(whisperDir)) fail(`
 for (const n of ["llama-server", "llama-server.exe", "whisper-server", "whisper-server.exe"]) {
   if (fs.existsSync(path.join(whisperDir, n))) fail(`${n} is in the whisper dir`);
 }
-const archive = path.join(path.dirname(path.dirname(whisperDir)), catalog.targets[target].filename);
-log(`runtime ok: ${runtime.exe} (${Date.now() - t0} ms; archive sha256 ${fs.existsSync(archive) ? sha256(archive).slice(0, 12) + "…" : "n/a"})`);
+if (asset?.kind === "built") {
+  const built = stt.verifyBuiltWhisper(runtime.exe, asset);
+  if (!built.ok) fail(`built whisper-cli failed its manifest check: ${built.error}`);
+  log(
+    `runtime ok (built from ${asset.source?.tag} @ ${asset.source?.commit.slice(0, 10)}): ${runtime.exe} sha256 ${built.sha256.slice(0, 12)}… ${built.matchesCatalog ? "= catalog" : "(this host's build; catalog has the author's)"} (${Date.now() - t0} ms)`,
+  );
+} else {
+  const archive = path.join(path.dirname(path.dirname(whisperDir)), catalog.targets[target].filename);
+  log(`runtime ok: ${runtime.exe} (${Date.now() - t0} ms; archive sha256 ${fs.existsSync(archive) ? sha256(archive).slice(0, 12) + "…" : "n/a"})`);
+}
 const t1 = Date.now();
 const model = await stt.ensureWhisperModel();
 if (!model.ok) fail(`model: ${model.error}`);
@@ -170,5 +191,5 @@ log(`args ${a.map((x) => (x.includes(dataDir) ? x.replace(dataDir, "{dataDir}") 
 log(`transcript (${result.ms} ms, model ${result.model}, ${result.seconds.toFixed(2)} s of audio): "${result.text}"`);
 log(`clip deleted: ${sttDir} is ${fs.existsSync(sttDir) ? "empty" : "absent"}`);
 console.log(
-  `STAGE9_STT_PASS text=${JSON.stringify(result.text)} ms=${result.ms} model=${result.model} release=${stt.WHISPER_RELEASE} exe=${seen.exe} total_ms=${Date.now() - t2}`,
+  `STAGE9_STT_PASS text=${JSON.stringify(result.text)} ms=${result.ms} model=${result.model} release=${stt.WHISPER_RELEASE} exe=${seen.exe} kind=${asset?.kind} total_ms=${Date.now() - t2}`,
 );

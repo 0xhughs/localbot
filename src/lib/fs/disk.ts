@@ -687,6 +687,11 @@ export function diskShell(
   }
 }
 
+/**
+ * Test helper. Resolved through `realpathSync` because macOS's `os.tmpdir()`
+ * is a symlink (`/var/folders/… → /private/var/folders/…`) and the scope
+ * resolver's symlink-escape check compares real paths.
+ */
 export function makeTempRoot(prefix = "localbot-test-"): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  return fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
 }
