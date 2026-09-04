@@ -66,6 +66,8 @@ Electron's own Node starts the already-built Nitro server (`resources/localbot-s
 
 Work folders are wherever you pointed the four scopes; see [FOLDER_CONTRACT.md](FOLDER_CONTRACT.md). Each agent's private folder is `{employeeRoot}/agents/{Name}/private`. Company files are never written into the asar / install folder.
 
+Agent menu (sidebar `…`): **Pin**, **Rename** (moves `agents/{Old}/` → `agents/{New}/`, memory and output included; refused while the agent is working), **Duplicate** (copies the agent's `private/` and standing instructions into `agents/{Name copy}/`), **Archive** (leaves the roster, files stay; restore from **Archived** at the bottom of the sidebar), **Hide** (this browser only), **Delete** (removes the folder). Changing a folder in Settings still does not move old files; renaming an agent does move that agent's own folder.
+
 llama.cpp binaries are resolved for **macOS arm64, macOS x64, Windows x64, Linux x64**.
 
 Two people share work only if they point at the **same real folder**. Files another person or program drops into a connected folder show up in the Computer pane on their own (the sidecar watches each folder; on network shares it polls metadata). **Refresh** re-lists everything now. A share that goes away shows **Disconnected** on that section; LocalBot does not switch to a local copy. In the desktop app, **reveal** opens the folder in Finder / Explorer.

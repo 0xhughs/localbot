@@ -67,7 +67,23 @@ Nothing is moved or deleted. Old `bots/{Name}/workspace` files stay where they w
         output/
 ```
 
-`agent.json` is the sidecar-side record of which scopes the agent may touch. `private` is always granted.
+`agent.json` is the sidecar-side record of which scopes the agent may touch (`private` is always granted) and whether the agent is `archived`.
+
+### Agent lifecycle (Stage 5)
+
+| Action | On disk | In the browser |
+|---|---|---|
+| New agent | `agents/{Name}/` created with `agent.json`, `AGENTS.md`, `private/memory/notes.md`, `private/output/`. Refused if a folder with that name (any casing) exists. | roster row |
+| Rename | `agents/{Old}/` **moves** to `agents/{New}/` — the whole tree, memory and output included. `agent.json.name` and the `# Name` heading in `AGENTS.md` / `private/AGENTS.md` are rewritten. A case-only rename goes through a temporary name. Refused for an empty / illegal / reserved name, a name another agent already owns (case-insensitive), a missing source folder, or while the agent is mid-turn. The agent's ACP session is dropped; the next message opens a new one with cwd `agents/{New}/private`. | label + `privatePath`; chats stay keyed by the agent id |
+| Duplicate | New `agents/{Name copy}/` (then `… copy 2`, …) with a **copy** of the source `private/` (memory, output, everything) and the source `AGENTS.md`, plus a fresh `agent.json`. The two agents never share a folder. Refused if the target exists. | new roster row |
+| Archive | Only `"archived": true` in `agent.json`. No file is moved or removed. | leaves the default roster; listed under **Archived** with Unarchive / Delete |
+| Unarchive | `"archived": false` | back in the roster |
+| Hide | nothing | this browser's roster filter only |
+| Delete | `agents/{Name}/` removed (`rmSync`, only ever inside `agents/`) | row and chat removed |
+
+Agent names: letters, digits, spaces and ordinary punctuation; not `\ / : * ? " < > |`, not dots-only or trailing-dot, not Windows reserved names, at most 64 characters. `agentSlug` in `scope-model.ts` is the one cleaner; `assertAgentName` on the sidecar refuses anything it would change.
+
+`private/memory/notes.md` is the agent's durable memory. Model tools may write it (it is a normal `private/` path). They may not write `private/AGENTS.md` (mirrored, read-only) and cannot reach `agents/{Name}/AGENTS.md` at all (outside every scope root).
 
 ### Harness sessions (Stage 4)
 
@@ -107,7 +123,7 @@ A suggestion for the pickers, not a required company layout:
 
 ## Handoff
 
-`@Name` in chat writes `task-{timestamp}-{From}-to-{To}.md` into `employee-shared/` if connected, else `department-shared/` if connected. If neither is connected the UI says so and writes nothing.
+`@Name` in chat writes `task-{timestamp}-{From}-to-{To}.md` into `employee-shared/` if connected, else `department-shared/` if connected. If neither is connected the UI says so and writes nothing. Never `company-shared/`, never a private folder. Both agents must be granted that scope. An archived or hidden target is refused (nothing written). Same LocalBot install only; the file shows up in the Computer pane through the Stage 3 watcher.
 
 ## Sharing
 

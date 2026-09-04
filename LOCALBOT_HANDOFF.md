@@ -1,5 +1,24 @@
 # LOCALBOT_HANDOFF.md
 
+## Update after Stage 5 — Multi-agent polish
+2026-09-04 · branch `stage-5-multi-agent-polish` (PR #5)
+
+**What actually WORKS now**
+- **Rename** in the sidebar menu. The sidecar moves `agents/{Old}/` → `agents/{New}/` in one `fs.renameSync` (agent.json, AGENTS.md, `private/memory/notes.md`, `private/output/` follow), rewrites `agent.json.name` and the `# Name` headings, and drops the agent's in-memory ACP session so the next message opens `agents/{New}/private`. Refused for empty / illegal / reserved names, a name another agent owns (case-insensitive, checked on disk), a missing source folder, or while the agent is mid-turn. Case-only renames go through a temp name. The roster label changes only after the move; chats stay keyed by `bot.id`.
+- **Archive / Unarchive**, separate from Hide and Delete. Persisted as `"archived"` in `agents/{Name}/agent.json`; files stay, `agentRemove` is not called. Archived agents leave the default roster and the `@` hint; an **Archived (n)** group at the bottom of the sidebar restores or deletes them. Hide stays a local UI filter; Delete stays destructive.
+- **Duplicate** copies the source `private/` (memory notes included) and its AGENTS.md into a fresh `agents/{Name copy}/` with a fresh agent.json — never a shared folder, never a store-only clone. Collision refused on disk.
+- **Names**: `agentSlug` is the one cleaner (`store.slugName` removed); the sidecar's `assertAgentName` refuses rather than cleans.
+- **@Name handoff** unchanged (`employee-shared`, else `department-shared`, else a clear error) and now refuses archived / hidden targets.
+- `npm run lint`, `npm run typecheck`, `npm test` (195 + 119) exit 0. 16 new tests in `src/lib/fs/agents.test.ts` + 1 Harness scenario (session cwd after rename). Mutation-checked: store-only rename, deleting archive, non-copying duplicate, sidecar-skipping rename, and handoff to an archived target each fail the suite.
+- Verified in the browser preview with the real 0.5B GGUF and the real Harness: rename Writer → Author (folder moved, `# Author`, new dsh session under the new cwd), collision notice, duplicate with copied memory, archive → Archived (1) → unarchive, `@Editor` task file appearing under **My agents** without a reload.
+
+**Still NOT BUILT**
+- Item 6 (GPU / hashes / per-agent model / Ollama discovery / import badge). Item 7 (roster + chats off `localStorage`, durable ACP session ids). Item 8 (signed installers, Harness in the packaged Electron Node 22.14, bundled Node). Two-machine / NAS **UNVERIFIED**. Rename with an open Windows handle in the old folder **UNVERIFIED** (Linux only here). Rename is refused mid-turn rather than queued.
+
+See `STAGE_HANDOFF.md` for the exact prove-it command, pass output, and in-app test steps.
+
+---
+
 ## Update after Stage 4 — Real DeepSeek Harness
 2026-09-03 · branch `stage-4-deepseek-harness` (PR #4)
 
@@ -354,7 +373,9 @@ Disk grant tests kept. Added: server RAM (`ramSource: "os"`), Large disabled on 
 | Loopback bind of a local model | **WORKS** | `127.0.0.1:18789` |
 | Session transcripts | **PARTIAL** | Chat in `localStorage` (`localbot-state-v3`) |
 | Import local GGUF | **WORKS** | Settings + onboarding. Copies real bytes |
-| Agent rename in UI | **STUB** | `renameBot` in store, unused in sidebar |
+| Agent rename in UI | **WORKS** (Stage 5) | sidebar → Rename → sidecar `agentRename` moves `agents/{Old}/` → `agents/{New}/` |
+| Agent archive / unarchive | **WORKS** (Stage 5) | `archived` in `agent.json`; files stay |
+| Agent duplicate copies `private/` | **WORKS** (Stage 5) | `copyAgent` (`cpSync`) into a new folder |
 | Browser tool | **NOT BUILT** | `web_search` gated |
 | Agent mascots | **WORKS** | Writer / Researcher / Ops SVG set |
 
@@ -369,7 +390,7 @@ Disk grant tests kept. Added: server RAM (`ramSource: "os"`), Large disabled on 
 - ~~Stop does not abort the HTTP call~~ — Stage 4: Stop is ACP `session/cancel`.
 - **No token streaming (annoying).** Full reply lands at once.
 - **`darkMode` / `denseUi` are dead (cosmetic).** Stored, not applied.
-- **Rename missing from sidebar (cosmetic).**
+- ~~Rename missing from sidebar~~ — Stage 5 added Rename / Archive / disk-copying Duplicate.
 - **Inbox grant has no Settings chip (cosmetic).**
 - **`npm test` fails template PWA tests (annoying for CI).** LocalBot tests pass in isolation.
 - **Company rename does not move folders (annoying).**
