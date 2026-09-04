@@ -20,6 +20,7 @@ import os from "node:os";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import { makeTempRoot, patchConfig } from "../fs/disk.ts";
+import { readAgentSession, renameRow, writeAgentSession } from "../fs/host-index.ts";
 import { ensureAgent, renameAgent, ScopeError, setFolders } from "../fs/scopes.ts";
 import type { FoldersConfig } from "../fs/scope-model.ts";
 import { startFixtureOpenAI, writeThenDone, type FixtureScenario, type FixtureServer } from "./fixture-openai.ts";
@@ -438,8 +439,10 @@ describe("Stage 4 — real DeepSeek Harness over ACP with a fixture /v1", () => 
     assert.equal(ctx.mgr.hasActiveTurn("Writer"), false);
     const oldSessionId = ctx.mgr.status().sessions.find((s) => s.agentName === "Writer")!.sessionId;
 
-    // Rename on disk, then drop the in-memory session — the order the server fn uses.
+    // Rename on disk, move the index row, then drop the session — the order the server fn uses.
     const moved = renameAgent(ctx.folders, "Writer", "Author");
+    const row = renameRow("Writer", "Author");
+    assert.ok(row && row.sessionId === null, "Stage 7: the index row follows the rename with its session cleared");
     assert.equal(ctx.mgr.forgetSession("Writer"), true);
     assert.equal(ctx.mgr.status().sessions.some((s) => s.agentName === "Writer"), false);
     const agents = path.join(ctx.folders.employeeRoot, "agents");
@@ -460,5 +463,73 @@ describe("Stage 4 — real DeepSeek Harness over ACP with a fixture /v1", () => 
     assert.equal(fs.existsSync(path.join(agents, "Writer")), false, "nothing recreated agents/Writer");
     assert.deepEqual(ctx.mgr.status().sessions.map((s) => s.agentName), ["Author"]);
     ctx.privateRoot = moved.privatePath;
+  });
+
+  it("Stage 7: the ACP sessionId is persisted in the host index after a prompt; rename cleared the old one", () => {
+    const persisted = readAgentSession("Author");
+    assert.ok(persisted, "sessionId written to localbot-agents.json");
+    assert.equal(persisted.sessionId, ctx.mgr.status().sessions.find((s) => s.agentName === "Author")!.sessionId);
+    assert.equal(persisted.cwd, ctx.privateRoot);
+    assert.equal(readAgentSession("Writer"), null, "forgetSession on rename cleared the persisted id too");
+    const raw = JSON.parse(fs.readFileSync(path.join(ctx.dataDir, "localbot-agents.json"), "utf8")) as { agents: { name: string; sessionId: string | null; sessionCwd: string | null }[] };
+    assert.deepEqual(raw.agents.map((a) => [a.name, a.sessionId, a.sessionCwd]), [["Author", persisted.sessionId, ctx.privateRoot]]);
+  });
+
+  it("Stage 7: after stop() a fresh manager resumes the persisted session (ACP session/resume) and it keeps working", { timeout: 60000 }, async () => {
+    const persisted = readAgentSession("Author")!;
+    await ctx.mgr.stop();
+    assert.equal(ctx.mgr.status().sessions.length, 0, "memory map is empty after the sidecar's Harness stopped");
+
+    const mgr2 = new HarnessManager();
+    const session = await mgr2.ensureSession(ctx.spec, "Author");
+    assert.equal(session.origin, "resumed", session.resumeError ?? "");
+    assert.equal(session.resumed, true);
+    assert.equal(session.sessionId, persisted.sessionId, "the same ACP session, not a new one");
+    assert.equal(session.cwd, ctx.privateRoot);
+    assert.deepEqual(readAgentSession("Author"), persisted, "resume does not rewrite the index");
+
+    ctx.scenario.current = writeThenDone("after-resume.md", "written in the resumed session");
+    const rec = await mgr2.prompt(ctx.spec, "Author", "Write after resume");
+    assert.equal(rec.sessionId, persisted.sessionId);
+    const done = await waitTurn(mgr2, rec.turnId);
+    assert.equal(done.status, "done", done.error ?? "");
+    assert.equal(fs.readFileSync(path.join(ctx.privateRoot, "after-resume.md"), "utf8"), "written in the resumed session");
+    assert.deepEqual(mgr2.status().sessions.map((s) => [s.agentName, s.origin]), [["Author", "resumed"]]);
+    ctx.mgr = mgr2;
+  });
+
+  it("Stage 7: a persisted id dsh no longer knows → session/new, and the new id replaces it", { timeout: 60000 }, async () => {
+    await ctx.mgr.stop();
+    writeAgentSession("Author", "sess_does_not_exist", ctx.privateRoot);
+    const mgr3 = new HarnessManager();
+    const session = await mgr3.ensureSession(ctx.spec, "Author");
+    assert.equal(session.origin, "new");
+    assert.equal(session.resumed, false);
+    assert.ok(session.resumeError && /not resumable|does not match|already active|sess_does_not_exist|invalid/i.test(session.resumeError), session.resumeError ?? "no resumeError");
+    assert.notEqual(session.sessionId, "sess_does_not_exist");
+    assert.deepEqual(readAgentSession("Author"), { sessionId: session.sessionId, cwd: ctx.privateRoot }, "the new id is stored");
+    ctx.mgr = mgr3;
+  });
+
+  it("Stage 7: a persisted cwd that is not this agent's private/ is never resumed", { timeout: 60000 }, async () => {
+    const live = ctx.mgr.status().sessions.find((s) => s.agentName === "Author")!.sessionId;
+    await ctx.mgr.stop();
+    writeAgentSession("Author", live, path.join(os.tmpdir(), "somewhere-else"));
+    const mgr4 = new HarnessManager();
+    const session = await mgr4.ensureSession(ctx.spec, "Author");
+    assert.equal(session.origin, "new");
+    assert.match(session.resumeError ?? "", /cwd/);
+    assert.notEqual(session.sessionId, live);
+    assert.equal(readAgentSession("Author")!.cwd, ctx.privateRoot);
+    ctx.mgr = mgr4;
+  });
+
+  it("Stage 7: forgetSession clears the persisted id, so the next ensureSession is session/new", { timeout: 60000 }, async () => {
+    assert.ok(readAgentSession("Author"));
+    assert.equal(ctx.mgr.forgetSession("Author"), true);
+    assert.equal(readAgentSession("Author"), null);
+    const session = await ctx.mgr.ensureSession(ctx.spec, "Author");
+    assert.equal(session.origin, "new");
+    assert.equal(readAgentSession("Author")!.sessionId, session.sessionId);
   });
 });

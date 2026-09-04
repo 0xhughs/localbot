@@ -1,6 +1,6 @@
 # Folder contract
 
-Work product lives on **disk** in four folder scopes the employee picks. Browser state (agents, chats, pins, chat grants) stays in `localStorage` for now (Stage 7 moves it). File bodies are never stored in the browser. The **sidecar** (the Node server) is the only thing that knows where a scope lives; the UI and the model only ever say `scope/relative/path`.
+Work product lives on **disk** in four folder scopes the employee picks. Agent metadata, chats and the ACP session map live in the LocalBot **data dir** (Stage 7, see *Host state* below), never in a scope and never only in the browser. File bodies are never stored in the browser. The **sidecar** (the Node server) is the only thing that knows where a scope lives; the UI and the model only ever say `scope/relative/path`.
 
 ## Four scopes
 
@@ -45,6 +45,37 @@ A bare path like `hello.md` means `private/hello.md`.
 
 `dataDir` is `{cwd}/data` in the browser preview / `npm run desktop`, `{appData}/LocalBot` in the packaged Electron app, or `LOCALBOT_DATA_DIR`.
 
+### Host state (Stage 7)
+
+```
+{dataDir}/localbot-agents.json        # host index, version 1
+{dataDir}/localbot-agents.json.bak    # previous copy (every host JSON write is temp + rename)
+{dataDir}/chats/{agentId}.json        # one transcript per agent: messages, chatGrants, lastReadAt
+{dataDir}/localbot-state-v3.migrated.json   # the browser copy imported on first launch (recovery only)
+```
+
+```json
+{
+  "version": 1,
+  "onboarded": true,
+  "company": { "id": "co_…", "name": "Acme", "createdAt": "…" },
+  "department": { "id": "dept_…", "name": "Ops", "createdAt": "…" },
+  "employee": { "id": "emp_…", "name": "Sam", "createdAt": "…" },
+  "selectedCatalogId": "qwen25-05b-q4",
+  "migratedFrom": "localbot-state-v3 or null",
+  "agents": [
+    { "id": "bot_…", "name": "Writer", "pinned": true, "hidden": false, "unread": 0,
+      "sessionId": "ACP session id or null", "sessionCwd": "…/agents/Writer/private or null", "createdAt": "…" }
+  ]
+}
+```
+
+The roster the sidebar shows is `agents/*/agent.json` **joined** to this index by agent name: `agent.json` owns `job`, `modelId`, `color`, `mascotId`, `scopes`, `archived`; the index owns the stable `id` (chats and the session map key on it), `pinned` / `hidden` / `unread`, and the ACP session. A folder under `agents/` with no index row gets a fresh row on the next load (an agent folder copied in by hand appears); a row whose folder is gone leaves the roster but keeps its chat file. Rename keeps the id and clears the session; Delete removes the row and `chats/{id}.json`.
+
+Chats are LocalBot metadata, not work product: `chats/` is under the data dir, outside every scope root, so the model's file tools cannot read them. The sidecar refuses to write a chat when the data dir itself sits inside a configured scope folder.
+
+The browser's `localStorage["localbot-state-v3"]` keeps only UI chrome (theme / density flags, last hardware scan, runtime badge). Clearing site data loses none of the above.
+
 ### Migration from the single company root
 
 A v1 file (`companyRoot`, no `folders`) is migrated once on the next load:
@@ -81,8 +112,8 @@ Nothing is moved or deleted. Old `bots/{Name}/workspace` files stay where they w
 | Duplicate | New `agents/{Name copy}/` (then `… copy 2`, …) with a **copy** of the source `private/` (memory, output, everything) and the source `AGENTS.md`, plus a fresh `agent.json`. The two agents never share a folder. Refused if the target exists. | new roster row |
 | Archive | Only `"archived": true` in `agent.json`. No file is moved or removed. | leaves the default roster; listed under **Archived** with Unarchive / Delete |
 | Unarchive | `"archived": false` | back in the roster |
-| Hide | nothing | this browser's roster filter only |
-| Delete | `agents/{Name}/` removed (`rmSync`, only ever inside `agents/`) | row and chat removed |
+| Hide | `hidden: true` on the row in `localbot-agents.json` | roster filter (per data dir, not per browser) |
+| Delete | `agents/{Name}/` removed (`rmSync`, only ever inside `agents/`); the index row and `chats/{id}.json` go too | row and chat removed |
 
 Agent names: letters, digits, spaces and ordinary punctuation; not `\ / : * ? " < > |`, not dots-only or trailing-dot, not Windows reserved names, at most 64 characters. `agentSlug` in `scope-model.ts` is the one cleaner; `assertAgentName` on the sidecar refuses anything it would change.
 
@@ -90,7 +121,7 @@ Agent names: letters, digits, spaces and ordinary punctuation; not `\ / : * ? " 
 
 ### Harness sessions (Stage 4)
 
-Each agent's ACP session runs with `cwd = {employeeRoot}/agents/{AgentName}/private`. That cwd only identifies the agent; the Harness filesystem provider (`dsh/localbot-fs.mjs`) still resolves every path through `resolveScopePath`. Before each session/prompt the sidecar mirrors `agents/{AgentName}/AGENTS.md` (plus the granted-scope list) into `private/AGENTS.md`, where the upstream instruction loader picks it up. That copy is **read-only for model tools** — edit the one next to `agent.json`. Harness's own session logs live under `{dataDir}/dsh-home/`, never in a scope.
+Each agent's ACP session runs with `cwd = {employeeRoot}/agents/{AgentName}/private`. That cwd only identifies the agent; the Harness filesystem provider (`dsh/localbot-fs.mjs`) still resolves every path through `resolveScopePath`. The session id and that cwd are persisted in `localbot-agents.json` (Stage 7); after a sidecar restart the next prompt resumes the same session when the cwd still matches, otherwise a new one is opened and stored. Before each session/prompt the sidecar mirrors `agents/{AgentName}/AGENTS.md` (plus the granted-scope list) into `private/AGENTS.md`, where the upstream instruction loader picks it up. That copy is **read-only for model tools** — edit the one next to `agent.json`. Harness's own session logs live under `{dataDir}/dsh-home/`, never in a scope.
 
 ## Suggested layout ("Create my folders")
 

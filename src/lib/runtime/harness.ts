@@ -17,6 +17,8 @@ export type HarnessPromptResult =
       turnId: string;
       sessionId: string;
       resumed: boolean;
+      /** Stage 7: `resumed` = ACP session/resume with the id persisted in the host index; `new` = session/new. */
+      sessionOrigin: "memory" | "resumed" | "new";
       /** Stage 6: which file / route this turn runs on, and whether llama-server was restarted for it. */
       model: { route: "llama.cpp" | "ollama"; name: string; path: string | null; source: "agent" | "fallback" | "none" | "ollama"; notice: string | null; restarted: boolean };
     }
@@ -50,6 +52,7 @@ export const harnessPrompt = createServerFn({ method: "POST" })
         turnId: rec.turnId,
         sessionId: rec.sessionId,
         resumed: session.resumed,
+        sessionOrigin: session.origin,
         model: {
           route: report.route,
           name: spec.modelName ?? "Local GGUF",

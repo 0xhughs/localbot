@@ -32,6 +32,8 @@ export function Sidebar() {
   const setUi = useLocalBot((s) => s.setUi);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // Stage 7: the roster is read from disk; this is why it could not be (e.g. the employee root is disconnected).
+  const diskNotice = useLocalBot((s) => s.diskNotice);
 
   const report = (r: { ok: boolean; error?: string }) => {
     setNotice(r.ok ? null : (r.error ?? "Something went wrong."));
@@ -166,6 +168,11 @@ export function Sidebar() {
           </details>
         )}
       </div>
+      {diskNotice && (
+        <div className="border-t border-border px-3 py-2 text-[11px] text-danger">
+          Roster could not be read from disk: {diskNotice}
+        </div>
+      )}
       {notice && (
         <div className="flex items-start gap-2 border-t border-border px-3 py-2 text-[11px] text-danger">
           <span className="min-w-0 flex-1">{notice}</span>

@@ -27,6 +27,8 @@ export type AdapterEvents = {
   askPermission: (req: PermissionRequest) => Promise<PermissionDecision>;
   /** Fired once the sidecar has resolved (and, if needed, restarted onto) this agent's model. */
   onModel?: (info: TurnModelInfo) => void;
+  /** Stage 7: how the ACP session for this turn was obtained (`resumed` = session/resume with the persisted id). */
+  onSession?: (info: { sessionId: string; origin: "memory" | "resumed" | "new" }) => void;
 };
 
 export const POLL_MS = 250;
@@ -91,6 +93,7 @@ export async function runAgentTurn(opts: {
   // Stage 6: which file / route this turn runs on (the sidecar may have
   // restarted llama-server onto this agent's GGUF before answering).
   opts.events.onModel?.(started.model);
+  opts.events.onSession?.({ sessionId: started.sessionId, origin: started.sessionOrigin });
 
   let cancelled = false;
   const onAbort = () => {

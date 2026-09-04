@@ -213,9 +213,28 @@ export function emptyConfig(): DiskConfig {
   };
 }
 
+/**
+ * Stage 7: every host-side JSON file (config, agent index, chats) is written
+ * as temp file + `renameSync`, so a crash mid-write leaves either the old
+ * file or the new one — never a truncated one. The previous copy is kept as
+ * `{file}.bak` when it existed.
+ */
+export function atomicWriteJson(file: string, data: unknown): void {
+  const dir = path.dirname(file);
+  fs.mkdirSync(dir, { recursive: true });
+  const tmp = path.join(dir, `.${path.basename(file)}.${process.pid}.${Date.now()}.tmp`);
+  fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + "\n", "utf8");
+  try {
+    if (fs.existsSync(file)) fs.copyFileSync(file, `${file}.bak`);
+    fs.renameSync(tmp, file);
+  } catch (err) {
+    fs.rmSync(tmp, { force: true });
+    throw err;
+  }
+}
+
 function writeConfigFile(cfg: DiskConfig): void {
-  fs.mkdirSync(dataDir(), { recursive: true });
-  fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2) + "\n", "utf8");
+  atomicWriteJson(configPath(), cfg);
 }
 
 export function loadConfig(): DiskConfig {

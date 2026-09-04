@@ -6,7 +6,7 @@
  */
 import fs from "node:fs";
 import { createServerFn } from "@tanstack/react-start";
-import type { DiskConfig, FoldersConfig, ScopedEntry, ScopeId } from "../types.ts";
+import type { ChatMessage, DiskConfig, FoldersConfig, ScopedEntry, ScopeId } from "../types.ts";
 import {
   isElectronRuntime,
   loadConfig,
@@ -43,6 +43,27 @@ import {
   type ScopedTarget,
 } from "./scopes.ts";
 import { refreshScopes, scopeStatuses, type ScopeStatus } from "./watch.ts";
+import {
+  clearAgentSession,
+  ensureRow,
+  hostIndexExists,
+  loadHostIndex,
+  loadRoster,
+  migrateLegacySnapshot,
+  patchHostIndex,
+  patchRowById,
+  readAllChats,
+  removeRow,
+  renameRow,
+  resetHostIndex,
+  writeChat,
+  type HostAgentPatch,
+  type HostIndex,
+  type HostIndexPatch,
+  type LegacySnapshot,
+  type MigrationResult,
+  type RosterEntry,
+} from "./host-index.ts";
 
 type Fail = { ok: false; error: string; code: string };
 
@@ -92,14 +113,16 @@ export const foldersSet = createServerFn({ method: "POST" })
 
 /* ---------- agents ---------- */
 
-type AgentOk = { ok: true } & AgentPaths;
+/** Stage 7: every lifecycle result carries the host-index row id the roster keys on. */
+type AgentOk = { ok: true; id: string } & AgentPaths;
 
 export const agentEnsure = createServerFn({ method: "POST" })
-  .validator((input: EnsureAgentInput) => input)
+  .validator((input: EnsureAgentInput & { id?: string; pinned?: boolean }) => input)
   .handler(async ({ data }): Promise<AgentOk | Fail> => {
     try {
       const r = ensureAgent(requireFolders(), data);
-      return { ok: true, ...r };
+      const row = ensureRow(r.name, { id: data.id, pinned: data.pinned, createdAt: data.createdAt });
+      return { ok: true, id: row.id, ...r };
     } catch (err) {
       return fail(err);
     }
@@ -120,8 +143,10 @@ export const agentRename = createServerFn({ method: "POST" })
         throw new ScopeError("BUSY", `${data.agentName} is still working on a message. Stop it first.`);
       }
       const r = renameAgent(requireFolders(), data.agentName, data.newName);
+      // Same id (chats stay addressable); the persisted session is dropped with the in-memory one.
+      const row = renameRow(data.agentName, r.name) ?? ensureRow(r.name);
       harness.forgetSession(data.agentName);
-      return { ok: true, ...r };
+      return { ok: true, id: row.id, ...r };
     } catch (err) {
       return fail(err);
     }
@@ -135,7 +160,8 @@ export const agentDuplicate = createServerFn({ method: "POST" })
       const folders = requireFolders();
       const name = data.newName?.trim() || uniqueCopyName(folders, data.agentName, data.avoid ?? []);
       const r = copyAgent(folders, data.agentName, name);
-      return { ok: true, ...r };
+      const row = ensureRow(r.name);
+      return { ok: true, id: row.id, ...r };
     } catch (err) {
       return fail(err);
     }
@@ -152,7 +178,10 @@ export const agentSetArchived = createServerFn({ method: "POST" })
         throw new ScopeError("BUSY", `${data.agentName} is still working on a message. Stop it first.`);
       }
       const rec = setAgentArchived(requireFolders(), data.agentName, data.archived);
-      if (data.archived) harness.forgetSession(data.agentName);
+      if (data.archived) {
+        harness.forgetSession(data.agentName);
+        clearAgentSession(data.agentName);
+      }
       return { ok: true, archived: rec.archived };
     } catch (err) {
       return fail(err);
@@ -226,6 +255,169 @@ export const agentRemove = createServerFn({ method: "POST" })
   .handler(async ({ data }): Promise<{ ok: true } | Fail> => {
     try {
       removeAgent(requireFolders(), data.agentName);
+      removeRow(data.agentName);
+      return { ok: true };
+    } catch (err) {
+      return fail(err);
+    }
+  });
+
+/* ---------- Stage 7: durable host state (index + chats) ---------- */
+
+export type HostConfigMirror = Pick<DiskConfig, "allowHostedDemo" | "useExistingOllama" | "ollamaModel" | "activeModelId">;
+
+export type StateLoadResult =
+  | {
+      ok: true;
+      /** False on a data dir that has never had an index: the browser may offer its copy for migration. */
+      hasIndex: boolean;
+      index: Omit<HostIndex, "agents">;
+      roster: RosterEntry[];
+      /** Why the roster is empty when it should not be (e.g. employee root DISCONNECTED). */
+      rosterError: { code: string; error: string } | null;
+      config: HostConfigMirror;
+      folders: FoldersConfig | null;
+    }
+  | Fail;
+
+function configMirror(): HostConfigMirror {
+  const cfg = loadConfig();
+  return {
+    allowHostedDemo: cfg.allowHostedDemo,
+    useExistingOllama: cfg.useExistingOllama,
+    ollamaModel: cfg.ollamaModel,
+    activeModelId: cfg.activeModelId,
+  };
+}
+
+/**
+ * Everything the renderer needs at boot, from disk: onboarding flag and labels
+ * from the index, the roster from `agents/*\/agent.json` ⋈ index, and the
+ * Safety / model switches from `localbot-config.json` so the checkboxes match
+ * what the sidecar enforces. The browser's `localStorage` is not consulted.
+ */
+export const stateLoad = createServerFn({ method: "POST" }).handler(async (): Promise<StateLoadResult> => {
+  try {
+    const cfg = loadConfig();
+    const hasIndex = hostIndexExists();
+    const { agents: _rows, ...index } = loadHostIndex();
+    void _rows;
+    let roster: RosterEntry[] = [];
+    let rosterError: { code: string; error: string } | null = null;
+    if (cfg.folders) {
+      try {
+        roster = loadRoster(requireFolders());
+      } catch (err) {
+        const f = fail(err);
+        rosterError = { code: f.code, error: f.error };
+      }
+    }
+    return { ok: true, hasIndex, index, roster, rosterError, config: configMirror(), folders: cfg.folders };
+  } catch (err) {
+    return fail(err);
+  }
+});
+
+export const statePatchIndex = createServerFn({ method: "POST" })
+  .validator((input: HostIndexPatch) => input)
+  .handler(async ({ data }): Promise<{ ok: true; index: Omit<HostIndex, "agents"> } | Fail> => {
+    try {
+      const { agents: _rows, ...index } = patchHostIndex(data);
+      void _rows;
+      return { ok: true, index };
+    } catch (err) {
+      return fail(err);
+    }
+  });
+
+/** pinned / hidden / unread live in the index, not in the browser. */
+export const statePatchAgent = createServerFn({ method: "POST" })
+  .validator((input: { id: string } & HostAgentPatch) => input)
+  .handler(async ({ data }): Promise<{ ok: true } | Fail> => {
+    try {
+      const { id, ...patch } = data;
+      if (!patchRowById(id, patch)) throw new ScopeError("NOT_FOUND", `No agent with id ${id} in the host index.`);
+      return { ok: true };
+    } catch (err) {
+      return fail(err);
+    }
+  });
+
+/**
+ * One-time import of the browser's `localbot-state-v3`. Refuses (harmlessly)
+ * once an index exists. Creates the agent folders for imported bots when the
+ * folders are configured, exactly like `ensureAgents` used to.
+ */
+export const stateMigrate = createServerFn({ method: "POST" })
+  .validator((input: { snapshot: LegacySnapshot }) => input)
+  .handler(async ({ data }): Promise<MigrationResult | Fail> => {
+    try {
+      const cfg = loadConfig();
+      const r = migrateLegacySnapshot(data.snapshot, cfg.folders);
+      if (r.migrated && cfg.folders) {
+        const folders = requireFolders();
+        for (const b of data.snapshot.bots ?? []) {
+          if (!b.name) continue;
+          try {
+            ensureAgent(folders, {
+              name: b.name,
+              job: b.job ?? "",
+              modelId: b.modelId ?? "",
+              color: b.color ?? "",
+              mascotId: b.mascotId ?? "",
+              scopes: b.scopes ?? ["private"],
+              standingInstructions: b.standingInstructions ?? "",
+              createdAt: b.createdAt ?? new Date().toISOString(),
+              archived: b.archived,
+            });
+          } catch {
+            /* an illegal legacy name or a disconnected root: the row is kept, the folder is not created */
+          }
+        }
+      }
+      return r;
+    } catch (err) {
+      return fail(err);
+    }
+  });
+
+/** "Reset this workspace": fresh index (old one in .bak). Files on disk stay. */
+export const stateReset = createServerFn({ method: "POST" }).handler(async (): Promise<{ ok: true } | Fail> => {
+  try {
+    resetHostIndex();
+    return { ok: true };
+  } catch (err) {
+    return fail(err);
+  }
+});
+
+export type ChatBody = { messages: ChatMessage[]; chatGrants: Record<string, true>; lastReadAt: string };
+
+export const chatLoadAll = createServerFn({ method: "POST" }).handler(
+  async (): Promise<{ ok: true; chats: Record<string, ChatBody> } | Fail> => {
+    try {
+      const all = readAllChats();
+      const chats: Record<string, ChatBody> = {};
+      for (const [id, c] of Object.entries(all)) {
+        chats[id] = { messages: c.messages as ChatMessage[], chatGrants: c.chatGrants, lastReadAt: c.lastReadAt };
+      }
+      return { ok: true, chats };
+    } catch (err) {
+      return fail(err);
+    }
+  },
+);
+
+/** Atomic write of one agent's transcript into `{dataDir}/chats/{agentId}.json`. Never under a scope. */
+export const chatSave = createServerFn({ method: "POST" })
+  .validator((input: { agentId: string } & ChatBody) => input)
+  .handler(async ({ data }): Promise<{ ok: true } | Fail> => {
+    try {
+      const cfg = loadConfig();
+      if (!loadHostIndex().agents.some((r) => r.id === data.agentId)) {
+        throw new ScopeError("NOT_FOUND", `No agent with id ${data.agentId} in the host index.`);
+      }
+      writeChat(data.agentId, { messages: data.messages, chatGrants: data.chatGrants, lastReadAt: data.lastReadAt }, cfg.folders);
       return { ok: true };
     } catch (err) {
       return fail(err);
