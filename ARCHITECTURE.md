@@ -13,7 +13,7 @@ Electron window (no URL bar)
               └─ ctx.fs = dsh/localbot-fs.mjs → src/lib/fs/scopes.ts resolveScopePath
 ```
 
-Electron is a window around the same UI. Signed `.dmg` / `.exe` are **not** this pass. llama.cpp binaries are mapped for macOS arm64/x64, Windows x64, and Linux x64.
+Electron is a window around the same UI. Signed `.dmg` / `.exe` are **not** this pass. llama.cpp binaries are mapped per (target, runtime) for macOS arm64 (Metal) / x64 (CPU), Windows x64 (CPU / CUDA 12.4 / Vulkan), and Linux x64 (CPU / Vulkan). Electron main does not start its own llama-server; the sidecar owns the one process.
 
 ### The loop is DeepSeek Harness (Stage 4)
 
@@ -36,15 +36,19 @@ Named agents, chats, settings, onboarding. Dark, dense, keyboard-first.
 - Per-agent chat with tool chips
 - Permission Allow once / Allow for this chat / Deny
 - Computer pane lists **disk** per configured scope: Private / My agents / Department / Company (null scopes hidden), with Refresh, live re-listing on external changes, and a per-section Disconnected banner
-- Runtime badge: `Local {model name}` or `Local model not ready`
+- Runtime badge: `Local {model name}` for the **selected agent's** file (`modelStatusForAgent`), `Ollama {tag}` / `Ollama — pick a model` with the switch on, or `Local model not ready`
 
 ## 2. Chat
 
-llama-server loads the active GGUF from `{cwd}/data/LocalBot/models/` (`ensureLocalServer`, unchanged). Bind is `127.0.0.1` only. The Harness reaches it as the `localbot-llama` route; the context window handed to llama-server and declared to the route is `localContextTokens()` (floor 8192, so the Harness prompt fits).
+One llama-server per installation (Stage 6). `appLaunchReport(agentName)` (`src/lib/runtime/harness-launch.ts`) reads the agent's `agent.json.modelId`, resolves it to a **verified** GGUF in the models folder (`resolveModelForAgent`; a missing / unverified file falls back to the global active file with a visible notice) and calls `ensureLocalServer(modelPath)`. The engine remembers which file its child serves; a different file stops that child (waits for its exit, then for `/health` to go dark), spawns llama-server on the new file and waits until `/health` is 200, `/props.model_path` names the file and a 1-token completion answers. The dsh process is untouched — its launch key (loopback URL, `local`, 8192 ctx) does not change across a switch. A switch is refused while another agent has a running turn. Bind is `127.0.0.1` only; the Harness reaches the server as the `localbot-llama` route with `localContextTokens()` (floor 8192).
+
+Which llama.cpp build runs is `pickLlamaRuntime(target, gpuProbe, preference)` (`src/lib/runtime/llama-platform.ts`) over `catalog/llama-assets.json`, which pins one official b10749 row per (target, runtime): linux-x64 `cpu` / `vulkan`, win32-x64 `cpu` / `cuda-12.4` (+ cudart) / `vulkan`, darwin-arm64 `metal`, darwin-x64 `cpu` (GPU NOT BUILT — no asset). The probe (`src/lib/hardware-server.ts` `probeGpu`) reads real host sources in the sidecar — `nvidia-smi`, `/proc/driver/nvidia`, `/sys/class/drm` + `/dev/dri`, Vulkan ICDs, WMI, `arch` — never the browser's WebGL string. `--n-gpu-layers` is `gpuLayersFor(asset, probe, modelBytes)`: 0 on a CPU build, all (99) or a VRAM-proportional share on a GPU build. Runtimes unpack to `bin/{target}/{runtime}/`. GPU execution is UNVERIFIED in this repo (CPU-only host); selection is tested.
+
+A GGUF is loadable only after `verifyGgufFile` (size when the catalog knows it, GGUF magic, sha256 when the catalog knows it; a downloadable catalog row without a hash is refused). Download completion, "already on disk", `findReadyModel` and import all activate through `activateModel`; the result lands in `localbot-config.json` → `verifiedModels`. Import adopts a catalog id only when the filename is that row's; any other file is registered under its own filename so the badge and `agent.json` name the real file.
 
 With **Allow hosted demo** on, the Harness path refuses (`HOSTED_DEMO_REFUSAL`) instead of routing a key; the hosted single-completion code is kept but off the chat path.
 
-Ollama: with **Use existing Ollama** on and `127.0.0.1:11434` answering, the route points there (`llama3.2`). Still loopback, still not the default.
+Ollama: with **Use existing Ollama** on, `listOllamaModels()` lists `127.0.0.1:11434/api/tags` (typed errors, not a ping), Settings → Safety picks a tag (`ollamaModel` in config), and the same `localbot-llama` route points at `http://127.0.0.1:11434/v1` with that tag. A silent port, an empty list or no pick is a visible error and the prompt is refused — no fallthrough to llama.cpp, no hosted route. Still loopback, still not the default, still not required.
 
 ## 3. Files
 

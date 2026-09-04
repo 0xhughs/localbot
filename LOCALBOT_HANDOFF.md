@@ -1,5 +1,24 @@
 # LOCALBOT_HANDOFF.md
 
+## Update after Stage 6 — Model platform
+2026-09-04 · branch `stage-6-model-platform` (PR #6)
+
+**What actually WORKS now**
+- **GPU runtimes (selection).** `catalog/llama-assets.json` pins one official b10749 row per (target, runtime), every URL HEAD-checked: linux-x64 `cpu` + `vulkan`; win32-x64 `cpu` + `cuda-12.4` (+ cudart zip) + `vulkan`; darwin-arm64 `metal`; darwin-x64 `cpu` only (GPU **NOT BUILT** — no asset exists). The sidecar probes the host (`nvidia-smi`, `/proc/driver/nvidia`, `/sys/class/drm` + `/dev/dri`, Vulkan ICDs, WMI, arch) and `pickLlamaRuntime()` chooses the build; `--n-gpu-layers` is `gpuLayersFor()` — 0 on a CPU build, > 0 only on a GPU build. Runtimes unpack to `bin/{target}/{runtime}/`. Settings → Models has a **Build** picker and shows the probe evidence. Painted GPU execution is **UNVERIFIED** (CPU-only host); selection is tested with fixture probes.
+- **Hashes.** Every downloadable catalog row has a sha256 (pin `2026.09-localbot-3`); 0.5B / 1.5B confirmed by hashing real downloads, 3B / 7B from the Hub LFS etag (**UNVERIFIED** locally). `verifyGgufFile()` is the one gate — size, GGUF magic, sha256, and a downloadable row without a hash is refused. Download, “already on disk”, `findReadyModel()` and import all activate through it; a mismatch leaves `activeModelPath` alone. Verified files are recorded in `localbot-config.json` → `verifiedModels` (invalidated when the file's mtime changes).
+- **Per-agent model.** `agent.json.modelId` is the durable pick (Settings → Agents and New agent pickers, verified files only). `appLaunchReport(agentName)` resolves that file and `ensureLocalServer(modelPath)` restarts the **one** llama-server onto it when it differs — stop, wait for exit + port dark, spawn, wait for `/health`, `/props` naming the file and a 1-token completion. dsh is not restarted. A switch under another agent's running turn is refused. The header badge follows the agent's real file (tooltip shows what llama-server serves and “Next message restarts…”); a restart posts “Switched llama-server to … (file)” in the chat. Verified in the browser preview with the real 0.5B and 1.5B GGUFs: Writer → Editor → Writer, two restarts, `/props` on 18789 followed the selected agent.
+- **Import badge fix.** `importGguf` adopts a catalog id only when the filename is that row; other files are registered under their own name and the wizard / badge / new-agent default use that id.
+- **Ollama discovery.** `listOllamaModels()` returns tags or a typed error (no more `pingOllama`); Settings → Safety lists + picks a tag when the switch is on; the `localbot-llama` route points at `127.0.0.1:11434/v1` with that tag. Switch on + silent port / no models / nothing picked → visible error and the prompt is refused; no fallthrough to llama.cpp, no hosted route. Switch off → GGUF as before. A live Ollama is **UNVERIFIED** here (none installed).
+- Electron main no longer spawns a second llama-server; the sidecar owns the one process and reaps it on exit.
+- `npm run lint`, `npm run typecheck`, `npm test` (195 + 140) exit 0. 21 new tests in `src/lib/runtime/model-platform.test.ts`. Mutation-checked: an empty 3B sha256, a hardcoded `"--n-gpu-layers", "0"`, a launch that ignores the agent's path, a blind “already on disk” activate, and an Ollama fallback to `llama3.2` each fail the suite.
+
+**Still NOT BUILT**
+- Painted GPU run (**UNVERIFIED**, no GPU here). 3B / 7B hashes **UNVERIFIED** against a local download. darwin-x64 GPU, linux-arm64 / win32-arm64 targets **NOT BUILT**. Item 7 (roster / chats off `localStorage`, durable ACP session ids). Item 8 (signed installers, Harness in packaged Electron Node 22.14, bundled Node, two-machine NAS **UNVERIFIED**). Farm qualification, dynamic port hunt. The Harness persona's model *name* string is read once at dsh start (route and file do follow a switch).
+
+See `STAGE_HANDOFF.md` for the exact prove-it command, pass output, and in-app test steps.
+
+---
+
 ## Update after Stage 5 — Multi-agent polish
 2026-09-04 · branch `stage-5-multi-agent-polish` (PR #5)
 

@@ -36,7 +36,10 @@ A bare path like `hello.md` means `private/hello.md`.
   "activeModelId": "...",
   "activeModelPath": "...",
   "allowHostedDemo": false,
-  "useExistingOllama": false
+  "useExistingOllama": false,
+  "ollamaModel": null,
+  "llamaRuntime": "auto",
+  "verifiedModels": { "/abs/path/to.gguf": { "sha256": "…", "size": 0, "mtimeMs": 0, "catalogId": "qwen25-05b-q4 or null", "verifiedAt": "…" } }
 }
 ```
 
@@ -67,7 +70,7 @@ Nothing is moved or deleted. Old `bots/{Name}/workspace` files stay where they w
         output/
 ```
 
-`agent.json` is the sidecar-side record of which scopes the agent may touch (`private` is always granted) and whether the agent is `archived`.
+`agent.json` is the sidecar-side record of which scopes the agent may touch (`private` is always granted), whether the agent is `archived`, and — Stage 6 — which GGUF it runs on: `modelId` is a catalog id (`qwen25-15b-q4`) or an imported file's own filename (`team-model.gguf`). It is the durable pick; the browser copy follows it. The file must sit in the models folder and pass verification; the agent's next turn restarts the one llama-server onto it if it differs from what is loaded.
 
 ### Agent lifecycle (Stage 5)
 
