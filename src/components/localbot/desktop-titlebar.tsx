@@ -25,12 +25,19 @@ export function DesktopTitlebar() {
 
   const showControls = desktop.platform !== "darwin";
 
+  // Stage 11: this strip is the only title bar. On macOS the native traffic
+  // lights sit inside it (hiddenInset, trafficLightPosition x 14 / y 12), so
+  // the strip keeps an empty gutter on the left; the Wordmark, Settings and
+  // the roster all live in the sidebar below this strip, never in this corner.
   return (
     <div
+      data-testid="desktop-titlebar"
       className="flex h-9 shrink-0 items-center border-b border-border bg-bg px-3"
       style={{ WebkitAppRegion: "drag" } as CSSProperties}
     >
-      {desktop.platform === "darwin" && <span className="w-16" />}
+      {desktop.platform === "darwin" && (
+        <span data-testid="traffic-light-gutter" aria-hidden="true" className="w-[72px] shrink-0" />
+      )}
       <p className="flex-1 truncate font-mono text-[11px] tracking-wide text-subtle">{title}</p>
       {showControls && (
         <div className="flex" style={{ WebkitAppRegion: "no-drag" } as CSSProperties}>

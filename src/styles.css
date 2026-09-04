@@ -132,7 +132,14 @@
   scrollbar-color: var(--color-border-strong) transparent;
 }
 .scrollbar-thin::-webkit-scrollbar { width: 8px; height: 8px; }
+.scrollbar-thin::-webkit-scrollbar-track,
+.scrollbar-thin::-webkit-scrollbar-corner { background: transparent; }
 .scrollbar-thin::-webkit-scrollbar-thumb {
+  /* Stage 11: thin, low-contrast; the 2px transparent border keeps the thumb
+     off the field's edge (also inside the composer <textarea>). */
   background: var(--color-border-strong);
+  border: 2px solid transparent;
+  background-clip: padding-box;
   border-radius: 99px;
 }
+.scrollbar-thin::-webkit-scrollbar-thumb:hover { background-color: var(--color-subtle); }

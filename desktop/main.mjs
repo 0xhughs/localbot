@@ -34,7 +34,12 @@ function packaged() {
 
 function applyPaths() {
   process.env.LOCALBOT_ELECTRON = "1";
-  process.env.LOCALBOT_DATA_DIR = path.join(app.getPath("appData"), "LocalBot");
+  // Packaged: always the real AppData. Dev (npm run desktop / proofs): a
+  // pre-set LOCALBOT_DATA_DIR wins so a proof can run against a temp dir.
+  const devOverride = !packaged() && process.env.LOCALBOT_DATA_DIR?.trim();
+  process.env.LOCALBOT_DATA_DIR = devOverride
+    ? path.resolve(devOverride)
+    : path.join(app.getPath("appData"), "LocalBot");
   process.env.LOCALBOT_DOCUMENTS_DIR = app.getPath("documents");
   if (packaged()) process.env.LOCALBOT_PACKAGED = "1";
   fs.mkdirSync(process.env.LOCALBOT_DATA_DIR, { recursive: true });
@@ -203,6 +208,22 @@ function buildMenu(win) {
         { role: "quit", label: "Quit" },
       ],
     },
+    // Stage 11: on macOS the standard editing shortcuts (Cmd A / X / C / V / Z)
+    // only reach the focused field through menu roles. Without this submenu
+    // the composer looked broken in the packaged app. Native roles, no
+    // clipboard code in the renderer.
+    {
+      label: "Edit",
+      submenu: [
+        { role: "undo" },
+        { role: "redo" },
+        { type: "separator" },
+        { role: "cut" },
+        { role: "copy" },
+        { role: "paste" },
+        { role: "selectAll" },
+      ],
+    },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
@@ -240,7 +261,8 @@ async function createWindow(uiUrl) {
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "hidden",
     trafficLightPosition: { x: 14, y: 12 },
     webPreferences: {
-      preload: path.join(here, "preload.mjs"),
+      // CommonJS: a sandboxed preload cannot be ESM (Stage 11; see preload.cjs).
+      preload: path.join(here, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,

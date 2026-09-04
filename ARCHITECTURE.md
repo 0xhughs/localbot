@@ -61,7 +61,7 @@ Agent lifecycle (Stage 5) is sidecar-first: `agentRename` → `renameAgent` move
 
 The Computer pane and agent tools send `{ scope, relPath, agentName }` to server functions in `src/lib/fs/server.ts`; inside the Harness process the `ctx.fs` provider (`dsh/localbot-fs.mjs`) builds the same triple from the session cwd and the model's path. Both end in `src/lib/fs/scopes.ts`, which resolves the scope from `localbot-config.json` (`folders.employeeRoot` / `employeeShared` / `departmentShared` / `companyShared`), refuses `..`, absolute / drive / UNC paths, unset scopes and symlink escapes (realpath), checks the agent's `agent.json` scope grant, then calls the disk primitives in `src/lib/fs/disk.ts`. The browser never supplies a root. See `FOLDER_CONTRACT.md`.
 
-Electron adds two native actions through `desktop/preload.mjs`: `pickFolder()` → `localbot:pickFolder` IPC → `dialog.showOpenDialog` (the picked path is validated by the sidecar before it is saved), and `revealPath(hostPath)` → `localbot:revealPath` IPC → `shell.showItemInFolder` (main re-checks the path against the configured folders; the path itself comes from the sidecar's `browseHostPath`, never from the browser).
+Electron adds two native actions through `desktop/preload.cjs`: `pickFolder()` → `localbot:pickFolder` IPC → `dialog.showOpenDialog` (the picked path is validated by the sidecar before it is saved), and `revealPath(hostPath)` → `localbot:revealPath` IPC → `shell.showItemInFolder` (main re-checks the path against the configured folders; the path itself comes from the sidecar's `browseHostPath`, never from the browser).
 
 ### Watch / poll / Refresh (Stage 3)
 
