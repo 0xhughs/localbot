@@ -21,7 +21,9 @@
     "preview:stop": "node scripts/preview.mjs stop",
     "typecheck": "tsc --noEmit",
     "check:auth": "node scripts/check-auth-invariant.mjs",
-    "test": "node --test 'scripts/**/*.test.mjs' && node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/auth/gate-identity.test.ts src/lib/localbot.test.ts src/lib/fs/scopes.test.ts src/lib/fs/watch.test.ts src/lib/fs/agents.test.ts src/lib/fs/host-index.test.ts src/lib/runtime/model-platform.test.ts src/lib/harness/harness.test.ts",
+    "test": "node --test 'scripts/**/*.test.mjs' && node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/auth/gate-identity.test.ts src/lib/localbot.test.ts src/lib/fs/scopes.test.ts src/lib/fs/watch.test.ts src/lib/fs/agents.test.ts src/lib/fs/host-index.test.ts src/lib/runtime/model-platform.test.ts src/lib/desktop-packaging.test.ts src/lib/harness/harness.test.ts",
+    "prove:packaged": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/prove-packaged.mjs",
+    "prove:two-process": "node scripts/two-process-share.mjs",
     "desktop": "node desktop/launch.mjs",
     "build:desktop": "node scripts/build-desktop.mjs",
     "lint": "eslint .",
@@ -126,6 +128,17 @@
       {
         "from": "dist/desktop-sidecar",
         "to": "localbot-sidecar"
+      },
+      {
+        "from": "dist/desktop-harness",
+        "to": ".",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "dist/desktop-node",
+        "to": "localbot-node"
       }
     ],
     "asar": true,
@@ -138,25 +151,40 @@
     "extraMetadata": {
       "main": "desktop/main.mjs"
     },
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "mac": {
       "target": [
-        "dir"
+        "dmg"
       ],
       "identity": null,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
       "category": "public.app-category.productivity"
+    },
+    "dmg": {
+      "sign": false
     },
     "win": {
       "target": [
-        "dir"
-      ]
+        "nsis"
+      ],
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false
     },
     "linux": {
       "target": [
-        "dir"
+        "AppImage",
+        "deb"
       ],
       "category": "Utility",
       "executableName": "LocalBot",
-      "icon": "public/__grok/icon-180.png"
+      "maintainer": "LocalBot <localbot@localhost>",
+      "icon": "build/icon.png"
     },
     "publish": null
   }

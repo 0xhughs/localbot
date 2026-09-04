@@ -1,17 +1,32 @@
 #!/usr/bin/env node
 /**
- * npm run build:desktop — unsigned unpacked Electron app for this OS.
- * Build-time only: the person who runs this still needs Node. The packaged
- * binary they open afterwards does not.
+ * npm run build:desktop — UNSIGNED installers for this OS (Stage 8).
+ *
+ * Linux: AppImage + .deb. macOS: .dmg (identity null, not notarized).
+ * Windows: NSIS .exe (no certificate). Build-time only: the person who runs
+ * this needs Node + npm. The installed app does not: it carries the Nitro
+ * sidecar, the DeepSeek Harness tree, and an official Node >= 22.15 for dsh
+ * (Electron 36's embedded Node 22.14 cannot load it).
  */
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import {
+  checksumLines,
+  hasInstallerTarget,
+  listInstallers,
+  nodeBinaryVersion,
+  nodeRuntimeTarget,
+  stageHarness,
+  stageNodeRuntime,
+  versionAtLeast,
+} from "./desktop-stage.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const staged = path.join(root, "dist/desktop-src");
+const outDir = path.join(root, "dist/desktop");
 
 function run(cmd, args, env = {}) {
   return new Promise((resolve, reject) => {
@@ -65,6 +80,22 @@ function injectSsrCss(outputRoot) {
   if (changed) fs.writeFileSync(serverIndex, src);
 }
 
+const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+const osKey = process.platform === "darwin" ? "mac" : process.platform === "win32" ? "win" : "linux";
+if (!hasInstallerTarget(pkg, osKey)) {
+  console.error(`[desktop] package.json build.${osKey}.target has no installer target (only "dir"). Stage 8 requires one.`);
+  process.exit(1);
+}
+if (pkg.build?.mac?.identity !== null) {
+  console.error("[desktop] build.mac.identity must stay null: this repo has no signing identity and never claims one.");
+  process.exit(1);
+}
+const dshPin = pkg.dependencies?.["@deepseek-ai/dsh"];
+if (!dshPin || !/^\d/.test(dshPin)) {
+  console.error("[desktop] @deepseek-ai/dsh must be an exact pin in package.json, got", dshPin);
+  process.exit(1);
+}
+
 console.log("[desktop] building Nitro node-server UI…");
 await run("node", ["scripts/with-app-env.mjs", "vite", "build"], {
   LOCALBOT_DESKTOP_BUILD: "1",
@@ -81,7 +112,6 @@ fs.rmSync(staged, { recursive: true, force: true });
 fs.mkdirSync(path.join(staged, "desktop"), { recursive: true });
 copyDir(path.join(root, "desktop"), path.join(staged, "desktop"));
 copyDir(path.join(root, "catalog"), path.join(staged, "catalog"));
-const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
 fs.writeFileSync(
   path.join(staged, "package.json"),
   JSON.stringify(
@@ -105,6 +135,29 @@ fs.mkdirSync(sidecarStage, { recursive: true });
 fs.copyFileSync(path.join(root, "desktop/sidecar.mjs"), path.join(sidecarStage, "sidecar.mjs"));
 fs.copyFileSync(path.join(root, "desktop/packaged.mjs"), path.join(sidecarStage, "packaged.mjs"));
 
+// Stage 8: the Harness runtime the installed app carries. Staged one level
+// down (dist/desktop-harness/localbot-harness) and copied to the resources
+// root: electron-builder's extraResources filter silently drops a
+// `node_modules` that sits directly under `from`, but keeps a nested one.
+console.log("[desktop] staging DeepSeek Harness", dshPin, "…");
+fs.rmSync(path.join(root, "dist/desktop-harness"), { recursive: true, force: true });
+stageHarness({ root, stage: path.join(root, "dist/desktop-harness/localbot-harness"), dshPin });
+
+const nodeTarget = nodeRuntimeTarget();
+console.log("[desktop] staging Node runtime for", nodeTarget, "…");
+const nodeStage = await stageNodeRuntime({
+  root,
+  stage: path.join(root, "dist/desktop-node"),
+  cache: path.join(root, "dist/node-cache"),
+  target: nodeTarget,
+});
+const stagedNodeVersion = nodeBinaryVersion(nodeStage.bin);
+if (!stagedNodeVersion || !versionAtLeast(stagedNodeVersion, nodeStage.minimum)) {
+  console.error(`[desktop] staged Node reports ${stagedNodeVersion ?? "nothing"}; need >= ${nodeStage.minimum}`);
+  process.exit(1);
+}
+console.log(`[desktop] bundled Node ${stagedNodeVersion} (pin ${nodeStage.pin}, minimum ${nodeStage.minimum})`);
+
 const require = createRequire(import.meta.url);
 let builderBin;
 try {
@@ -116,45 +169,61 @@ try {
   process.exit(1);
 }
 
-console.log("[desktop] electron-builder --dir (unsigned)…");
-await run(process.execPath, [builderBin, "--dir", "-c.directories.app=dist/desktop-src"], {
+console.log(`[desktop] electron-builder (${osKey}: ${pkg.build[osKey].target.join(", ")}; UNSIGNED)…`);
+await run(process.execPath, [builderBin, "--publish", "never", "-c.directories.app=dist/desktop-src"], {
   CSC_IDENTITY_AUTO_DISCOVERY: "false",
 });
 
-const candidates = [
-  path.join(root, "dist/desktop/linux-unpacked/LocalBot"),
-  path.join(root, "dist/desktop/linux-unpacked/localbot"),
-  path.join(root, "dist/desktop/mac/LocalBot.app"),
-  path.join(root, "dist/desktop/mac-arm64/LocalBot.app"),
-  path.join(root, "dist/desktop/mac-x64/LocalBot.app"),
-  path.join(root, "dist/desktop/win-unpacked/LocalBot.exe"),
-];
-const hit = candidates.find((p) => fs.existsSync(p));
-console.log("[desktop] unsigned unpacked app:", hit ?? path.join(root, "dist/desktop"));
-
 function assertLayout(appOutDir) {
   const checks = [
-    path.join(appOutDir, "resources/localbot-sidecar/sidecar.mjs"),
-    path.join(appOutDir, "resources/localbot-sidecar/packaged.mjs"),
-    path.join(appOutDir, "resources/localbot-server/server/index.mjs"),
-    path.join(appOutDir, "resources/app.asar.unpacked/desktop/main.mjs"),
-    path.join(appOutDir, "resources/app.asar.unpacked/desktop/packaged.mjs"),
-  ];
+    "resources/localbot-sidecar/sidecar.mjs",
+    "resources/localbot-sidecar/packaged.mjs",
+    "resources/localbot-server/server/index.mjs",
+    "resources/app.asar.unpacked/desktop/main.mjs",
+    "resources/app.asar.unpacked/desktop/packaged.mjs",
+    "resources/localbot-harness/dsh/localbot-acp.cordis.yml",
+    "resources/localbot-harness/dsh/localbot-fs.mjs",
+    "resources/localbot-harness/src/lib/fs/scopes.ts",
+    "resources/localbot-harness/node_modules/@deepseek-ai/dsh/lib/bin.js",
+    "resources/localbot-harness/node_modules/@deepseek-ai/dsh-fs-local/package.json",
+    `resources/localbot-node/${process.platform === "win32" ? "node.exe" : "node"}`,
+    "resources/localbot-node/LICENSE.node",
+  ].map((p) => path.join(appOutDir, p));
   const missing = checks.filter((p) => !fs.existsSync(p));
   if (missing.length) {
     console.error("[desktop] missing after pack:", missing);
     process.exit(1);
   }
+  const packedNode = checks.find((p) => p.includes("localbot-node"));
+  const v = nodeBinaryVersion(packedNode);
+  if (!v || !versionAtLeast(v, nodeStage.minimum)) {
+    console.error(`[desktop] packed Node at ${packedNode} reports ${v ?? "nothing"}`);
+    process.exit(1);
+  }
+  console.log("[desktop] packed layout ok;", packedNode, "is", v);
 }
-const linuxOut = path.join(root, "dist/desktop/linux-unpacked");
 const layoutRoots = [
-  linuxOut,
-  path.join(root, "dist/desktop/win-unpacked"),
-  path.join(root, "dist/desktop/mac/LocalBot.app/Contents/Resources"),
-  path.join(root, "dist/desktop/mac-arm64/LocalBot.app/Contents/Resources"),
-  path.join(root, "dist/desktop/mac-x64/LocalBot.app/Contents/Resources"),
+  path.join(outDir, "linux-unpacked"),
+  path.join(outDir, "win-unpacked"),
+  path.join(outDir, "mac/LocalBot.app/Contents"),
+  path.join(outDir, "mac-arm64/LocalBot.app/Contents"),
+  path.join(outDir, "mac-x64/LocalBot.app/Contents"),
 ];
 const layoutRoot = layoutRoots.find((p) => fs.existsSync(p));
-if (layoutRoot) assertLayout(layoutRoot);
+if (!layoutRoot) {
+  console.error("[desktop] no unpacked app under", outDir);
+  process.exit(1);
+}
+assertLayout(layoutRoot);
 
-console.log("[desktop] not notarized, not a store build. Employee does not need Node.");
+const installers = listInstallers(outDir);
+if (installers.length === 0) {
+  console.error(`[desktop] electron-builder produced no installer under ${outDir}`);
+  process.exit(1);
+}
+const sums = checksumLines(installers);
+fs.writeFileSync(path.join(outDir, "SHA256SUMS.txt"), sums.join("\n") + "\n");
+console.log("[desktop] UNSIGNED installers:");
+for (const line of sums) console.log("  " + line);
+console.log("[desktop] checksums:", path.join(outDir, "SHA256SUMS.txt"));
+console.log("[desktop] not signed, not notarized, not a store build. Node/npm are not needed to run the installed app.");

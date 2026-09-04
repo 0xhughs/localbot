@@ -66,6 +66,46 @@ export function unpackAsarPath(filePath) {
 }
 
 /**
+ * Stage 8: where the packaged app keeps the DeepSeek Harness runtime.
+ * Everything is an explicit extraResources entry written by
+ * scripts/build-desktop.mjs — nothing here comes from the employee's machine.
+ *
+ *   resources/localbot-node/node[.exe]          official Node >= 22.15 (catalog/node-runtime.json)
+ *   resources/localbot-harness/dsh/             localbot-acp.cordis.yml + localbot-fs.mjs
+ *   resources/localbot-harness/src/…            the TS the fs plugin imports (traced at build)
+ *   resources/localbot-harness/node_modules/    @deepseek-ai/dsh tree (npm install at build, exact pins)
+ *
+ * @param {{ resourcesPath: string, platform?: string }} opts
+ */
+export function harnessResourcePaths({ resourcesPath, platform = process.platform }) {
+  const res = String(resourcesPath).replace(/[/\\]+$/, "");
+  return {
+    nodeBin: `${res}/localbot-node/${platform === "win32" ? "node.exe" : "node"}`,
+    dshDir: `${res}/localbot-harness/dsh`,
+    modulesDir: `${res}/localbot-harness/node_modules`,
+  };
+}
+
+/**
+ * Env the packaged sidecar (and through it the dsh child) receives so the
+ * Harness runs from the app's own resources. Only paths that exist are set:
+ * a missing bundled Node leaves LOCALBOT_DSH_NODE unset and the sidecar's
+ * findHarnessNode refuses with the exact reason instead of hunting on PATH.
+ *
+ * @param {{ resourcesPath: string, platform?: string, exists?: (p: string) => boolean }} opts
+ */
+export function packagedHarnessEnv({ resourcesPath, platform = process.platform, exists }) {
+  const p = harnessResourcePaths({ resourcesPath, platform });
+  const has = exists ?? (() => true);
+  /** @type {Record<string, string>} */
+  const env = {};
+  if (has(p.nodeBin)) env.LOCALBOT_DSH_NODE = p.nodeBin;
+  if (has(p.dshDir)) env.LOCALBOT_DSH_DIR = p.dshDir;
+  if (has(p.modulesDir)) env.LOCALBOT_DSH_MODULES = p.modulesDir;
+  return env;
+}
+
+/**
  * Packaged sidecar lives in extraResources (real files) so Electron's Node
  * can ESM-import it. Dev uses the repo desktop/ folder.
  */
