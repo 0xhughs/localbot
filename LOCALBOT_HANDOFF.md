@@ -1,5 +1,24 @@
 # LOCALBOT_HANDOFF.md
 
+## Update after Stage 7 — Durable AppData state
+2026-09-04 · branch `stage-7-durable-state` (PR #7)
+
+**What actually WORKS now**
+- **Roster on disk.** `{dataDir}/localbot-agents.json` (v1, `src/lib/fs/host-index.ts`) holds `onboarded`, company / department / employee labels + ids, `selectedCatalogId`, `migratedFrom`, and per-agent `{ id, name, pinned, hidden, unread, sessionId, sessionCwd, createdAt }`. `agent.json` stays the source of truth for job / modelId / color / mascot / scopes / archived. The sidebar roster is `agents/*/agent.json` ⋈ index (`loadRoster`); a folder with no row gets a fresh id. `stateLoad` feeds the store before the first render; `localStorage.clear()` + reload against the same `LOCALBOT_DATA_DIR` shows the same roster, pins, archived group and chats (recorded).
+- **Chats on disk.** `{dataDir}/chats/{agentId}.json` (messages + chatGrants), atomic, debounced 400 ms, flushed on `pagehide`, keyed by id so rename does not move them, outside every scope root (refused if the data dir sits inside one).
+- **ACP session map.** `HarnessManager` persists `sessionId` + cwd after `session/new`; with an empty memory map it calls `session/resume` (dsh restores its own log; LocalBot replays nothing) and falls back to `session/new` + store when refused (unknown id, moved cwd). `forgetSession` (rename / archive) clears the persisted id. Verified against the real dsh: after `stop()` a fresh manager resumes the same id and its next tool call lands in the same `private/`; in the app a killed-and-restarted dev server shows **Resumed the previous Harness session.** with the id unchanged in the index.
+- **Atomic host writes.** `atomicWriteJson` (temp + `renameSync`, `.bak`) for `localbot-config.json`, the index and chat files.
+- **Settings hydration.** `allowHostedDemo` / `useExistingOllama` / `ollamaModel` / `activeModelId` are read back from `localbot-config.json` on boot, so Settings → Safety matches the sidecar after a wipe.
+- **Migration.** Empty index + a browser `localbot-state-v3` → `stateMigrate` writes index + chats (old bot ids kept), `localbot-state-v3.migrated.json`, `migratedFrom` marker; idempotent. `partialize` now persists only UI chrome (`settings.darkMode` / `denseUi` / `webSearchEnabled` / `controlThisComputer` / `companyRootIsShared`, `hardware`, `runtime`, `previewWritesToProjectData`).
+- `npm run lint`, `npm run typecheck`, `npm test` (195 + 165) exit 0. 20 new tests in `src/lib/fs/host-index.test.ts` + 5 real-dsh resume scenarios in `harness.test.ts`.
+
+**Still NOT BUILT**
+- Item 8 (signed installers, Harness in packaged Electron Node 22.14, bundled Node, Electron upgrade, two-machine NAS **UNVERIFIED**). Painted GPU **UNVERIFIED**; 3B / 7B hashes etag-only. Chat writes in the last ~400 ms before a hard renderer kill (`pagehide` flush **UNVERIFIED** on Electron close). Roster while the employee root is DISCONNECTED shows an empty list with a notice (no cached copy). `session/list` unused.
+
+See `STAGE_HANDOFF.md` for the exact prove-it command, pass output, and in-app test steps. Older sections below that say agents / chats / pins live in `localStorage["localbot-state-v3"]` describe the pre-Stage-7 layout.
+
+---
+
 ## Update after Stage 6 — Model platform
 2026-09-04 · branch `stage-6-model-platform` (PR #6)
 
@@ -217,7 +236,8 @@ That binary starts Electron's Node sidecar (`desktop/sidecar.mjs` → Nitro `nod
 | Company root | `{cwd}/data/LocalBot/{CompanyName}` | `{documents}/LocalBot/{CompanyName}` |
 | Config | `{cwd}/data/localbot-config.json` | `{appData}/LocalBot/localbot-config.json` |
 | File bodies | OS disk under the company root | same |
-| Agent list, chats, pins, grants | `localStorage["localbot-state-v3"]` | same (Electron partition) |
+| Agent list, pins, ACP session ids (Stage 7) | `{cwd}/data/localbot-agents.json` + `agents/{Name}/agent.json` | `{appData}/LocalBot/localbot-agents.json` + same |
+| Chats, chat grants (Stage 7) | `{cwd}/data/chats/{agentId}.json` | `{appData}/LocalBot/chats/` |
 | Models / GGUF | `{cwd}/data/LocalBot/models/{filename}` | `{appData}/LocalBot/models/` |
 | llama.cpp binary | `{cwd}/data/LocalBot/bin/{platform-arch}/` | `{appData}/LocalBot/bin/{platform-arch}/` |
 
@@ -390,7 +410,7 @@ Disk grant tests kept. Added: server RAM (`ramSource: "os"`), Large disabled on 
 | Ollama | **STUB** | Optional “Use existing Ollama”, default off, not required |
 | Control this computer | **WORKS** | Switch exists, default off |
 | Loopback bind of a local model | **WORKS** | `127.0.0.1:18789` |
-| Session transcripts | **PARTIAL** | Chat in `localStorage` (`localbot-state-v3`) |
+| Session transcripts | **WORKS** (Stage 7) | `{dataDir}/chats/{agentId}.json` + persisted ACP session ids in `localbot-agents.json` |
 | Import local GGUF | **WORKS** | Settings + onboarding. Copies real bytes |
 | Agent rename in UI | **WORKS** (Stage 5) | sidebar → Rename → sidecar `agentRename` moves `agents/{Old}/` → `agents/{New}/` |
 | Agent archive / unarchive | **WORKS** (Stage 5) | `archived` in `agent.json`; files stay |

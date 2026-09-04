@@ -51,7 +51,10 @@ Electron's own Node starts the already-built Nitro server (`resources/localbot-s
 ```
 {cwd}/data/LocalBot/models/{filename}     # GGUF weights
 {cwd}/data/LocalBot/bin/{target}/{runtime}/  # llama.cpp (cpu / vulkan / cuda-12.4 / metal)
-{cwd}/data/localbot-config.json           # version 2: folders { employeeRoot, employeeShared, departmentShared, companyShared }
+{cwd}/data/localbot-config.json           # version 2: folders { employeeRoot, employeeShared, departmentShared, companyShared }, model + Safety switches
+{cwd}/data/localbot-agents.json           # Stage 7 host index: onboarded, labels, per-agent id / pinned / hidden / unread / ACP sessionId
+{cwd}/data/chats/{agentId}.json           # Stage 7 chat transcripts (never under a work folder)
+{cwd}/data/dsh-home/                      # DeepSeek Harness's own session logs
 {cwd}/data/LocalBot/{CompanyName}/        # only if you chose "Create my folders"
 ```
 
@@ -59,6 +62,8 @@ Electron's own Node starts the already-built Nitro server (`resources/localbot-s
 
 ```
 {appData}/LocalBot/localbot-config.json
+{appData}/LocalBot/localbot-agents.json
+{appData}/LocalBot/chats/
 {appData}/LocalBot/models/
 {appData}/LocalBot/bin/{target}/{runtime}/
 {documents}/LocalBot/{CompanyName}/       # only if you chose "Create my folders"
@@ -66,7 +71,9 @@ Electron's own Node starts the already-built Nitro server (`resources/localbot-s
 
 Work folders are wherever you pointed the four scopes; see [FOLDER_CONTRACT.md](FOLDER_CONTRACT.md). Each agent's private folder is `{employeeRoot}/agents/{Name}/private`. Company files are never written into the asar / install folder.
 
-Agent menu (sidebar `…`): **Pin**, **Rename** (moves `agents/{Old}/` → `agents/{New}/`, memory and output included; refused while the agent is working), **Duplicate** (copies the agent's `private/` and standing instructions into `agents/{Name copy}/`), **Archive** (leaves the roster, files stay; restore from **Archived** at the bottom of the sidebar), **Hide** (this browser only), **Delete** (removes the folder). Changing a folder in Settings still does not move old files; renaming an agent does move that agent's own folder.
+Since Stage 7 the browser's `localStorage` holds UI chrome only (theme / density flags, the last hardware scan, the runtime badge). The roster is `agents/*/agent.json` joined to `localbot-agents.json`, chats are files under `chats/`, and the Safety switches are read back from `localbot-config.json` on every start — clearing site data does not lose agents, chats or archived state. A pre-Stage-7 `localbot-state-v3` is imported to disk once on first launch and then ignored.
+
+Agent menu (sidebar `…`): **Pin**, **Rename** (moves `agents/{Old}/` → `agents/{New}/`, memory and output included; refused while the agent is working), **Duplicate** (copies the agent's `private/` and standing instructions into `agents/{Name copy}/`), **Archive** (leaves the roster, files stay; restore from **Archived** at the bottom of the sidebar), **Hide** (roster filter stored in the host index), **Delete** (removes the folder and the chat file). Changing a folder in Settings still does not move old files; renaming an agent does move that agent's own folder.
 
 llama.cpp b10749 builds are pinned per (target, runtime): **macOS arm64** (Metal), **macOS x64** (CPU only — no GPU asset), **Windows x64** (CPU / CUDA 12.4 / Vulkan), **Linux x64** (CPU / Vulkan). The sidecar probes the GPU (`nvidia-smi`, `/dev/dri`, Vulkan ICDs, WMI, arch) and picks the build; `--n-gpu-layers` is 0 on a CPU build and > 0 only on a GPU build. Settings → Models shows the probe and lets you pin a build. GPU execution is UNVERIFIED in this repo (CPU-only host).
 

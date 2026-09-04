@@ -22,7 +22,7 @@ The agent loop — model requests, tool ordering, tool results back to the model
 - The **sidecar** owns the `dsh` process (`src/lib/harness/process.ts`): isolated `DSH_HOME` at `{dataDir}/dsh-home`, hosted keys stripped from its environment, launched with `node --experimental-strip-types … dsh --profile acp --patch dsh/localbot-acp.cordis.yml --patch {DSH_HOME}/localbot-fs-plugin.patch.yml`. The renderer never talks to Harness or llama.cpp.
 - `dsh/localbot-acp.cordis.yml` declares the single provider route `localbot-llama` (`api: openai-completions`, `http://127.0.0.1:18789/v1`, placeholder key-shaped value, no credential), disables the hosted DeepSeek route, telemetry, web search/fetch and subagent tooling, trims goal/todo/plan/skill/job tools so a small GGUF's context fits, and sets the bash sandbox to `read-only` so any shell side effect must escalate through an ACP permission request.
 - `dsh/localbot-fs.mjs` is LocalBot's `ctx.fs` provider inside the Harness process. It extends the official `fs-local` mechanics but owns path → target: every path becomes `{ scope, relPath, agentName }` and goes through `resolveForAgent` → `resolveScopePath`. The ACP session `cwd` (`agents/{Name}/private`) only identifies the agent. Tool results show `private/hello.md`, never a host path.
-- Session ids are in memory (one per agent, per sidecar process). Durable roster / chats are AGENTS.md item 7.
+- Session ids are persisted (Stage 7): `HarnessManager` writes `sessionId` + the `agents/{Name}/private` cwd into `{dataDir}/localbot-agents.json` after `session/new`. When its in-memory map is empty (sidecar restart) it calls ACP `session/resume` with that id — dsh restores its own log, LocalBot replays nothing — and falls back to `session/new` (storing the new id) when dsh refuses (unknown id, cwd moved, session active elsewhere). dsh-acp at this pin rejects `session/load`, so chat history is LocalBot's own file, not a Harness replay.
 - Rename / archive (Stage 5) call `HarnessManager.forgetSession(agentName)` after the sidecar has moved the folder or flipped `agent.json`; the next prompt runs `session/new` with the agent's current `agents/{Name}/private`. Both are refused with `BUSY` while that agent has a running turn, so no session is ever left pointed at a folder that moved.
 - Node: dsh at this pin needs Node ≥ 22.15 (`node:zlib` zstd). The sidecar launches it with `LOCALBOT_DSH_NODE`, its own Node if new enough, or a newer nvm Node, and otherwise refuses with the exact reason. There is no fallback loop. Electron 36 embeds Node 22.14, so packaged mode is a Stage 8 item.
 
@@ -70,5 +70,18 @@ Models dir: `{cwd}/data/LocalBot/models` (preview) or `{appData}/LocalBot/models
 - Real NAS / two-machine verification of the poll fallback (poll mode was forced in tests, not measured on SMB/NFS)
 - node-llama-cpp (cmake missing on this host; llama-server binary is used instead)
 - Harness in the packaged Electron binary (Electron 36's Node 22.14 cannot load dsh; Stage 8)
-- Durable Harness session ids / chats off `localStorage` (item 7)
 - Two-machine sync (share by pointing at the same real folder)
+
+## 5. Durable host state (Stage 7)
+
+The browser's `localStorage["localbot-state-v3"]` keeps UI chrome only (`settings.darkMode` / `denseUi` / `webSearchEnabled` / `controlThisComputer` / `companyRootIsShared`, the last `hardware` scan, the `runtime` badge, `previewWritesToProjectData`). Everything the employee would miss after clearing site data is on disk and read by `stateLoad` before the first render (`app.tsx` waits for `diskLoaded`):
+
+| What | Where | Owner |
+|---|---|---|
+| Folders, active model, `verifiedModels`, `allowHostedDemo`, `useExistingOllama`, `ollamaModel`, `llamaRuntime` | `{dataDir}/localbot-config.json` | `patchConfig` (`src/lib/fs/disk.ts`) |
+| `onboarded`, company / department / employee labels + ids, `selectedCatalogId`, `migratedFrom`, per-agent `{ id, name, pinned, hidden, unread, sessionId, sessionCwd, createdAt }` | `{dataDir}/localbot-agents.json` (v1) | `src/lib/fs/host-index.ts` |
+| `job`, `modelId`, `color`, `mascotId`, `scopes`, `archived` | `{employeeRoot}/agents/{Name}/agent.json` | `src/lib/fs/scopes.ts` (unchanged) |
+| Chat transcript + "Allow for this chat" grants | `{dataDir}/chats/{agentId}.json` | `chatSave` (debounced 400 ms in the store, flushed on `pagehide`) |
+| Harness session logs | `{dataDir}/dsh-home/` | dsh |
+
+The roster is `agents/*/agent.json` ⋈ index by name (`loadRoster`): a folder with no row gets a fresh id, a row whose folder vanished is not shown (kept so its chat file stays addressable). Lifecycle server fns keep the index in step — `agentEnsure` / `agentDuplicate` return the row id, `agentRename` renames the row (same id, session cleared), `agentSetArchived(true)` clears the session, `agentRemove` drops the row and the chat file. Every host JSON write is `atomicWriteJson`: temp file + `renameSync`, previous copy kept as `.bak`. `stateMigrate` imports a browser `localbot-state-v3` once (only while no index exists), keeps the old bot ids so chats stay attached, writes `localbot-state-v3.migrated.json` as a recoverable export, and the store's `partialize` no longer persists bots / sessions / onboarded / labels.
