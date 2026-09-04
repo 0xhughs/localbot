@@ -10,11 +10,12 @@ import {
   Ban,
 } from "lucide-react";
 import { useLocalBot, resolveBot } from "@/lib/store";
-import type {
-  PermissionDecision,
-  PermissionRequest,
-  ToolChip,
-  ToolKind,
+import {
+  isActiveBot,
+  type PermissionDecision,
+  type PermissionRequest,
+  type ToolChip,
+  type ToolKind,
 } from "@/lib/types";
 import { runAgentTurn } from "@/runtime/harnessAdapter";
 import { Button } from "@/components/ui/button";
@@ -396,7 +397,7 @@ function PermissionCard({
 
 function MentionHint() {
   const allBots = useLocalBot((s) => s.bots);
-  const bots = allBots.filter((b) => !b.hidden);
+  const bots = allBots.filter(isActiveBot);
   const composer = useLocalBot((s) => s.ui.composer);
   const setUi = useLocalBot((s) => s.setUi);
   const at = composer.lastIndexOf("@");

@@ -21,7 +21,7 @@
     "preview:stop": "node scripts/preview.mjs stop",
     "typecheck": "tsc --noEmit",
     "check:auth": "node scripts/check-auth-invariant.mjs",
-    "test": "node --test 'scripts/**/*.test.mjs' && node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/auth/gate-identity.test.ts src/lib/localbot.test.ts src/lib/fs/scopes.test.ts src/lib/fs/watch.test.ts src/lib/harness/harness.test.ts",
+    "test": "node --test 'scripts/**/*.test.mjs' && node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/auth/gate-identity.test.ts src/lib/localbot.test.ts src/lib/fs/scopes.test.ts src/lib/fs/watch.test.ts src/lib/fs/agents.test.ts src/lib/harness/harness.test.ts",
     "desktop": "node desktop/launch.mjs",
     "build:desktop": "node scripts/build-desktop.mjs",
     "lint": "eslint .",

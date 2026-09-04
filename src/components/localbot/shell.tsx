@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { Menu, Monitor, Plus, Settings as SettingsIcon } from "lucide-react";
 import { useLocalBot } from "@/lib/store";
+import { isActiveBot } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { ChatPane } from "./chat";
 import { ComputerPane } from "./computer";
@@ -19,7 +20,7 @@ export function AppShell() {
 
   useEffect(() => {
     if (!selected) {
-      const first = bots.find((b) => !b.hidden) ?? bots[0];
+      const first = bots.find(isActiveBot) ?? bots.find((b) => !b.archived);
       if (first) useLocalBot.getState().selectBot(first.id);
     }
   }, [selected, bots]);

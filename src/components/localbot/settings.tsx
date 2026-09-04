@@ -321,7 +321,14 @@ function AgentsPane() {
           className="rounded-md bg-raised p-3 shadow-[0_0_0_1px_var(--color-border)]"
         >
           <div className="flex items-center justify-between gap-2">
-            <p className="text-sm font-medium">{bot.name}</p>
+            <p className="text-sm font-medium">
+              {bot.name}
+              {bot.archived && (
+                <span className="ml-2 rounded-full bg-bg px-2 py-0.5 text-[10px] font-normal text-muted">
+                  archived
+                </span>
+              )}
+            </p>
             <p className="max-w-[60%] truncate font-mono text-[10px] text-subtle" title={bot.privatePath}>
               {bot.privatePath || "—"}
             </p>

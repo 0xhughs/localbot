@@ -40,7 +40,11 @@ export type ScopeErrorCode =
   | "BAD_PATH"
   | "ESCAPE"
   | "NOT_GRANTED"
-  | "DISCONNECTED";
+  | "DISCONNECTED"
+  | "BAD_NAME"
+  | "EXISTS"
+  | "NOT_FOUND"
+  | "BUSY";
 
 export class ScopeError extends Error {
   code: ScopeErrorCode;
@@ -61,7 +65,50 @@ export type AgentRecord = {
   mascotId: string;
   scopes: ScopeId[];
   createdAt: string;
+  /** Archived agents leave the roster; their folder stays exactly where it is. */
+  archived: boolean;
 };
+
+/* ---------- agent names ---------- */
+
+export const AGENT_NAME_MAX = 64;
+const ILLEGAL_NAME_CHARS = /[\\/:*?"<>|]/;
+const hasControlChar = (s: string) => [...s].some((c) => c.charCodeAt(0) < 0x20);
+const RESERVED_NAMES = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i;
+
+/**
+ * A name the agent folder can be called on every supported filesystem. Throws
+ * `BAD_NAME` instead of silently cleaning: the store cleans typed input with
+ * `agentSlug` before create / duplicate; rename shows the reason instead.
+ */
+export function assertAgentName(name: unknown): string {
+  if (typeof name !== "string" || name.trim().length === 0) {
+    throw new ScopeError("BAD_NAME", "Agent name cannot be empty.");
+  }
+  if (hasControlChar(name)) {
+    throw new ScopeError("BAD_NAME", "Agent name cannot contain control characters.");
+  }
+  const trimmed = name.trim().replace(/\s+/g, " ");
+  if (ILLEGAL_NAME_CHARS.test(trimmed)) {
+    throw new ScopeError("BAD_NAME", `Agent name cannot contain \\ / : * ? " < > | — got "${trimmed}".`);
+  }
+  if (/^\.+$/.test(trimmed) || trimmed.endsWith(".")) {
+    throw new ScopeError("BAD_NAME", "Agent name cannot be dots or end with a dot.");
+  }
+  if (trimmed.startsWith(".")) {
+    throw new ScopeError("BAD_NAME", "Agent name cannot start with a dot.");
+  }
+  if (RESERVED_NAMES.test(trimmed)) {
+    throw new ScopeError("BAD_NAME", `"${trimmed}" is a reserved name on Windows.`);
+  }
+  if (trimmed.length > AGENT_NAME_MAX) {
+    throw new ScopeError("BAD_NAME", `Agent name is longer than ${AGENT_NAME_MAX} characters.`);
+  }
+  if (agentSlug(trimmed) !== trimmed) {
+    throw new ScopeError("BAD_NAME", `Agent name "${trimmed}" is not a valid folder name.`);
+  }
+  return trimmed;
+}
 
 /* ---------- roots ---------- */
 
@@ -230,10 +277,37 @@ export function readAgent(folders: FoldersConfig, agentName: string): AgentRecor
       mascotId: typeof raw.mascotId === "string" ? raw.mascotId : "",
       scopes: normalizeScopes(scopes),
       createdAt: typeof raw.createdAt === "string" ? raw.createdAt : "",
+      archived: raw.archived === true,
     };
   } catch {
     return null;
   }
+}
+
+function writeAgentRecord(dir: string, record: AgentRecord): void {
+  fs.writeFileSync(path.join(dir, "agent.json"), JSON.stringify(record, null, 2) + "\n", "utf8");
+}
+
+/** Folder names directly under `agents/` (case preserved). Missing `agents/` is an empty list. */
+export function listAgentDirs(folders: FoldersConfig): string[] {
+  try {
+    return fs
+      .readdirSync(agentsDir(folders), { withFileTypes: true })
+      .filter((d) => d.isDirectory() && !d.name.startsWith("."))
+      .map((d) => d.name);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The on-disk folder that already owns `name`, compared case-insensitively so
+ * "Writer" and "writer" collide on every OS (case-insensitive filesystems
+ * would otherwise merge them silently). `null` when the name is free.
+ */
+export function agentDirOwner(folders: FoldersConfig, name: string): string | null {
+  const want = agentSlug(name).toLowerCase();
+  return listAgentDirs(folders).find((d) => d.toLowerCase() === want) ?? null;
 }
 
 export function normalizeScopes(scopes: readonly string[]): ScopeId[] {
@@ -269,41 +343,188 @@ export type EnsureAgentInput = {
   scopes: readonly string[];
   standingInstructions: string;
   createdAt: string;
+  /** Omitted = keep whatever agent.json already says (false for a new agent). */
+  archived?: boolean;
 };
 
-/** Create `agents/{Name}/{agent.json, AGENTS.md, private/…}`. Idempotent; never overwrites AGENTS.md or memory. */
-export function ensureAgent(
-  folders: FoldersConfig,
-  input: EnsureAgentInput,
-): { agentDir: string; privatePath: string; scopes: ScopeId[] } {
-  const dir = agentDir(folders, input.name);
-  const priv = privateRoot(folders, input.name);
+export type AgentPaths = {
+  agentDir: string;
+  privatePath: string;
+  scopes: ScopeId[];
+  name: string;
+  archived: boolean;
+};
+
+/**
+ * Create `agents/{Name}/{agent.json, AGENTS.md, private/memory/notes.md, private/output/}`.
+ * Idempotent; never overwrites AGENTS.md or memory. An existing folder whose
+ * name differs only by case is refused (`EXISTS`) instead of being merged.
+ */
+export function ensureAgent(folders: FoldersConfig, input: EnsureAgentInput): AgentPaths {
+  const name = assertAgentName(input.name);
+  const owner = agentDirOwner(folders, name);
+  if (owner && owner !== name) {
+    throw new ScopeError("EXISTS", `An agent folder named ${owner} already exists.`);
+  }
+  const dir = agentDir(folders, name);
+  const priv = privateRoot(folders, name);
+  const existing = readAgent(folders, name);
   fs.mkdirSync(path.join(priv, "memory"), { recursive: true });
   fs.mkdirSync(path.join(priv, "output"), { recursive: true });
   const scopes = normalizeScopes(input.scopes);
   const record: AgentRecord = {
-    name: input.name,
+    name,
     job: input.job,
     modelId: input.modelId,
     color: input.color,
     mascotId: input.mascotId,
     scopes,
     createdAt: input.createdAt,
+    archived: input.archived ?? existing?.archived ?? false,
   };
-  fs.writeFileSync(path.join(dir, "agent.json"), JSON.stringify(record, null, 2) + "\n", "utf8");
+  writeAgentRecord(dir, record);
   const agentsMd = path.join(dir, "AGENTS.md");
   if (!fs.existsSync(agentsMd)) {
-    fs.writeFileSync(
-      agentsMd,
-      `# ${input.name}\n\n${input.job}\n\n${input.standingInstructions}\n`,
-      "utf8",
-    );
+    fs.writeFileSync(agentsMd, `# ${name}\n\n${input.job}\n\n${input.standingInstructions}\n`, "utf8");
   }
   const notes = path.join(priv, "memory", "notes.md");
   if (!fs.existsSync(notes)) {
-    fs.writeFileSync(notes, `# Memory\n\nStanding context for ${input.name}.\n`, "utf8");
+    fs.writeFileSync(notes, `# Memory\n\nStanding context for ${name}.\n`, "utf8");
   }
-  return { agentDir: dir, privatePath: priv, scopes };
+  return { agentDir: dir, privatePath: priv, scopes, name, archived: record.archived };
+}
+
+function requireAgentDir(folders: FoldersConfig, agentName: string): string {
+  const dir = agentDir(folders, agentName);
+  let st: fs.Stats;
+  try {
+    st = fs.lstatSync(dir);
+  } catch {
+    throw new ScopeError("NOT_FOUND", `No agent folder for ${agentName} under agents/.`);
+  }
+  if (!st.isDirectory()) throw new ScopeError("NOT_FOUND", `agents/${agentSlug(agentName)} is not a folder.`);
+  assertNoSymlinkEscape(agentsDir(folders), dir);
+  return dir;
+}
+
+/** Swap the `# Old` heading for `# New` in an instructions file; other content untouched. */
+function retitleMarkdown(file: string, oldName: string, newName: string): void {
+  if (!fs.existsSync(file)) return;
+  const text = fs.readFileSync(file, "utf8");
+  const next = text.replace(/^# (.*)$/m, (line, title: string) =>
+    title.trim() === oldName ? `# ${newName}` : line,
+  );
+  if (next !== text) fs.writeFileSync(file, next, "utf8");
+}
+
+/**
+ * `agents/{Old}/` → `agents/{New}/`: the whole tree moves (agent.json,
+ * AGENTS.md, private/memory, private/output). A case-only rename goes through
+ * a temporary name so case-insensitive filesystems do it too. Refused when a
+ * different agent already owns the name (case-insensitively), when the source
+ * is missing, or when the new name is illegal. Nothing is copied or deleted.
+ */
+export function renameAgent(folders: FoldersConfig, oldName: string, newName: string): AgentPaths {
+  const next = assertAgentName(newName);
+  const src = requireAgentDir(folders, oldName);
+  const oldSlug = path.basename(src);
+  const record = readAgent(folders, oldName);
+  if (!record) throw new ScopeError("NOT_FOUND", `agents/${oldSlug} has no agent.json.`);
+  if (next === oldSlug) {
+    return { agentDir: src, privatePath: path.join(src, "private"), scopes: record.scopes, name: oldSlug, archived: record.archived };
+  }
+  const owner = agentDirOwner(folders, next);
+  if (owner && owner !== oldSlug) {
+    throw new ScopeError("EXISTS", `An agent named ${owner} already exists.`);
+  }
+  const dst = agentDir(folders, next);
+  assertNoSymlinkEscape(agentsDir(folders), dst);
+  const caseOnly = owner === oldSlug;
+  if (caseOnly) {
+    const tmp = path.join(agentsDir(folders), `.rename-${process.pid}-${Date.now()}`);
+    fs.renameSync(src, tmp);
+    try {
+      fs.renameSync(tmp, dst);
+    } catch (err) {
+      fs.renameSync(tmp, src);
+      throw err;
+    }
+  } else {
+    if (fs.existsSync(dst)) throw new ScopeError("EXISTS", `An agent named ${next} already exists.`);
+    fs.renameSync(src, dst);
+  }
+  writeAgentRecord(dst, { ...record, name: next });
+  retitleMarkdown(path.join(dst, "AGENTS.md"), record.name || oldSlug, next);
+  retitleMarkdown(path.join(dst, "private", "AGENTS.md"), record.name || oldSlug, next);
+  return { agentDir: dst, privatePath: path.join(dst, "private"), scopes: record.scopes, name: next, archived: record.archived };
+}
+
+/** `Writer copy`, then `Writer copy 2`, … — free on disk and not in `avoid`. */
+export function uniqueCopyName(folders: FoldersConfig, baseName: string, avoid: readonly string[] = []): string {
+  const taken = new Set([...listAgentDirs(folders), ...avoid].map((n) => n.toLowerCase()));
+  const base = agentSlug(baseName).replace(/ copy( \d+)?$/i, "");
+  const room = AGENT_NAME_MAX - " copy 999".length;
+  const stem = base.length > room ? base.slice(0, room).trimEnd() : base;
+  for (let i = 1; i < 1000; i++) {
+    const candidate = i === 1 ? `${stem} copy` : `${stem} copy ${i}`;
+    if (!taken.has(candidate.toLowerCase())) return candidate;
+  }
+  throw new ScopeError("EXISTS", `Too many copies of ${base}.`);
+}
+
+/**
+ * Duplicate: a new `agents/{New}/` tree with a copy of the source `private/`
+ * (memory/notes.md, output/, everything else) and the source AGENTS.md, plus a
+ * fresh agent.json. The two agents never share a folder. Refused when the
+ * target already exists on disk (case-insensitively).
+ */
+export function copyAgent(
+  folders: FoldersConfig,
+  srcName: string,
+  dstName: string,
+  now: string = new Date().toISOString(),
+): AgentPaths {
+  const next = assertAgentName(dstName);
+  const src = requireAgentDir(folders, srcName);
+  const record = readAgent(folders, srcName);
+  if (!record) throw new ScopeError("NOT_FOUND", `agents/${path.basename(src)} has no agent.json.`);
+  const owner = agentDirOwner(folders, next);
+  if (owner) throw new ScopeError("EXISTS", `An agent named ${owner} already exists.`);
+  const dst = agentDir(folders, next);
+  assertNoSymlinkEscape(agentsDir(folders), dst);
+  if (fs.existsSync(dst)) throw new ScopeError("EXISTS", `An agent named ${next} already exists.`);
+  fs.mkdirSync(dst);
+  const srcPrivate = path.join(src, "private");
+  const dstPrivate = path.join(dst, "private");
+  if (fs.existsSync(srcPrivate)) {
+    fs.cpSync(srcPrivate, dstPrivate, { recursive: true, dereference: false, errorOnExist: true, force: false });
+  }
+  fs.mkdirSync(path.join(dstPrivate, "memory"), { recursive: true });
+  fs.mkdirSync(path.join(dstPrivate, "output"), { recursive: true });
+  const srcAgentsMd = path.join(src, "AGENTS.md");
+  if (fs.existsSync(srcAgentsMd)) {
+    fs.copyFileSync(srcAgentsMd, path.join(dst, "AGENTS.md"));
+    retitleMarkdown(path.join(dst, "AGENTS.md"), record.name || path.basename(src), next);
+  }
+  // The mirrored copy names the source agent; the sidecar regenerates it before the first prompt.
+  fs.rmSync(path.join(dstPrivate, "AGENTS.md"), { force: true });
+  const notes = path.join(dstPrivate, "memory", "notes.md");
+  if (!fs.existsSync(notes)) {
+    fs.writeFileSync(notes, `# Memory\n\nStanding context for ${next}.\n`, "utf8");
+  }
+  const fresh: AgentRecord = { ...record, name: next, createdAt: now, archived: false };
+  writeAgentRecord(dst, fresh);
+  return { agentDir: dst, privatePath: dstPrivate, scopes: fresh.scopes, name: next, archived: false };
+}
+
+/** Flip `archived` in agent.json. Touches nothing else: no file is moved or removed. */
+export function setAgentArchived(folders: FoldersConfig, agentName: string, archived: boolean): AgentRecord {
+  const dir = requireAgentDir(folders, agentName);
+  const cur = readAgent(folders, agentName);
+  if (!cur) throw new ScopeError("NOT_FOUND", `agents/${path.basename(dir)} has no agent.json.`);
+  const next: AgentRecord = { ...cur, archived: Boolean(archived) };
+  writeAgentRecord(dir, next);
+  return next;
 }
 
 export function setAgentScopes(folders: FoldersConfig, agentName: string, scopes: readonly string[]): ScopeId[] {

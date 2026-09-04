@@ -20,7 +20,7 @@ import os from "node:os";
 import path from "node:path";
 import { after, before, describe, it } from "node:test";
 import { makeTempRoot, patchConfig } from "../fs/disk.ts";
-import { ensureAgent, ScopeError, setFolders } from "../fs/scopes.ts";
+import { ensureAgent, renameAgent, ScopeError, setFolders } from "../fs/scopes.ts";
 import type { FoldersConfig } from "../fs/scope-model.ts";
 import { startFixtureOpenAI, writeThenDone, type FixtureScenario, type FixtureServer } from "./fixture-openai.ts";
 import { HarnessManager, type LaunchSpec } from "./index.ts";
@@ -421,5 +421,44 @@ describe("Stage 4 — real DeepSeek Harness over ACP with a fixture /v1", () => 
     } finally {
       fs.renameSync(`${root}.off`, root);
     }
+  });
+
+  it("Stage 5: rename is refused mid-turn; afterwards the next prompt opens cwd agents/{New}/private and the old session is gone", { timeout: 60000 }, async () => {
+    // A running turn blocks forgetting the session (the server fn refuses the rename with BUSY).
+    ctx.scenario.current = () => ({ kind: "text", text: "slow", delayMs: 3000 });
+    const slow = await ctx.mgr.prompt(ctx.spec, "Writer", "Slow before rename");
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(ctx.mgr.hasActiveTurn("Writer"), true);
+    assert.throws(
+      () => ctx.mgr.forgetSession("Writer"),
+      (err: unknown) => err instanceof ScopeError && err.code === "BUSY",
+    );
+    await ctx.mgr.cancel(slow.turnId);
+    await waitTurn(ctx.mgr, slow.turnId, 15000);
+    assert.equal(ctx.mgr.hasActiveTurn("Writer"), false);
+    const oldSessionId = ctx.mgr.status().sessions.find((s) => s.agentName === "Writer")!.sessionId;
+
+    // Rename on disk, then drop the in-memory session — the order the server fn uses.
+    const moved = renameAgent(ctx.folders, "Writer", "Author");
+    assert.equal(ctx.mgr.forgetSession("Writer"), true);
+    assert.equal(ctx.mgr.status().sessions.some((s) => s.agentName === "Writer"), false);
+    const agents = path.join(ctx.folders.employeeRoot, "agents");
+    assert.equal(fs.existsSync(path.join(agents, "Writer")), false);
+
+    const session = await ctx.mgr.ensureSession(ctx.spec, "Author");
+    assert.equal(session.cwd, path.join(agents, "Author", "private"), "Harness cwd is the renamed folder");
+    assert.equal(session.resumed, false);
+    assert.notEqual(session.sessionId, oldSessionId, "not the session that pointed at agents/Writer/private");
+    assert.match(fs.readFileSync(path.join(moved.privatePath, "AGENTS.md"), "utf8"), /^# Author\n/, "mirrored instructions carry the new name");
+
+    ctx.scenario.current = writeThenDone("after-rename.md", "written under the new name");
+    const rec = await ctx.mgr.prompt(ctx.spec, "Author", "Write after rename");
+    const done = await waitTurn(ctx.mgr, rec.turnId);
+    assert.equal(done.status, "done", done.error ?? "");
+    assert.match(toolResultText(done.events), /<path>private\/after-rename\.md<\/path>/);
+    assert.equal(fs.readFileSync(path.join(moved.privatePath, "after-rename.md"), "utf8"), "written under the new name");
+    assert.equal(fs.existsSync(path.join(agents, "Writer")), false, "nothing recreated agents/Writer");
+    assert.deepEqual(ctx.mgr.status().sessions.map((s) => s.agentName), ["Author"]);
+    ctx.privateRoot = moved.privatePath;
   });
 });
