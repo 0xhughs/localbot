@@ -52,7 +52,13 @@ const B_URL = "http://127.0.0.1:8080/";
 const SCOPE = "department-shared";
 const LIST_TIMEOUT_MS = Number(process.env.LOCALBOT_SHARE_TIMEOUT_MS || 30000);
 
-if (process.platform === "linux" && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY && !process.env.LOCALBOT_PROVE_XVFB) {
+function displayUsable() {
+  if (process.env.WAYLAND_DISPLAY) return true;
+  const m = /^:(\d+)/.exec(process.env.DISPLAY ?? "");
+  return Boolean(m) && fs.existsSync(`/tmp/.X11-unix/X${m[1]}`);
+}
+const xauthority = process.env.XAUTHORITY || path.join(os.homedir(), ".Xauthority");
+if (process.platform === "linux" && (!displayUsable() || flag("--xvfb")) && !process.env.LOCALBOT_PROVE_XVFB) {
   log("no DISPLAY — re-running under xvfb-run -a");
   const r = spawnSync("xvfb-run", ["-a", "-s", "-screen 0 1400x900x24", process.execPath, ...process.execArgv, ...process.argv.slice(1)], {
     stdio: "inherit",
@@ -75,6 +81,17 @@ async function up(url, ms) {
     await new Promise((r) => setTimeout(r, 400));
   }
   return false;
+}
+
+function killTree(pid) {
+  if (!pid) return;
+  const kids = spawnSync("pgrep", ["-P", String(pid)], { encoding: "utf8" }).stdout.split(/\s+/).filter(Boolean).map(Number);
+  for (const k of kids) killTree(k);
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch {
+    /* gone */
+  }
 }
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lb-share-"));
@@ -156,13 +173,16 @@ if (aUrl) {
     env: {
       ...process.env,
       HOME: homeA,
+      XAUTHORITY: process.env.XAUTHORITY || (fs.existsSync(xauthority) ? xauthority : ""),
       XDG_CONFIG_HOME: path.join(homeA, ".config"),
       XDG_DATA_HOME: path.join(homeA, ".local/share"),
       XDG_CACHE_HOME: path.join(homeA, ".cache"),
     },
     timeout: 90000,
   });
-  cleanup.push(() => electronApp?.process().kill("SIGKILL"));
+  const aPid = electronApp.process().pid;
+  // Electron's before-quit kills its sidecar on a normal close; a hard kill would orphan it, so sweep the tree too.
+  cleanup.push(() => killTree(aPid));
   pageA = await electronApp.firstWindow({ timeout: 90000 });
   if (!(await up(A_URL, 60000))) fail("packaged sidecar never answered on " + A_URL);
 }
@@ -207,7 +227,8 @@ async function openRoster(page, who) {
   await page.getByText("Writer", { exact: true }).first().waitFor({ timeout: 60000 });
   await page.getByText("Writer", { exact: true }).first().click();
   await page.getByPlaceholder(/Message Writer/).waitFor({ timeout: 30000 });
-  const computer = page.getByRole("button", { name: "Computer", exact: true });
+  // Chat header on md+ ("Show computer"); the narrow top bar on small screens ("Computer").
+  const computer = page.locator('button[aria-label="Show computer"]:visible, button[aria-label="Computer"]:visible');
   const section = page.locator(`[data-scope="${SCOPE}"]`);
   if (!(await section.count())) await computer.first().click();
   await section.waitFor({ timeout: 30000 });

@@ -47,7 +47,7 @@ export function seedLocalBotData({ dataDir, folders, agents = [], labels = {}, i
     fs.mkdirSync(path.join(dir, "private", "output"), { recursive: true });
     const record = {
       name: a.name,
-      job: a.job ?? `${a.name} for the two-process share test`,
+      job: a.job ?? `${a.name} (seeded for a Stage 8 proof run)`,
       modelId: "",
       color: a.color ?? "#7c9cff",
       mascotId: a.mascotId ?? "writer",
