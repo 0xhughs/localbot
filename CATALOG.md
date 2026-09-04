@@ -44,3 +44,17 @@ All HEAD as 200 / 302-to-CDN. They stay in the catalog and grey out when server 
 Runtimes unpack to `bin/{target}/{runtime}/`. Execution on a GPU host is UNVERIFIED in this repo.
 
 On-disk path: `{cwd}/data/LocalBot/models/{filename}`.
+
+## whisper.cpp (Stage 9 hold-to-talk STT)
+
+`catalog/whisper-assets.json`, release **v1.9.2** (2026-08-04; v1.9.3 is a pre-release). Every sha256 below was computed from a real download on 2026-09-04 — nothing is etag-only:
+
+| row | file | bytes | sha256 |
+|---|---|---|---|
+| `linux-x64` | `whisper-bin-ubuntu-x64.tar.gz` → `whisper-cli` | 9,497,583 | `46811a3ecf584307480a220b9ef5ff81b7b22dc41577cbc274ce3afc61f753b1` |
+| `win32-x64` | `whisper-bin-x64.zip` → `Release/whisper-cli.exe` | 8,194,445 | `49dcc16de826f20bd53d44f947a1ae49dfa81f86cad67a64d80820cb192d674a` (UNVERIFIED — never run here) |
+| model `base.en` (default) | `ggml-base.en.bin` | 147,964,211 | `a03779c86df3323075f5e796cb2ce5029f00ec8869eee3fdfb897afe36c6d002` |
+| model `tiny.en` (low RAM; pinned, not in the UI) | `ggml-tiny.en.bin` | 77,704,715 | `921e4cf8686fdd993dcd081a5da5b6c365bfde1162e72b08d75ac75289920b1f` |
+| fixture | `samples/jfk.wav` @ v1.9.2 | 352,078 | `59dfb9a4acb36fe2a2affc14bacbee2920ff435cb13cc314a08c13f66ba7860e` |
+
+No darwin row: v1.9.2 ships `whisper-v1.9.2-xcframework.zip`, a library, not a CLI — macOS is **NOT BUILT** and no URL is invented. No GPU / cuBLAS / BLAS rows; `whisper-server` is in the archives but is deleted on unpack and never run. The runtime unpacks flat into `bin/{target}/whisper/` (its own folder — whisper and llama.cpp each ship a `libggml`); the model goes to `models/whisper/` and is gated by size + ggml magic (`lmgg`) + sha256, never by `verifyGgufFile`. The catalog feeds `src/lib/runtime/stt.ts`; `npm run prove:stt` downloads, verifies and transcribes the fixture.

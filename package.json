@@ -21,7 +21,8 @@
     "preview:stop": "node scripts/preview.mjs stop",
     "typecheck": "tsc --noEmit",
     "check:auth": "node scripts/check-auth-invariant.mjs",
-    "test": "node --test 'scripts/**/*.test.mjs' && node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/auth/gate-identity.test.ts src/lib/localbot.test.ts src/lib/fs/scopes.test.ts src/lib/fs/watch.test.ts src/lib/fs/agents.test.ts src/lib/fs/host-index.test.ts src/lib/runtime/model-platform.test.ts src/lib/desktop-packaging.test.ts src/lib/harness/harness.test.ts",
+    "test": "node --test 'scripts/**/*.test.mjs' && node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/auth/gate-identity.test.ts src/lib/localbot.test.ts src/lib/fs/scopes.test.ts src/lib/fs/watch.test.ts src/lib/fs/agents.test.ts src/lib/fs/host-index.test.ts src/lib/runtime/model-platform.test.ts src/lib/desktop-packaging.test.ts src/lib/harness/harness.test.ts src/lib/runtime/stt.test.ts",
+    "prove:stt": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/prove-stt.mjs",
     "prove:packaged": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/prove-packaged.mjs",
     "prove:two-process": "node scripts/two-process-share.mjs",
     "prove:packaged-chat": "node scripts/prove-packaged-chat.mjs",
@@ -160,7 +161,10 @@
       "identity": null,
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
-      "category": "public.app-category.productivity"
+      "category": "public.app-category.productivity",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "LocalBot uses the microphone for hold-to-talk voice input. Audio is transcribed on this computer with whisper.cpp and never leaves it."
+      }
     },
     "dmg": {
       "sign": false

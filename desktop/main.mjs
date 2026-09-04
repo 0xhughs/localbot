@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, ipcMain, shell, dialog } from "electron";
+import { app, BrowserWindow, Menu, ipcMain, shell, dialog, session } from "electron";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -10,6 +10,8 @@ import {
   SIDECAR_PORT,
   SIDECAR_URL,
   isPackagedMode,
+  mediaPermissionDecision,
+  normalizeOrigin,
   packagedHarnessEnv,
   resolveUiLoad,
   sidecarScriptPath,
@@ -205,7 +207,26 @@ function buildMenu(win) {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
+// Stage 9: the renderer may open the microphone (audio only) and only when
+// the page is our own UI — the sidecar origin when packaged, the Vite dev URL
+// otherwise. Everything else that asks for media is refused. Audio never
+// leaves the machine: the renderer posts the WAV to the sidecar on loopback.
+function installPermissionHandlers(uiUrl) {
+  // Packaged: uiUrl is SIDECAR_URL (http://127.0.0.1:18790). Dev: the Vite URL (http://127.0.0.1:8080).
+  const allowedOrigins = [normalizeOrigin(packaged() ? SIDECAR_URL : uiUrl)].filter(Boolean);
+  const ses = session.defaultSession;
+  ses.setPermissionRequestHandler((webContents, permission, callback, details) => {
+    const requestingOrigin = details?.requestingUrl || webContents?.getURL?.() || null;
+    callback(mediaPermissionDecision({ permission, requestingOrigin, allowedOrigins, details }));
+  });
+  ses.setPermissionCheckHandler((_webContents, permission, requestingOrigin, details) => {
+    return mediaPermissionDecision({ permission, requestingOrigin, allowedOrigins, details });
+  });
+  return allowedOrigins;
+}
+
 async function createWindow(uiUrl) {
+  installPermissionHandlers(uiUrl);
   const win = new BrowserWindow({
     width: 1280,
     height: 820,

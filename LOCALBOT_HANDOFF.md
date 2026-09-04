@@ -1,5 +1,22 @@
 # LOCALBOT_HANDOFF.md
 
+## Update after Stage 9 — Voice-to-text with whisper.cpp (hold-to-talk)
+2026-09-04 · branch `stage-9-whisper-stt` (PR → `main`, off `3d45a7a`) · beyond AGENTS.md items 1–8, requested after them
+
+**What actually WORKS now**
+- **Hold-to-talk local STT.** A Mic button next to Attach in the chat composer. Hold (pointer or Space) → the renderer captures 16 kHz mono PCM16 through Web Audio and builds the WAV itself (no MediaRecorder, no ffmpeg) → release → `sttTranscribe` on the sidecar runs **one-shot** `whisper-cli -m … -f … -l en -nt -np` on this computer → the text is appended to the composer. The employee presses Enter; the existing `send()` → `runAgentTurn` path is the only way a message goes out. Header shows **Listening** / **Transcribing** in the slot **Working** uses. Disabled while a turn runs, when `mediaDevices` is missing, and on hosts without a pinned `whisper-cli`.
+- **Catalog.** `catalog/whisper-assets.json` pins `ggml-org/whisper.cpp` **v1.9.2**: `whisper-bin-ubuntu-x64.tar.gz` (9,497,583 B, sha256 `46811a3e…f753b1`), `whisper-bin-x64.zip` (8,194,445 B, `49dcc16d…d674a`), model `ggml-base.en.bin` (147,964,211 B, `a03779c8…d002`, default) and `ggml-tiny.en.bin` (77,704,715 B, `921e4cf8…20b1f`), fixture `jfk.wav` (`59dfb9a4…860e`). Every hash from a real download on this host. No darwin row — upstream ships an xcframework, not a CLI (**NOT BUILT** on macOS; Mic disabled with that tooltip). No GPU / BLAS / `whisper-server` rows.
+- **Sidecar contract.** Refuses anything but RIFF/WAVE PCM16 mono 16 kHz ≤ 60 s / 2 MiB before touching disk. Clip at `{dataDir}/stt/{uuid}.wav`, refused if that dir is under any scope root, deleted in `finally` (success, non-zero exit, or the 60 s `SIGKILL`). Runtime unpacked flat into `{dataDir}/bin/{target}/whisper/` — its own folder beside, never inside, the llama.cpp `bin/{target}/{runtime}/` trees (both ship a libggml); `assertWhisperExe` refuses to spawn from a llama dir. Model in `{modelsDir}/whisper/`, gated by size + ggml magic + sha256 (never `verifyGgufFile`). `LD_LIBRARY_PATH` = the whisper dir. One job at a time. Transcript never logged. No dsh.
+- **Electron.** `setPermissionRequestHandler` + `setPermissionCheckHandler` grant `media` **audio-only** to the UI origin (`http://127.0.0.1:18790` packaged, `http://127.0.0.1:8080` dev) and deny media to every other origin — tighter than the previous no-handler default. `build.mac.extendInfo.NSMicrophoneUsageDescription` set.
+- `npm run lint`, `npm run typecheck`, `npm test` (203 + 205) exit 0. New: `src/lib/runtime/stt.test.ts` (26), script `prove:stt`. `npm run prove:stt` on this host: `STAGE9_STT_PASS text="And so my fellow Americans, ask not what your country can do for you, ask what you can do for your country." ms=832 model=base.en release=v1.9.2`. In the dev app, Chromium's fake capture device playing `jfk.wav` filled the composer with that sentence in 1022 ms with zero messages sent (recorded).
+
+**Still NOT BUILT / UNVERIFIED**
+- macOS `whisper-cli`: **NOT BUILT** (no upstream asset). Real microphone on this VM and the Electron window's mic prompt: **UNVERIFIED** (fake device + code-tested permission decision). Windows `whisper-cli.exe`: pinned + hashed, never run — **UNVERIFIED**. `tiny.en` in the UI, model picker, streaming partials, auto-send, multilingual, diarization, `whisper-server`, GPU whisper: **NOT BUILT** (out of scope). Everything carried from Stage 8 below is unchanged.
+
+See `STAGE_HANDOFF.md` for the exact prove-it command, pass output, and in-app test steps.
+
+---
+
 ## Update after Stage 8 — Installers + two-process share
 2026-09-04 · branch `stage-8-installers-nas` (PR → `main`, off `58abaed`) · AGENTS.md item 8, the last item
 

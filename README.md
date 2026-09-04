@@ -21,7 +21,7 @@ npm run build:desktop
 # checksums: dist/desktop/SHA256SUMS.txt
 ```
 
-`npm run desktop` is the developer window (it may start the Vite UI). `npm run build:desktop` is the employee build: Electron starts a bundled Node sidecar on loopback and loads that UI. It does not run `npm run dev`. Proof scripts: `npm run prove:packaged` (installer targets, bundled Node, dsh starts with node removed from PATH, packaged launch), `npm run prove:two-process` (two processes, one host, one shared folder), `npm run prove:packaged-chat -- --gguf <file>` (a real turn inside the packaged app). See `STAGE_HANDOFF.md`.
+`npm run desktop` is the developer window (it may start the Vite UI). `npm run build:desktop` is the employee build: Electron starts a bundled Node sidecar on loopback and loads that UI. It does not run `npm run dev`. Proof scripts: `npm run prove:packaged` (installer targets, bundled Node, dsh starts with node removed from PATH, packaged launch), `npm run prove:two-process` (two processes, one host, one shared folder), `npm run prove:packaged-chat -- --gguf <file>` (a real turn inside the packaged app), `npm run prove:stt` (Stage 9: whisper-cli transcribes the pinned `jfk.wav` through the real sidecar path). See `STAGE_HANDOFF.md`.
 
 Also keep the browser preview:
 
@@ -55,6 +55,9 @@ Installing / uninstalling touches only the app and `{appData}/LocalBot`. The fol
 ```
 {cwd}/data/LocalBot/models/{filename}     # GGUF weights
 {cwd}/data/LocalBot/bin/{target}/{runtime}/  # llama.cpp (cpu / vulkan / cuda-12.4 / metal)
+{cwd}/data/LocalBot/bin/{target}/whisper/    # Stage 9 whisper-cli + its libs (its own folder, never inside a llama runtime dir)
+{cwd}/data/models/whisper/ggml-base.en.bin   # Stage 9 whisper model (size + ggml magic + sha256 gated)
+{cwd}/data/stt/                              # Stage 9 voice clips, {uuid}.wav, deleted right after whisper-cli runs
 {cwd}/data/localbot-config.json           # version 2: folders { employeeRoot, employeeShared, departmentShared, companyShared }, model + Safety switches
 {cwd}/data/localbot-agents.json           # Stage 7 host index: onboarded, labels, per-agent id / pinned / hidden / unread / ACP sessionId
 {cwd}/data/chats/{agentId}.json           # Stage 7 chat transcripts (never under a work folder)
@@ -70,6 +73,9 @@ Installing / uninstalling touches only the app and `{appData}/LocalBot`. The fol
 {appData}/LocalBot/chats/
 {appData}/LocalBot/models/
 {appData}/LocalBot/bin/{target}/{runtime}/
+{appData}/LocalBot/bin/{target}/whisper/
+{appData}/LocalBot/models/whisper/
+{appData}/LocalBot/stt/                   # transient voice clips
 {documents}/LocalBot/{CompanyName}/       # only if you chose "Create my folders"
 ```
 
@@ -82,6 +88,8 @@ Agent menu (sidebar `…`): **Pin**, **Rename** (moves `agents/{Old}/` → `agen
 llama.cpp b10749 builds are pinned per (target, runtime): **macOS arm64** (Metal), **macOS x64** (CPU only — no GPU asset), **Windows x64** (CPU / CUDA 12.4 / Vulkan), **Linux x64** (CPU / Vulkan). The sidecar probes the GPU (`nvidia-smi`, `/dev/dri`, Vulkan ICDs, WMI, arch) and picks the build; `--n-gpu-layers` is 0 on a CPU build and > 0 only on a GPU build. Settings → Models shows the probe and lets you pin a build. GPU execution is UNVERIFIED in this repo (CPU-only host).
 
 Every GGUF is verified (size, GGUF magic, sha256 from the catalog) before it can be loaded; a mismatch is refused. Each agent picks its own file (Settings → Agents, New agent); one llama-server restarts onto the selected agent's file after a health check. **Use existing Ollama** (Settings → Safety) lists the tags on `127.0.0.1:11434` and routes the Harness at the one you pick; if nothing answers, chat is refused with that error — it never falls back to a hosted model.
+
+**Hold to talk** (Stage 9): the Mic next to Attach records while held and, on release, transcribes on this computer with whisper.cpp v1.9.2 (`whisper-cli`, one shot, `ggml-base.en.bin`, English) — first use downloads and sha256-verifies both into the data dir. The text lands in the composer; you press Enter. Audio never leaves the machine and there is no cloud fallback. Linux x64 and Windows x64 are pinned (Windows UNVERIFIED — never run here); macOS is NOT BUILT (upstream ships no CLI), so the Mic is disabled there with the reason in its tooltip. `npm run prove:stt` runs the whole sidecar path on whisper.cpp's `jfk.wav`.
 
 Two people share work only if they point at the **same real folder**. Files another person or program drops into a connected folder show up in the Computer pane on their own (the sidecar watches each folder; on network shares it polls metadata). **Refresh** re-lists everything now. A share that goes away shows **Disconnected** on that section; LocalBot does not switch to a local copy. In the desktop app, **reveal** opens the folder in Finder / Explorer.
 

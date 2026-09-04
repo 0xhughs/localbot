@@ -8,6 +8,7 @@ import {
   Globe,
   FileSearch,
   Ban,
+  Mic,
 } from "lucide-react";
 import { useLocalBot, resolveBot } from "@/lib/store";
 import {
@@ -22,6 +23,8 @@ import { modelStatusForAgent } from "@/lib/runtime/model-server";
 import { Button } from "@/components/ui/button";
 import { AgentAvatar } from "./avatar";
 import { ChatMarkdown } from "./markdown";
+import { appendTranscript } from "@/lib/audio/voice-text";
+import { useVoiceInput } from "./use-voice-input";
 
 type AgentModelStatus = Awaited<ReturnType<typeof modelStatusForAgent>>;
 
@@ -102,6 +105,16 @@ export function ChatPane() {
       stale = true;
     };
   }, [botName, botModelId, turnRunning, settingsOpen, setRuntime]);
+
+  // Stage 9: hold-to-talk. The transcript lands in the composer; the employee
+  // presses Enter. Nothing here sends — send() below stays the only path.
+  const voice = useVoiceInput({
+    enabled: !turnRunning,
+    onText: (text) => {
+      const cur = useLocalBot.getState().ui.composer;
+      useLocalBot.getState().setUi({ composer: appendTranscript(cur, text) });
+    },
+  });
 
   if (!bot) {
     return (
@@ -225,11 +238,15 @@ export function ChatPane() {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h1 className="truncate text-sm font-medium">{bot.name}</h1>
-            {running && (
+            {running ? (
               <span className="shimmer-text font-mono text-[10px] tracking-wider uppercase">
                 {switching ? "Switching model" : "Working"}
               </span>
-            )}
+            ) : voice.state !== "idle" ? (
+              <span data-testid="voice-state" className="shimmer-text font-mono text-[10px] tracking-wider uppercase">
+                {voice.state === "listening" ? "Listening" : "Transcribing"}
+              </span>
+            ) : null}
           </div>
           <p className="truncate text-[11px] text-muted">
             {bot.job}
@@ -342,6 +359,41 @@ export function ChatPane() {
               >
                 <Paperclip className="size-4" />
               </Button>
+              <Button
+                variant={voice.state === "listening" ? "danger" : "ghost"}
+                size="icon-sm"
+                aria-label="Hold to talk"
+                aria-pressed={voice.state === "listening"}
+                data-testid="mic-button"
+                data-voice-state={voice.state}
+                title={voice.disabledReason ?? "Hold to talk (release to transcribe on this computer)"}
+                disabled={Boolean(voice.disabledReason)}
+                onPointerDown={(e) => {
+                  if (e.button !== 0) return;
+                  e.currentTarget.setPointerCapture(e.pointerId);
+                  voice.start();
+                }}
+                onPointerUp={() => voice.stop()}
+                onPointerCancel={() => voice.cancel()}
+                onLostPointerCapture={() => {
+                  if (voice.state === "listening") voice.stop();
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === " " && !e.repeat) {
+                    e.preventDefault();
+                    voice.start();
+                  }
+                }}
+                onKeyUp={(e) => {
+                  if (e.key === " ") {
+                    e.preventDefault();
+                    voice.stop();
+                  }
+                }}
+                onContextMenu={(e) => e.preventDefault()}
+              >
+                <Mic className="size-4" />
+              </Button>
               <MentionHint />
             </div>
             <Button
@@ -354,9 +406,13 @@ export function ChatPane() {
           </div>
         </div>
         <p className="mx-auto mt-2 max-w-2xl font-mono text-[10px] text-subtle">
-          {ctx
-            ? `private · ${bot.privatePath || "agents/" + bot.name + "/private"}`
-            : "private"}
+          {voice.note ? (
+            <span data-testid="voice-note">Voice · {voice.note}</span>
+          ) : ctx ? (
+            `private · ${bot.privatePath || "agents/" + bot.name + "/private"}`
+          ) : (
+            "private"
+          )}
         </p>
       </div>
     </section>
