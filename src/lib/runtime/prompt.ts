@@ -72,7 +72,7 @@ Rules:
 
 export function rosterBlurb(s: AppSnapshot): string {
   return s.bots
-    .filter((b) => !b.hidden)
+    .filter((b) => !b.hidden && !b.archived)
     .map((b) => `@${b.name} — ${b.job}`)
     .join("\n");
 }

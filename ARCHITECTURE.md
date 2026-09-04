@@ -23,6 +23,7 @@ The agent loop — model requests, tool ordering, tool results back to the model
 - `dsh/localbot-acp.cordis.yml` declares the single provider route `localbot-llama` (`api: openai-completions`, `http://127.0.0.1:18789/v1`, placeholder key-shaped value, no credential), disables the hosted DeepSeek route, telemetry, web search/fetch and subagent tooling, trims goal/todo/plan/skill/job tools so a small GGUF's context fits, and sets the bash sandbox to `read-only` so any shell side effect must escalate through an ACP permission request.
 - `dsh/localbot-fs.mjs` is LocalBot's `ctx.fs` provider inside the Harness process. It extends the official `fs-local` mechanics but owns path → target: every path becomes `{ scope, relPath, agentName }` and goes through `resolveForAgent` → `resolveScopePath`. The ACP session `cwd` (`agents/{Name}/private`) only identifies the agent. Tool results show `private/hello.md`, never a host path.
 - Session ids are in memory (one per agent, per sidecar process). Durable roster / chats are AGENTS.md item 7.
+- Rename / archive (Stage 5) call `HarnessManager.forgetSession(agentName)` after the sidecar has moved the folder or flipped `agent.json`; the next prompt runs `session/new` with the agent's current `agents/{Name}/private`. Both are refused with `BUSY` while that agent has a running turn, so no session is ever left pointed at a folder that moved.
 - Node: dsh at this pin needs Node ≥ 22.15 (`node:zlib` zstd). The sidecar launches it with `LOCALBOT_DSH_NODE`, its own Node if new enough, or a newer nvm Node, and otherwise refuses with the exact reason. There is no fallback loop. Electron 36 embeds Node 22.14, so packaged mode is a Stage 8 item.
 
 Ollama is not required.
@@ -46,6 +47,8 @@ With **Allow hosted demo** on, the Harness path refuses (`HOSTED_DEMO_REFUSAL`) 
 Ollama: with **Use existing Ollama** on and `127.0.0.1:11434` answering, the route points there (`llama3.2`). Still loopback, still not the default.
 
 ## 3. Files
+
+Agent lifecycle (Stage 5) is sidecar-first: `agentRename` → `renameAgent` moves `agents/{Old}/` → `agents/{New}/`; `agentDuplicate` → `copyAgent` copies `private/` + `AGENTS.md` into a new folder; `agentSetArchived` flips `archived` in `agent.json`; `agentRemove` (Delete) is the only destructive path. The store updates its roster only after the sidecar succeeds. Names are cleaned with `agentSlug` in the browser and refused by `assertAgentName` on the sidecar; collisions are checked on disk, case-insensitively. See `FOLDER_CONTRACT.md` → *Agent lifecycle*.
 
 The Computer pane and agent tools send `{ scope, relPath, agentName }` to server functions in `src/lib/fs/server.ts`; inside the Harness process the `ctx.fs` provider (`dsh/localbot-fs.mjs`) builds the same triple from the session cwd and the model's path. Both end in `src/lib/fs/scopes.ts`, which resolves the scope from `localbot-config.json` (`folders.employeeRoot` / `employeeShared` / `departmentShared` / `companyShared`), refuses `..`, absolute / drive / UNC paths, unset scopes and symlink escapes (realpath), checks the agent's `agent.json` scope grant, then calls the disk primitives in `src/lib/fs/disk.ts`. The browser never supplies a root. See `FOLDER_CONTRACT.md`.
 

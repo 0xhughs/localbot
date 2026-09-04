@@ -5,7 +5,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { readAgent, readAgentStanding, requireFolders, resolveScopePath } from "../fs/scopes.ts";
+import { readAgent, readAgentStanding, requireFolders, resolveScopePath, ScopeError } from "../fs/scopes.ts";
 import { HarnessProcess, type HarnessLaunchOptions } from "./process.ts";
 import { TurnRegistry, type TurnEvent, type TurnRecord } from "./turns.ts";
 
@@ -114,6 +114,25 @@ export class HarnessManager {
     const res = await proc.newSession(cwd);
     this.sessions.set(agentName, res.sessionId);
     return { sessionId: res.sessionId, cwd, resumed: false };
+  }
+
+  /** True while this agent's ACP session has a running turn. */
+  hasActiveTurn(agentName: string): boolean {
+    const sessionId = this.sessions.get(agentName);
+    return sessionId ? Boolean(this.turns.activeForSession(sessionId)) : false;
+  }
+
+  /**
+   * Drop the in-memory session for an agent (rename / archive). The next
+   * prompt runs session/new with the agent's current `agents/{Name}/private`
+   * cwd; nothing is left pointed at the old folder. Refused with `BUSY`
+   * while a turn is running.
+   */
+  forgetSession(agentName: string): boolean {
+    if (this.hasActiveTurn(agentName)) {
+      throw new ScopeError("BUSY", `${agentName} is still working on a message. Stop it first.`);
+    }
+    return this.sessions.delete(agentName);
   }
 
   /** Start a turn: ACP session/prompt runs in the background; poll for events. */

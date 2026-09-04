@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocalBot } from "@/lib/store";
+import { isActiveBot } from "@/lib/types";
 
 export function CommandPalette() {
   const open = useLocalBot((s) => s.ui.commandOpen);
   const setUi = useLocalBot((s) => s.setUi);
   const allBots = useLocalBot((s) => s.bots);
-  const bots = allBots.filter((b) => !b.hidden);
+  const bots = allBots.filter(isActiveBot);
   const selectBot = useLocalBot((s) => s.selectBot);
   const [q, setQ] = useState("");
 

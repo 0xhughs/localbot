@@ -123,17 +123,25 @@ export type Bot = {
   privatePath: string;
   standingInstructions: string;
   pinned: boolean;
+  /** Local UI filter only (this browser). Not archive. */
   hidden: boolean;
+  /** Mirrors `archived` in agents/{Name}/agent.json. Files stay on disk. */
+  archived: boolean;
   unread: number;
   createdAt: string;
 };
+
+/** Roster rows the default UI shows: not hidden here, not archived on disk. */
+export function isActiveBot(bot: Pick<Bot, "hidden" | "archived">): boolean {
+  return !bot.hidden && !bot.archived;
+}
 
 /**
  * Pre-Stage-2 single-root tree shape. Used by the legacy tree helpers
  * (`fs/company.ts`, `fs/company-disk.ts`, `permissions.ts` grant classifier)
  * and their disk-grant tests. The live app uses `Bot.scopes`.
  */
-export type LegacyBot = Omit<Bot, "scopes" | "privatePath"> & {
+export type LegacyBot = Omit<Bot, "scopes" | "privatePath" | "archived"> & {
   path: string;
   workspacePath: string;
   outputPath: string;

@@ -14,12 +14,16 @@ import {
   type DiskShellResult as ShellResult,
 } from "./disk.ts";
 import {
+  copyAgent,
   ensureAgent,
   readAgent,
   readAgentStanding,
   removeAgent,
+  renameAgent,
   requireFolders,
   ScopeError,
+  setAgentArchived,
+  uniqueCopyName,
   scopedDelete,
   scopedList,
   scopedMkdir,
@@ -33,6 +37,7 @@ import {
   setFolders,
   validateFolder,
   resolveScopePath,
+  type AgentPaths,
   type EnsureAgentInput,
   type ScopedTarget,
 } from "./scopes.ts";
@@ -86,20 +91,72 @@ export const foldersSet = createServerFn({ method: "POST" })
 
 /* ---------- agents ---------- */
 
+type AgentOk = { ok: true } & AgentPaths;
+
 export const agentEnsure = createServerFn({ method: "POST" })
   .validator((input: EnsureAgentInput) => input)
-  .handler(
-    async ({
-      data,
-    }): Promise<{ ok: true; privatePath: string; agentDir: string; scopes: ScopeId[] } | Fail> => {
-      try {
-        const r = ensureAgent(requireFolders(), data);
-        return { ok: true, ...r };
-      } catch (err) {
-        return fail(err);
+  .handler(async ({ data }): Promise<AgentOk | Fail> => {
+    try {
+      const r = ensureAgent(requireFolders(), data);
+      return { ok: true, ...r };
+    } catch (err) {
+      return fail(err);
+    }
+  });
+
+/**
+ * Rename moves `agents/{Old}/` → `agents/{New}/` (private / memory / output
+ * come along) and drops the agent's in-memory ACP session so the next prompt
+ * opens `agents/{New}/private`. Refused while a Harness turn is running.
+ */
+export const agentRename = createServerFn({ method: "POST" })
+  .validator((input: { agentName: string; newName: string }) => input)
+  .handler(async ({ data }): Promise<AgentOk | Fail> => {
+    try {
+      const { getHarnessManager } = await import("../harness/index.ts");
+      const harness = getHarnessManager();
+      if (harness.hasActiveTurn(data.agentName)) {
+        throw new ScopeError("BUSY", `${data.agentName} is still working on a message. Stop it first.`);
       }
-    },
-  );
+      const r = renameAgent(requireFolders(), data.agentName, data.newName);
+      harness.forgetSession(data.agentName);
+      return { ok: true, ...r };
+    } catch (err) {
+      return fail(err);
+    }
+  });
+
+/** Duplicate copies the source `private/` tree and AGENTS.md into a new agent folder. */
+export const agentDuplicate = createServerFn({ method: "POST" })
+  .validator((input: { agentName: string; newName?: string; avoid?: string[] }) => input)
+  .handler(async ({ data }): Promise<AgentOk | Fail> => {
+    try {
+      const folders = requireFolders();
+      const name = data.newName?.trim() || uniqueCopyName(folders, data.agentName, data.avoid ?? []);
+      const r = copyAgent(folders, data.agentName, name);
+      return { ok: true, ...r };
+    } catch (err) {
+      return fail(err);
+    }
+  });
+
+/** Archive / unarchive: only the `archived` flag in agent.json changes. Files stay. */
+export const agentSetArchived = createServerFn({ method: "POST" })
+  .validator((input: { agentName: string; archived: boolean }) => input)
+  .handler(async ({ data }): Promise<{ ok: true; archived: boolean } | Fail> => {
+    try {
+      const { getHarnessManager } = await import("../harness/index.ts");
+      const harness = getHarnessManager();
+      if (data.archived && harness.hasActiveTurn(data.agentName)) {
+        throw new ScopeError("BUSY", `${data.agentName} is still working on a message. Stop it first.`);
+      }
+      const rec = setAgentArchived(requireFolders(), data.agentName, data.archived);
+      if (data.archived) harness.forgetSession(data.agentName);
+      return { ok: true, archived: rec.archived };
+    } catch (err) {
+      return fail(err);
+    }
+  });
 
 export const agentSetScopes = createServerFn({ method: "POST" })
   .validator((input: { agentName: string; scopes: string[] }) => input)
@@ -116,7 +173,9 @@ export const agentInfo = createServerFn({ method: "POST" })
   .handler(
     async ({
       data,
-    }): Promise<{ ok: true; standing: string | null; scopes: ScopeId[]; exists: boolean } | Fail> => {
+    }): Promise<
+      { ok: true; standing: string | null; scopes: ScopeId[]; exists: boolean; archived: boolean } | Fail
+    > => {
       try {
         const folders = requireFolders();
         const rec = readAgent(folders, data.agentName);
@@ -125,6 +184,7 @@ export const agentInfo = createServerFn({ method: "POST" })
           exists: Boolean(rec),
           standing: readAgentStanding(folders, data.agentName),
           scopes: rec?.scopes ?? ["private"],
+          archived: rec?.archived ?? false,
         };
       } catch (err) {
         return fail(err);

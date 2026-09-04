@@ -102,7 +102,11 @@ export function handoffScope(
   return null;
 }
 
-/** Filesystem-safe agent folder name. Mirrors slugName in disk.ts. */
+/**
+ * Filesystem-safe agent folder name. The one cleaner for agent names in the
+ * browser store and on the sidecar (`assertAgentName` in scopes.ts rejects
+ * anything this would change).
+ */
 export function agentSlug(name: string): string {
   const s = name
     .trim()

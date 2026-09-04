@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { CATALOG_PIN } from "./catalog";
 import {
+  agentDuplicate,
   agentEnsure,
   agentFsDelete,
   agentFsRead,
@@ -10,11 +11,14 @@ import {
   agentFsTree,
   agentFsWrite,
   agentRemove,
+  agentRename,
+  agentSetArchived,
   agentSetScopes,
   foldersGet,
   foldersSet,
 } from "./fs/server";
 import {
+  agentSlug,
   displayPath,
   handoffScope,
   parseScopedPath,
@@ -23,20 +27,21 @@ import {
   type ScopeId,
 } from "./fs/scope-model";
 import { mascotIdForTemplate, isMascotId, type MascotId } from "./mascots";
-import type {
-  AgentColorId,
-  AppSnapshot,
-  Bot,
-  ChatMessage,
-  Company,
-  Department,
-  Employee,
-  FolderGrant,
-  HardwareReport,
-  Session,
-  Settings,
-  UiState,
-  RuntimeStatus,
+import {
+  isActiveBot,
+  type AgentColorId,
+  type AppSnapshot,
+  type Bot,
+  type ChatMessage,
+  type Company,
+  type Department,
+  type Employee,
+  type FolderGrant,
+  type HardwareReport,
+  type Session,
+  type Settings,
+  type UiState,
+  type RuntimeStatus,
 } from "./types";
 import { nowIso, uid } from "./utils";
 
@@ -145,10 +150,15 @@ type Actions = {
     modelId: string;
     scopes?: ScopeId[];
   }) => Promise<Bot>;
-  renameBot: (id: string, name: string) => void;
+  /** Sidecar first: moves agents/{Old}/ → agents/{New}/, then the roster label. */
+  renameBot: (id: string, name: string) => Promise<Result>;
   updateBot: (id: string, patch: Partial<Bot>) => void;
-  duplicateBot: (id: string) => Promise<Bot | null>;
+  /** Sidecar copies private/ + AGENTS.md into a new agents/{Name copy}/ tree. */
+  duplicateBot: (id: string) => Promise<{ ok: true; bot: Bot } | { ok: false; error: string }>;
+  /** Local UI filter only. Not archive. */
   hideBot: (id: string, hidden: boolean) => void;
+  /** Persists `archived` in agent.json. Files stay; agentRemove is never called. */
+  archiveBot: (id: string, archived: boolean) => Promise<Result>;
   pinBot: (id: string, pinned: boolean) => void;
   deleteBot: (id: string) => Promise<void>;
   setBotScopes: (id: string, scopes: ScopeId[]) => Promise<Result>;
@@ -211,11 +221,6 @@ function sessionOf(botId: string): Session {
   };
 }
 
-function slugName(name: string): string {
-  const s = name.trim().replace(/[\\/:*?"<>|]/g, "").replace(/\s+/g, " ");
-  return s || "Untitled";
-}
-
 const memoryStorage = {
   getItem: (k: string) =>
     typeof localStorage === "undefined" ? null : localStorage.getItem(k),
@@ -235,6 +240,16 @@ export function scopesFromLegacyGrants(grants: readonly FolderGrant[] | undefine
   if (grants?.includes("shared")) out.push("department-shared");
   if (grants?.includes("company-shared")) out.push("company-shared");
   return out;
+}
+
+function sameName(a: string, b: string): boolean {
+  return agentSlug(a).toLowerCase() === agentSlug(b).toLowerCase();
+}
+
+/** First roster row to land on when the current one goes away. */
+function nextSelectable(bots: readonly Bot[], excludeId: string): string | null {
+  const active = bots.filter((b) => b.id !== excludeId && isActiveBot(b));
+  return (active.find((b) => b.pinned) ?? active[0] ?? bots.find((b) => b.id !== excludeId && !b.archived))?.id ?? null;
 }
 
 function withScope(bot: Bot, path: string): { scope: ScopeId; relPath: string } | { error: string } {
@@ -317,16 +332,19 @@ export const useLocalBot = create<LocalBotState>()(
               createdAt: bot.createdAt,
             },
           });
-          next.push(r.ok ? { ...bot, privatePath: r.privatePath, scopes: r.scopes } : bot);
+          // agent.json is the durable record for `archived`; the browser copy follows it.
+          next.push(
+            r.ok ? { ...bot, name: r.name, privatePath: r.privatePath, scopes: r.scopes, archived: r.archived } : bot,
+          );
         }
         set({ bots: next, diskEpoch: get().diskEpoch + 1 });
       },
 
       completeOnboarding: async (input) => {
-        const companyName = slugName(input.companyName);
-        const deptName = slugName(input.departmentName);
-        const empName = slugName(input.employeeName);
-        const botName = slugName(input.botName);
+        const companyName = agentSlug(input.companyName);
+        const deptName = agentSlug(input.departmentName);
+        const empName = agentSlug(input.employeeName);
+        const botName = agentSlug(input.botName);
         const saved = await foldersSet({
           data: { folders: input.folders, create: input.createFolders },
         });
@@ -385,6 +403,7 @@ export const useLocalBot = create<LocalBotState>()(
           standingInstructions: DEFAULT_STANDING,
           pinned: true,
           hidden: false,
+          archived: false,
           unread: 0,
           createdAt: now,
         };
@@ -412,8 +431,8 @@ export const useLocalBot = create<LocalBotState>()(
           s.employees.find((e) => e.id === s.activeEmployeeId) ?? s.employees[0];
         if (!employee || !s.company) throw new Error("Finish onboarding first");
         if (!s.folders) throw new Error("Pick your folders in Settings → Folders first");
-        const name = slugName(input.name);
-        if (s.bots.some((b) => b.name.toLowerCase() === name.toLowerCase())) {
+        const name = agentSlug(input.name);
+        if (s.bots.some((b) => sameName(b.name, name))) {
           throw new Error(`An agent named ${name} already exists`);
         }
         const now = nowIso();
@@ -451,6 +470,7 @@ export const useLocalBot = create<LocalBotState>()(
             "Do the work in your private folder. Put finished deliverables in private/output/.",
           pinned: false,
           hidden: false,
+          archived: false,
           unread: 0,
           createdAt: now,
         };
@@ -463,9 +483,31 @@ export const useLocalBot = create<LocalBotState>()(
         return bot;
       },
 
-      renameBot: (id, name) => {
-        const next = slugName(name);
-        set((s) => ({ bots: s.bots.map((b) => (b.id === id ? { ...b, name: next } : b)) }));
+      renameBot: async (id, name) => {
+        const s = get();
+        const bot = s.bots.find((b) => b.id === id);
+        if (!bot) return { ok: false, error: "Unknown agent" };
+        if (!s.folders) return { ok: false, error: "Pick your folders in Settings → Folders first" };
+        const wanted = name.trim().replace(/\s+/g, " ");
+        if (!wanted) return { ok: false, error: "Agent name cannot be empty." };
+        if (wanted === bot.name) return { ok: true };
+        if (s.bots.some((b) => b.id !== id && sameName(b.name, wanted))) {
+          return { ok: false, error: `An agent named ${wanted} already exists.` };
+        }
+        if (s.sessions[id]?.running) {
+          return { ok: false, error: `${bot.name} is still working on a message. Stop it first.` };
+        }
+        // The sidecar moves agents/{Old}/ → agents/{New}/ and drops the ACP
+        // session; only then does the roster label change. Chats stay on bot.id.
+        const r = await agentRename({ data: { agentName: bot.name, newName: wanted } });
+        if (!r.ok) return { ok: false, error: r.error };
+        set((cur) => ({
+          bots: cur.bots.map((b) =>
+            b.id === id ? { ...b, name: r.name, privatePath: r.privatePath, scopes: r.scopes } : b,
+          ),
+          diskEpoch: cur.diskEpoch + 1,
+        }));
+        return { ok: true };
       },
       updateBot: (id, patch) => {
         set((s) => ({
@@ -473,19 +515,67 @@ export const useLocalBot = create<LocalBotState>()(
         }));
       },
       duplicateBot: async (id) => {
-        const src = get().bots.find((b) => b.id === id);
-        if (!src) return null;
-        return get().createBot({
-          name: `${src.name} copy`,
+        const s = get();
+        const src = s.bots.find((b) => b.id === id);
+        if (!src) return { ok: false, error: "Unknown agent" };
+        if (!s.folders) return { ok: false, error: "Pick your folders in Settings → Folders first" };
+        const employee = s.employees.find((e) => e.id === src.employeeId) ?? s.employees[0];
+        if (!employee) return { ok: false, error: "Finish onboarding first" };
+        // Disk copy first (private/ incl. memory/notes.md, output/, AGENTS.md, fresh agent.json).
+        const r = await agentDuplicate({
+          data: { agentName: src.name, avoid: s.bots.map((b) => b.name) },
+        });
+        if (!r.ok) return { ok: false, error: r.error };
+        const bot: Bot = {
+          id: uid("bot"),
+          employeeId: employee.id,
+          name: r.name,
           job: src.job,
           color: src.color,
           mascotId: src.mascotId,
           modelId: src.modelId,
-          scopes: src.scopes,
-        });
+          scopes: r.scopes,
+          privatePath: r.privatePath,
+          standingInstructions: src.standingInstructions,
+          pinned: false,
+          hidden: false,
+          archived: false,
+          unread: 0,
+          createdAt: nowIso(),
+        };
+        set((cur) => ({
+          bots: [...cur.bots, bot],
+          sessions: { ...cur.sessions, [bot.id]: sessionOf(bot.id) },
+          ui: { ...cur.ui, selectedBotId: bot.id },
+          diskEpoch: cur.diskEpoch + 1,
+        }));
+        return { ok: true, bot };
       },
       hideBot: (id, hidden) =>
-        set((s) => ({ bots: s.bots.map((b) => (b.id === id ? { ...b, hidden } : b)) })),
+        set((s) => {
+          const bots = s.bots.map((b) => (b.id === id ? { ...b, hidden } : b));
+          const selectedBotId =
+            hidden && s.ui.selectedBotId === id ? nextSelectable(bots, id) : s.ui.selectedBotId;
+          return { bots, ui: { ...s.ui, selectedBotId } };
+        }),
+      archiveBot: async (id, archived) => {
+        const s = get();
+        const bot = s.bots.find((b) => b.id === id);
+        if (!bot) return { ok: false, error: "Unknown agent" };
+        if (!s.folders) return { ok: false, error: "Pick your folders in Settings → Folders first" };
+        if (archived && s.sessions[id]?.running) {
+          return { ok: false, error: `${bot.name} is still working on a message. Stop it first.` };
+        }
+        const r = await agentSetArchived({ data: { agentName: bot.name, archived } });
+        if (!r.ok) return { ok: false, error: r.error };
+        set((cur) => {
+          const bots = cur.bots.map((b) => (b.id === id ? { ...b, archived: r.archived } : b));
+          const selectedBotId =
+            r.archived && cur.ui.selectedBotId === id ? nextSelectable(bots, id) : cur.ui.selectedBotId;
+          return { bots, ui: { ...cur.ui, selectedBotId }, diskEpoch: cur.diskEpoch + 1 };
+        });
+        return { ok: true };
+      },
       pinBot: (id, pinned) =>
         set((s) => ({ bots: s.bots.map((b) => (b.id === id ? { ...b, pinned } : b)) })),
       deleteBot: async (id) => {
@@ -504,7 +594,7 @@ export const useLocalBot = create<LocalBotState>()(
           ui: {
             ...s.ui,
             selectedBotId:
-              s.ui.selectedBotId === id ? (remaining[0]?.id ?? null) : s.ui.selectedBotId,
+              s.ui.selectedBotId === id ? nextSelectable(remaining, id) : s.ui.selectedBotId,
           },
         });
       },
@@ -536,7 +626,7 @@ export const useLocalBot = create<LocalBotState>()(
         })),
 
       renameCompany: (name) =>
-        set((s) => (s.company ? { company: { ...s.company, name: slugName(name) } } : s)),
+        set((s) => (s.company ? { company: { ...s.company, name: agentSlug(name) } } : s)),
 
       appendMessage: (botId, msg) => {
         const message: ChatMessage = {
@@ -669,9 +759,17 @@ export const useLocalBot = create<LocalBotState>()(
         const s = get();
         const from = s.bots.find((b) => b.id === fromBotId);
         if (!from) return { ok: false, error: "Unknown agent" };
-        const needle = toBotName.replace(/^@/, "").toLowerCase();
-        const to = s.bots.find((b) => b.name.toLowerCase() === needle && !b.hidden);
+        const needle = toBotName.replace(/^@/, "");
+        const to = s.bots.find((b) => sameName(b.name, needle));
         if (!to) return { ok: false, error: `No agent named ${toBotName}` };
+        if (to.archived) {
+          return { ok: false, error: `${to.name} is archived. Unarchive it before handing work over. Nothing was written.` };
+        }
+        if (to.hidden) {
+          return { ok: false, error: `${to.name} is hidden. Unhide it before handing work over. Nothing was written.` };
+        }
+        if (from.archived) return { ok: false, error: `${from.name} is archived.` };
+        // employee-shared, else department-shared, else nothing — never company-shared, never private.
         const scope = handoffScope(s.folders);
         if (!scope) {
           return {
@@ -734,6 +832,8 @@ export const useLocalBot = create<LocalBotState>()(
             scopes,
             privatePath: typeof legacy.privatePath === "string" ? legacy.privatePath : "",
             mascotId: isMascotId(raw.mascotId) ? raw.mascotId : mascotIdForTemplate(raw.name ?? ""),
+            hidden: Boolean(raw.hidden),
+            archived: Boolean(raw.archived),
           };
         });
         return {
@@ -785,8 +885,14 @@ export function resolveBot(
   return { bot, employee, department, company: s.company };
 }
 
-export function visibleBots(s: AppSnapshot): Bot[] {
+/** Default roster: not hidden (local filter), not archived (agent.json). */
+export function visibleBots(s: Pick<AppSnapshot, "bots">): Bot[] {
   return [...s.bots]
-    .filter((b) => !b.hidden)
+    .filter(isActiveBot)
     .sort((a, b) => Number(b.pinned) - Number(a.pinned) || a.name.localeCompare(b.name));
+}
+
+/** Archived agents, for the restore list. */
+export function archivedBots(s: Pick<AppSnapshot, "bots">): Bot[] {
+  return s.bots.filter((b) => b.archived).sort((a, b) => a.name.localeCompare(b.name));
 }
