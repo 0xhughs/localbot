@@ -13,7 +13,7 @@ Electron window (no URL bar)
               └─ ctx.fs = dsh/localbot-fs.mjs → src/lib/fs/scopes.ts resolveScopePath
 ```
 
-Electron is a window around the same UI. Signed `.dmg` / `.exe` are **not** this pass. llama.cpp binaries are mapped per (target, runtime) for macOS arm64 (Metal) / x64 (CPU), Windows x64 (CPU / CUDA 12.4 / Vulkan), and Linux x64 (CPU / Vulkan). Electron main does not start its own llama-server; the sidecar owns the one process.
+Electron is a window around the same UI. Stage 8 builds UNSIGNED installers (Linux AppImage + `.deb` built here; `.dmg` / NSIS configured, not built on this host); nothing is signed or notarized because no identity exists in this repo. llama.cpp binaries are mapped per (target, runtime) for macOS arm64 (Metal) / x64 (CPU), Windows x64 (CPU / CUDA 12.4 / Vulkan), and Linux x64 (CPU / Vulkan). Electron main does not start its own llama-server; the sidecar owns the one process.
 
 ### The loop is DeepSeek Harness (Stage 4)
 
@@ -24,7 +24,8 @@ The agent loop — model requests, tool ordering, tool results back to the model
 - `dsh/localbot-fs.mjs` is LocalBot's `ctx.fs` provider inside the Harness process. It extends the official `fs-local` mechanics but owns path → target: every path becomes `{ scope, relPath, agentName }` and goes through `resolveForAgent` → `resolveScopePath`. The ACP session `cwd` (`agents/{Name}/private`) only identifies the agent. Tool results show `private/hello.md`, never a host path.
 - Session ids are persisted (Stage 7): `HarnessManager` writes `sessionId` + the `agents/{Name}/private` cwd into `{dataDir}/localbot-agents.json` after `session/new`. When its in-memory map is empty (sidecar restart) it calls ACP `session/resume` with that id — dsh restores its own log, LocalBot replays nothing — and falls back to `session/new` (storing the new id) when dsh refuses (unknown id, cwd moved, session active elsewhere). dsh-acp at this pin rejects `session/load`, so chat history is LocalBot's own file, not a Harness replay.
 - Rename / archive (Stage 5) call `HarnessManager.forgetSession(agentName)` after the sidecar has moved the folder or flipped `agent.json`; the next prompt runs `session/new` with the agent's current `agents/{Name}/private`. Both are refused with `BUSY` while that agent has a running turn, so no session is ever left pointed at a folder that moved.
-- Node: dsh at this pin needs Node ≥ 22.15 (`node:zlib` zstd). The sidecar launches it with `LOCALBOT_DSH_NODE`, its own Node if new enough, or a newer nvm Node, and otherwise refuses with the exact reason. There is no fallback loop. Electron 36 embeds Node 22.14, so packaged mode is a Stage 8 item.
+- Node: dsh at this pin needs Node ≥ 22.15 (`node:zlib` zstd). In dev the sidecar launches it with `LOCALBOT_DSH_NODE`, its own Node if new enough, or a newer nvm Node, and otherwise refuses with the exact reason. There is no fallback loop.
+- Packaged (Stage 8): Electron 36 embeds Node 22.14, so the installer carries an official Node ≥ 22.15 at `resources/localbot-node/node` (`catalog/node-runtime.json`, sha256-verified at build) and the Harness at `resources/localbot-harness/` — `dsh/` overlay, the fs-plugin's traced TS sources, and the `@deepseek-ai/dsh` tree from a build-time `npm install` with exact pins. `desktop/main.mjs` passes `LOCALBOT_DSH_NODE` / `LOCALBOT_DSH_DIR` / `LOCALBOT_DSH_MODULES` to the sidecar; with `LOCALBOT_PACKAGED=1` `findHarnessNode` accepts only that binary (or Electron's own Node when new enough) and never scans `~/.nvm` or PATH. `scripts/prove-packaged.mjs` runs this spawn path against the built installer with node removed from PATH.
 
 Ollama is not required.
 
@@ -66,11 +67,10 @@ Models dir: `{cwd}/data/LocalBot/models` (preview) or `{appData}/LocalBot/models
 
 ## 4. Not built
 
-- Signed / notarized installers (unsigned unpacked Electron only)
-- Real NAS / two-machine verification of the poll fallback (poll mode was forced in tests, not measured on SMB/NFS)
+- Signed / notarized installers (NOT BUILT: no identity or certificate; the AppImage / `.deb` here are UNSIGNED; `.dmg` / NSIS not built on this Linux host)
+- Real NAS / two-machine verification (UNVERIFIED: only two processes on one host against one local folder — `scripts/two-process-share.mjs`; poll mode on SMB/NFS not measured)
 - node-llama-cpp (cmake missing on this host; llama-server binary is used instead)
-- Harness in the packaged Electron binary (Electron 36's Node 22.14 cannot load dsh; Stage 8)
-- Two-machine sync (share by pointing at the same real folder)
+- Release CI / publishing / auto-update
 
 ## 5. Durable host state (Stage 7)
 
