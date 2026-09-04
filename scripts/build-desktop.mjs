@@ -181,6 +181,7 @@ function assertLayout(appOutDir) {
     "resources/localbot-server/server/index.mjs",
     "resources/app.asar.unpacked/desktop/main.mjs",
     "resources/app.asar.unpacked/desktop/packaged.mjs",
+    "resources/app.asar.unpacked/desktop/preload.cjs",
     "resources/localbot-harness/dsh/localbot-acp.cordis.yml",
     "resources/localbot-harness/dsh/localbot-fs.mjs",
     "resources/localbot-harness/src/lib/fs/scopes.ts",

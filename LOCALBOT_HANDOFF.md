@@ -1,5 +1,40 @@
 # LOCALBOT_HANDOFF.md
 
+## Stage 11 — Desktop chrome + composer
+Date: 2026-09-04
+Branch: `stage-11-chrome-composer` (PR → `main`, off `20fbb58` = merge of PR #10)
+
+Shell + composer + roster find only. Harness (`runAgentTurn`, dsh `0.1.2-alpha.5`), scopes, watch, host index, hold-to-talk, the New-agent modal and Settings dialog are unchanged. Still UNSIGNED, not notarized, no Windows work. Full detail, measurements and the exact pass output: `STAGE_HANDOFF.md`.
+
+### Built
+- **Traffic lights / title strip: WORKS.** Root cause: the preload was ESM (`preload.mjs`) under `sandbox: true`, and a sandboxed preload never loads ESM — measured `typeof window.localbotDesktop === "undefined"`, so `desktop-titlebar.tsx` never rendered and the sidebar's Wordmark + Settings row sat under the lights. Fix: `desktop/preload.cjs` (CommonJS, `require("electron")` only; sandbox + context isolation stay on), `main.mjs` loads it, `build.files` / `asarUnpack` ship `*.cjs`, `build-desktop.mjs` asserts it is unpacked. `hiddenInset` + `trafficLightPosition {14, 12}` kept; the strip's darwin gutter is 72 px. Live (dev **and** the rebuilt packaged app): bridge `object`, lights at (14, 12), strip 36 px, Wordmark row starts at y = 36.
+- **Sidebar: WORKS.** Wordmark row alone under the strip → `+ New agent` (same modal) → **Find by name or job** → roster (+ Archived) → **Settings** in the footer. Settings is not next to the Wordmark; `settings_y=772` in an 820 px window.
+- **Roster search: WORKS.** `src/lib/roster-search.ts`: case-insensitive, all words must hit `name + job`, empty query = identity (everyone + Archived as before), miss → "No agents match".
+- **Composer: WORKS.** Native `<textarea>`, grows to **6 lines** (`COMPOSER_MAX_LINES`, `composerHeight()` in `src/lib/chat-layout.ts`) then scrolls inside with `.scrollbar-thin` (transparent track, inset low-contrast thumb). Live: 1 → 32 px, 6 → 132 px, 12 lines → still 132 px with inner scroll.
+- **Cmd A / X / C / V / Z: WORKS (native).** `main.mjs` gained an Edit menu with roles `undo, redo, cut, copy, paste, selectAll` — on macOS these are the native selectors the shortcuts need; no clipboard code in React. Live through the same native path (`sendActionToFirstResponder`): selectAll → copy → cut → paste → undo on the composer.
+- **Jump to latest: WORKS.** `isPinnedToBottom()` on `onScroll`; auto-follow only while pinned; a `↓` (`data-testid="jump-to-latest"`) appears only when unpinned and re-pins on click. Live on a 40-message chat.
+- **Tests:** `npm test` 203 + **222** (was 207), `lint` and `tsc` clean. New `src/lib/desktop-chrome.test.ts` fails if Settings returns to the title-bar cluster / sidebar header, `+ New agent` is only in the footer, `main.mjs` loses the Edit roles or `hiddenInset`, the preload is ESM again, `chat.tsx` drops `runAgentTurn` / becomes a contenteditable / loses the cap or the `↓`, or the dsh / ACP pins float. New `scripts/prove-chrome.mjs` (`npm run prove:chrome`) is the live proof; `-- --app` runs it against the packaged app. Rebuilt `.dmg` sha256 `6e90420c1fa798cb221428fe9532f36aa8abb188b034b4d89b89fb8ccd61c297` (not committed).
+
+### Not built
+- Click-to-toggle mic (Stage 13); Edit profile, sections, conversational create, plugins, routines, channels — NOT BUILT by rule.
+- Windows / Linux builds of this stage — UNVERIFIED (platform-neutral changes, no build here). Signing / notarization — NOT BUILT.
+- Cmd-shortcuts pressed on a physical keyboard — UNVERIFIED by machine (the proof drives the menu's native selectors; step 4 of the in-app test is the human check). Jump-to-latest during a live streamed turn — UNVERIFIED live (seeded transcript only).
+
+### Prove it
+Command: `npm test && npm run prove:chrome`
+Pass looks like: `ℹ pass 222` … `[prove-chrome] traffic lights at (14, 12) · gutter to 84px · strip 36px · Wordmark row starts y=36` … `[prove-chrome] sidebar: + New agent y=84 · search y=132 · roster y=172 · Settings y=772 (sidebar bottom 820)` … `composer: 1 line 32px · 3 lines 72px · 6 lines 132px · 12 lines 132px (inner scroll …)` … `Edit menu roles reach the composer through the native path: WORKS …` … `STAGE11_CHROME_PASS bridge=object platform=darwin lights=14,12 … edit_shortcuts=WORKS`. Exits 1 if Settings is next to the Wordmark / in the strip, `+ New agent` is not above the search above the roster, the bridge is missing, the Wordmark starts under the lights, the composer does not cap at 6 lines, an Edit role is missing, or the `↓` misbehaves. Packaged: `npm run prove:chrome -- --app dist/desktop/mac-arm64/LocalBot.app` → `STAGE11_CHROME_PACKAGED_PASS bridge=object …`.
+
+### How I test in the app
+1. `npm run desktop` (or the rebuilt `LocalBot.app`): the traffic lights sit alone in the dark strip; the LocalBot mark is on the first sidebar row below it; drag the strip to move the window.
+2. Sidebar: `+ New agent` at the top, the find field under it, Settings at the very bottom. Type part of a name, then part of a job — the roster narrows; ✕ / Escape shows everyone again.
+3. Composer: Shift+Enter past six lines — it stops growing and a thin dark scrollbar appears inside the field; Cmd+A / C / X / V / Z work; Enter still sends.
+4. Scroll a long chat up: a `↓` appears bottom-centre and the view stops following; click it to pin again.
+
+### Ready for
+Stage 12 (profile / sections / create flow) only after you say GO.
+
+---
+
 ## Stage 10 — Mac unsigned package + whisper-cli + proofs
 Date: 2026-09-04
 Branch: `stage-10-macos-package` (PR → `main`, off `7608856`)

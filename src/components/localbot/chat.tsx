@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
+  ArrowDown,
   Monitor,
   Paperclip,
   Square,
@@ -24,6 +25,7 @@ import { Button } from "@/components/ui/button";
 import { AgentAvatar } from "./avatar";
 import { ChatMarkdown } from "./markdown";
 import { appendTranscript } from "@/lib/audio/voice-text";
+import { COMPOSER_MAX_LINES, composerHeight, isPinnedToBottom } from "@/lib/chat-layout";
 import { useVoiceInput } from "./use-voice-input";
 
 type AgentModelStatus = Awaited<ReturnType<typeof modelStatusForAgent>>;
@@ -31,10 +33,18 @@ type AgentModelStatus = Awaited<ReturnType<typeof modelStatusForAgent>>;
 function modelBadgeTitle(s: AgentModelStatus | null): string | undefined {
   if (!s) return undefined;
   const lines: string[] = [];
-  if (s.ollama) lines.push(s.ollama.model ? `Ollama ${s.ollama.model} on 127.0.0.1:11434` : "Ollama switch is on; no model picked");
+  if (s.ollama)
+    lines.push(
+      s.ollama.model
+        ? `Ollama ${s.ollama.model} on 127.0.0.1:11434`
+        : "Ollama switch is on; no model picked",
+    );
   else if (s.path) lines.push(`${s.name}\n${s.path}`);
   if (s.notice) lines.push(s.notice);
-  if (s.loaded) lines.push(`llama-server: ${s.loaded.modelPath.split(/[\\/]/).pop()} · ${s.loaded.runtime} · gpu layers ${s.loaded.gpuLayers}`);
+  if (s.loaded)
+    lines.push(
+      `llama-server: ${s.loaded.modelPath.split(/[\\/]/).pop()} · ${s.loaded.runtime} · gpu layers ${s.loaded.gpuLayers}`,
+    );
   if (s.willRestart) lines.push("Next message restarts llama-server onto this agent's model.");
   if (s.runtime) lines.push(`Build: ${s.runtime.label} — ${s.runtime.reason}`);
   return lines.join("\n");
@@ -73,15 +83,64 @@ export function ChatPane() {
   const abortRef = useRef<AbortController | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const textarea = useRef<HTMLTextAreaElement>(null);
 
+  // Stage 11: the transcript follows new content only while the reader is at
+  // the bottom. Scrolling up unpins it and shows "Jump to latest"; that
+  // button (or scrolling back down) pins it again.
+  const [pinned, setPinned] = useState(true);
+  const onTranscriptScroll = useCallback(() => {
+    const el = scroller.current;
+    if (!el) return;
+    setPinned(
+      isPinnedToBottom({
+        scrollTop: el.scrollTop,
+        clientHeight: el.clientHeight,
+        scrollHeight: el.scrollHeight,
+      }),
+    );
+  }, []);
+  const jumpToLatest = useCallback(() => {
+    const el = scroller.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight });
+    setPinned(true);
+  }, []);
+
+  const messageCount = session?.messages.length ?? 0;
+  const lastMessage = session?.messages[messageCount - 1];
+  const lastContentLength = lastMessage?.content.length ?? 0;
   useEffect(() => {
+    if (!pinned) return;
     scroller.current?.scrollTo({ top: scroller.current.scrollHeight });
-  }, [session?.messages.length, chips.length, pending, session?.running]);
+  }, [pinned, messageCount, lastContentLength, chips.length, pending, session?.running]);
 
   useEffect(() => {
     setChips([]);
     setPending(null);
+    // A different agent: start at the bottom of its transcript.
+    setPinned(true);
+    scroller.current?.scrollTo({ top: scroller.current.scrollHeight });
   }, [selected]);
+
+  // Stage 11: the composer is a plain <textarea> (native Cmd/Ctrl A X C V Z,
+  // nothing intercepted). It grows with its content up to COMPOSER_MAX_LINES
+  // and then scrolls inside the field with the themed thin scrollbar.
+  useLayoutEffect(() => {
+    const el = textarea.current;
+    if (!el) return;
+    const cs = window.getComputedStyle(el);
+    el.style.height = "auto";
+    const { height, overflow } = composerHeight({
+      scrollHeight: el.scrollHeight,
+      lineHeight: parseFloat(cs.lineHeight),
+      verticalPadding: parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom),
+      maxLines: COMPOSER_MAX_LINES,
+    });
+    el.style.height = `${height}px`;
+    el.style.overflowY = overflow ? "auto" : "hidden";
+    el.dataset.overflow = overflow ? "true" : "false";
+  }, [composer, selected]);
 
   // Stage 6: the header badge names the file *this* agent's next turn loads
   // (agent.json.modelId), refreshed on agent select, after each turn and when
@@ -99,7 +158,8 @@ export function ChatPane() {
       // agent.json is the durable record; a browser copy that drifted (edited
       // on disk, another window) follows it so the pickers show the truth.
       const cur = useLocalBot.getState().bots.find((b) => b.name === botName);
-      if (cur && s.modelId && cur.modelId !== s.modelId) useLocalBot.getState().updateBot(cur.id, { modelId: s.modelId });
+      if (cur && s.modelId && cur.modelId !== s.modelId)
+        useLocalBot.getState().updateBot(cur.id, { modelId: s.modelId });
     });
     return () => {
       stale = true;
@@ -170,7 +230,10 @@ export function ChatPane() {
         onSession: (info) => {
           // The sidecar restarted since the last turn and picked the persisted ACP session back up.
           if (info.origin === "resumed") {
-            appendMessage(bot.id, { role: "system", content: "Resumed the previous Harness session." });
+            appendMessage(bot.id, {
+              role: "system",
+              content: "Resumed the previous Harness session.",
+            });
           }
         },
         onChip: (chip) => {
@@ -243,20 +306,23 @@ export function ChatPane() {
                 {switching ? "Switching model" : "Working"}
               </span>
             ) : voice.state !== "idle" ? (
-              <span data-testid="voice-state" className="shimmer-text font-mono text-[10px] tracking-wider uppercase">
+              <span
+                data-testid="voice-state"
+                className="shimmer-text font-mono text-[10px] tracking-wider uppercase"
+              >
                 {voice.state === "listening" ? "Listening" : "Transcribing"}
               </span>
             ) : null}
           </div>
-          <p className="truncate text-[11px] text-muted">
-            {bot.job}
-          </p>
+          <p className="truncate text-[11px] text-muted">{bot.job}</p>
         </div>
         <span
           data-testid="model-badge"
           title={modelBadgeTitle(agentModel)}
           className={`hidden rounded-full px-2 py-0.5 font-mono text-[10px] tracking-wide uppercase md:inline ${
-            (agentModel ? agentModel.ready : aiAvailable) ? "bg-accent/15 text-accent" : "bg-danger/15 text-danger"
+            (agentModel ? agentModel.ready : aiAvailable)
+              ? "bg-accent/15 text-accent"
+              : "bg-danger/15 text-danger"
           }`}
         >
           {agentModel?.badge || badge || (aiAvailable ? "Local model" : "Local model not ready")}
@@ -283,50 +349,65 @@ export function ChatPane() {
         </Button>
       </header>
 
-      <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto px-4 py-4 scrollbar-thin md:px-8">
-        {messages.length === 0 && !running && (
-          <Empty botName={bot.name} onPick={(t) => void send(t)} />
+      <div className="relative min-h-0 flex-1">
+        <div
+          ref={scroller}
+          onScroll={onTranscriptScroll}
+          data-testid="transcript"
+          data-pinned={pinned ? "true" : "false"}
+          className="h-full overflow-y-auto px-4 py-4 scrollbar-thin md:px-8"
+        >
+          {messages.length === 0 && !running && (
+            <Empty botName={bot.name} onPick={(t) => void send(t)} />
+          )}
+          <ol className="mx-auto flex max-w-2xl flex-col gap-4">
+            {messages.map((m) => (
+              <li key={m.id} data-role={m.role} className={m.role === "user" ? "ml-8" : "mr-4"}>
+                {m.role === "system" ? (
+                  <p className="font-mono text-[11px] text-subtle">{m.content}</p>
+                ) : m.role === "user" ? (
+                  <div className="rounded-lg bg-raised px-3.5 py-2.5 shadow-[0_0_0_1px_var(--color-border)]">
+                    <p className="text-sm leading-relaxed whitespace-pre-wrap">{m.content}</p>
+                  </div>
+                ) : (
+                  <div>
+                    {m.chips && m.chips.length > 0 && <ChipRow chips={m.chips} />}
+                    <ChatMarkdown text={m.content} />
+                  </div>
+                )}
+              </li>
+            ))}
+            {(running || chips.length > 0) && (
+              <li className="mr-4">
+                <ChipRow chips={chips} />
+                {running && chips.length === 0 && <p className="shimmer-text text-sm">Thinking</p>}
+              </li>
+            )}
+            {pending && (
+              <li>
+                <PermissionCard req={pending} allowed={true} onDecide={decide} />
+              </li>
+            )}
+          </ol>
+        </div>
+        {!pinned && (
+          <button
+            type="button"
+            aria-label="Jump to latest"
+            title="Jump to latest"
+            data-testid="jump-to-latest"
+            onClick={jumpToLatest}
+            className="absolute bottom-3 left-1/2 flex size-8 -translate-x-1/2 items-center justify-center rounded-full bg-raised text-fg shadow-[0_0_0_1px_var(--color-border),0_8px_24px_rgb(0_0_0/0.45)] hover:bg-hover"
+          >
+            <ArrowDown className="size-4" />
+          </button>
         )}
-        <ol className="mx-auto flex max-w-2xl flex-col gap-4">
-          {messages.map((m) => (
-            <li key={m.id} data-role={m.role} className={m.role === "user" ? "ml-8" : "mr-4"}>
-              {m.role === "system" ? (
-                <p className="font-mono text-[11px] text-subtle">{m.content}</p>
-              ) : m.role === "user" ? (
-                <div className="rounded-lg bg-raised px-3.5 py-2.5 shadow-[0_0_0_1px_var(--color-border)]">
-                  <p className="text-sm leading-relaxed whitespace-pre-wrap">{m.content}</p>
-                </div>
-              ) : (
-                <div>
-                  {m.chips && m.chips.length > 0 && <ChipRow chips={m.chips} />}
-                  <ChatMarkdown text={m.content} />
-                </div>
-              )}
-            </li>
-          ))}
-          {(running || chips.length > 0) && (
-            <li className="mr-4">
-              <ChipRow chips={chips} />
-              {running && chips.length === 0 && (
-                <p className="shimmer-text text-sm">Thinking</p>
-              )}
-            </li>
-          )}
-          {pending && (
-            <li>
-              <PermissionCard
-                req={pending}
-                allowed={true}
-                onDecide={decide}
-              />
-            </li>
-          )}
-        </ol>
       </div>
 
       <div className="border-t border-border px-3 py-3 md:px-6">
         <div className="mx-auto max-w-2xl rounded-xl bg-surface p-2 shadow-[0_0_0_1px_var(--color-border)]">
           <textarea
+            ref={textarea}
             value={composer}
             onChange={(e) => setUi({ composer: e.target.value })}
             onKeyDown={(e) => {
@@ -335,9 +416,11 @@ export function ChatPane() {
                 void send(composer);
               }
             }}
-            rows={2}
+            rows={1}
+            data-testid="composer"
+            data-max-lines={COMPOSER_MAX_LINES}
             placeholder={`Message ${bot.name} — @name to hand off`}
-            className="w-full resize-none bg-transparent px-2 py-1.5 text-sm text-fg placeholder:text-subtle focus-visible:outline-none"
+            className="block w-full resize-none bg-transparent px-2 py-1.5 text-sm leading-5 text-fg placeholder:text-subtle focus-visible:outline-none scrollbar-thin"
           />
           <div className="flex items-center justify-between px-1">
             <div className="flex items-center gap-1">
@@ -366,7 +449,9 @@ export function ChatPane() {
                 aria-pressed={voice.state === "listening"}
                 data-testid="mic-button"
                 data-voice-state={voice.state}
-                title={voice.disabledReason ?? "Hold to talk (release to transcribe on this computer)"}
+                title={
+                  voice.disabledReason ?? "Hold to talk (release to transcribe on this computer)"
+                }
                 disabled={Boolean(voice.disabledReason)}
                 onPointerDown={(e) => {
                   if (e.button !== 0) return;
@@ -423,7 +508,8 @@ function Empty({ botName, onPick }: { botName: string; onPick: (t: string) => vo
   return (
     <div className="mx-auto flex max-w-lg flex-col items-start py-10">
       <p className="text-sm text-muted">
-        {botName} is ready. Work stays in its private folder unless you grant a shared scope. Try one of these:
+        {botName} is ready. Work stays in its private folder unless you grant a shared scope. Try
+        one of these:
       </p>
       <div className="mt-4 flex flex-col gap-2">
         {SUGGESTIONS.map((s) => (
@@ -487,13 +573,9 @@ function PermissionCard({
 }) {
   return (
     <div className="rounded-xl bg-raised p-4 shadow-[0_0_0_1px_var(--color-border-strong)]">
-      <p className="font-mono text-[10px] tracking-wider text-subtle uppercase">
-        Permission
-      </p>
+      <p className="font-mono text-[10px] tracking-wider text-subtle uppercase">Permission</p>
       <h3 className="mt-1 text-sm font-medium">{req.summary}</h3>
-      <p className="mt-1 font-mono text-xs leading-relaxed break-all text-muted">
-        {req.detail}
-      </p>
+      <p className="mt-1 font-mono text-xs leading-relaxed break-all text-muted">{req.detail}</p>
       <div className="mt-3 flex flex-wrap gap-2">
         <Button variant="ghost" size="sm" onClick={() => onDecide("deny")}>
           Deny
@@ -522,9 +604,7 @@ function MentionHint() {
   if (at < 0) return null;
   const q = composer.slice(at + 1).split(/\s/)[0] ?? "";
   if (composer.slice(at).includes(" ") && q.length === 0) return null;
-  const matches = bots.filter((b) =>
-    b.name.toLowerCase().startsWith(q.toLowerCase()),
-  );
+  const matches = bots.filter((b) => b.name.toLowerCase().startsWith(q.toLowerCase()));
   if (matches.length === 0) return null;
   return (
     <div className="flex gap-1">

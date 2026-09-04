@@ -308,12 +308,13 @@ describe("sidecar is the source of truth", () => {
 
   it("Electron exposes the native folder dialog through preload IPC only", () => {
     const main = fs.readFileSync(path.join(process.cwd(), "desktop/main.mjs"), "utf8");
-    const preload = fs.readFileSync(path.join(process.cwd(), "desktop/preload.mjs"), "utf8");
+    const preload = fs.readFileSync(path.join(process.cwd(), "desktop/preload.cjs"), "utf8");
     assert.match(main, /ipcMain\.handle\("localbot:pickFolder"/);
     assert.match(main, /showOpenDialog/);
     assert.match(main, /"openDirectory"/);
     assert.match(preload, /ipcRenderer\.invoke\("localbot:pickFolder"/);
-    assert.equal(preload.includes("require("), false);
+    // Stage 11: CommonJS preload (sandboxed preloads cannot be ESM). The only require is electron itself.
+    assert.deepEqual([...preload.matchAll(/require\(([^)]*)\)/g)].map((m) => m[1]), ['"electron"']);
     assert.equal(/\bfs\b/.test(preload), false, "preload does not expose fs");
   });
 });

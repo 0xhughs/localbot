@@ -299,10 +299,10 @@ describe("Reveal in Finder / Explorer is one narrow IPC", () => {
     assert.ok(main.includes('ipcMain.handle("localbot:revealPath"'), "no revealPath IPC");
     assert.ok(main.includes("shell.showItemInFolder("), "does not call showItemInFolder");
     assert.ok(/configuredFolderRoots\(\)/.test(main), "reveal is not gated to configured folders");
-    const preload = fs.readFileSync(path.join(REPO, "desktop/preload.mjs"), "utf8");
+    const preload = fs.readFileSync(path.join(REPO, "desktop/preload.cjs"), "utf8");
     assert.ok(preload.includes('ipcRenderer.invoke("localbot:revealPath"'), "preload does not expose revealPath");
-    // Still narrow: no Node / fs / shell reaches the renderer.
-    assert.equal(/require\(|node:fs|child_process/.test(preload), false);
+    // Still narrow: no Node / fs / shell reaches the renderer (the CJS preload requires electron only).
+    assert.equal(/node:fs|child_process|require\("(?!electron")/.test(preload), false);
     const server = fs.readFileSync(path.join(REPO, "src/lib/fs/server.ts"), "utf8");
     assert.ok(/export const browseHostPath/.test(server), "no sidecar host-path lookup for reveal");
     assert.equal(/companyRoot\??:|allowedRoots\??:/.test(server), false, "browser-supplied roots crept back");

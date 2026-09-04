@@ -8,10 +8,13 @@ import {
   Pencil,
   Pin,
   Plus,
+  Search,
   Settings,
   Trash2,
+  X,
 } from "lucide-react";
 import { archivedBots, useLocalBot, visibleBots } from "@/lib/store";
+import { filterRoster, normalizeRosterQuery } from "@/lib/roster-search";
 import type { Bot } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { AgentAvatar } from "./avatar";
@@ -19,8 +22,12 @@ import { Wordmark } from "./logo";
 
 export function Sidebar() {
   const allBots = useLocalBot((s) => s.bots);
-  const bots = visibleBots({ bots: allBots });
-  const archived = archivedBots({ bots: allBots });
+  // Stage 11: the find field narrows both groups by name / job as you type.
+  // An empty query is the roster exactly as before (everyone + Archived).
+  const [query, setQuery] = useState("");
+  const searching = normalizeRosterQuery(query).length > 0;
+  const bots = filterRoster(visibleBots({ bots: allBots }), query);
+  const archived = filterRoster(archivedBots({ bots: allBots }), query);
   const selected = useLocalBot((s) => s.ui.selectedBotId);
   const selectBot = useLocalBot((s) => s.selectBot);
   const pinBot = useLocalBot((s) => s.pinBot);
@@ -40,19 +47,55 @@ export function Sidebar() {
   };
 
   return (
-    <aside className="flex h-full min-h-0 w-[248px] shrink-0 flex-col border-r border-border bg-surface">
-      <div className="flex h-12 items-center justify-between px-3">
+    <aside
+      data-testid="sidebar"
+      className="flex h-full min-h-0 w-[248px] shrink-0 flex-col border-r border-border bg-surface"
+    >
+      {/* Stage 11: the mark sits below the desktop title strip, so it is never
+          under the macOS traffic lights. Nothing else shares this row. */}
+      <div data-testid="sidebar-header" className="flex h-12 items-center px-3">
         <Wordmark className="text-sm" />
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label="Settings"
-          onClick={() => setUi({ showSettings: true })}
-        >
-          <Settings className="size-4" />
-        </Button>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-1.5 scrollbar-thin">
+      <div className="flex flex-col gap-2 px-2 pb-2">
+        <Button
+          variant="secondary"
+          className="w-full"
+          data-testid="new-agent"
+          onClick={() => setUi({ newAgentOpen: true })}
+        >
+          <Plus className="size-4" />
+          New agent
+        </Button>
+        <label className="relative block">
+          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-subtle" />
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape" && query) {
+                e.preventDefault();
+                setQuery("");
+              }
+            }}
+            aria-label="Find agent"
+            placeholder="Find by name or job"
+            data-testid="roster-search"
+            className="h-8 w-full rounded-md bg-bg pr-7 pl-8 text-sm text-fg placeholder:text-subtle outline-none ring-1 ring-border focus:ring-accent [&::-webkit-search-cancel-button]:hidden"
+          />
+          {query && (
+            <button
+              type="button"
+              aria-label="Clear search"
+              onClick={() => setQuery("")}
+              className="absolute top-1/2 right-1.5 -translate-y-1/2 rounded-sm p-0.5 text-subtle hover:bg-hover hover:text-fg"
+            >
+              <X className="size-3.5" />
+            </button>
+          )}
+        </label>
+      </div>
+      <div data-testid="roster" className="min-h-0 flex-1 overflow-y-auto px-1.5 scrollbar-thin">
         {bots.map((bot) => {
           const active = selected === bot.id;
           return (
@@ -125,7 +168,9 @@ export function Sidebar() {
           );
         })}
         {bots.length === 0 && (
-          <p className="px-3 py-6 text-sm text-muted">No agents yet.</p>
+          <p className="px-3 py-6 text-sm text-muted" data-testid="roster-empty">
+            {searching ? `No agents match “${query.trim()}”.` : "No agents yet."}
+          </p>
         )}
         {archived.length > 0 && (
           <details className="mt-3 border-t border-border pt-2" data-testid="archived-agents">
@@ -186,10 +231,17 @@ export function Sidebar() {
           </button>
         </div>
       )}
-      <div className="border-t border-border p-2">
-        <Button variant="secondary" className="w-full" onClick={() => setUi({ newAgentOpen: true })}>
-          <Plus className="size-4" />
-          New agent
+      {/* Stage 11: Settings lives at the bottom of the roster, away from the title corner. */}
+      <div data-testid="sidebar-footer" className="border-t border-border p-2">
+        <Button
+          variant="ghost"
+          className="w-full justify-start text-muted hover:text-fg"
+          aria-label="Settings"
+          data-testid="sidebar-settings"
+          onClick={() => setUi({ showSettings: true })}
+        >
+          <Settings className="size-4" />
+          Settings
         </Button>
       </div>
     </aside>
@@ -242,13 +294,7 @@ function RenameField({ bot, onDone }: { bot: Bot; onDone: (next: string | null) 
   );
 }
 
-function MenuItem({
-  children,
-  onClick,
-}: {
-  children: ReactNode;
-  onClick: () => void;
-}) {
+function MenuItem({ children, onClick }: { children: ReactNode; onClick: () => void }) {
   return (
     <button
       type="button"
