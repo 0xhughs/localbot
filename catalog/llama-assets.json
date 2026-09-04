@@ -1,30 +1,87 @@
 {
   "release": "b10749",
-  "notes": "Official ggml-org/llama.cpp release assets. Linux uses the ubuntu-x64 tarball; Windows uses the CPU zip (not CUDA). Do not assume Ubuntu-only.",
+  "notes": "Official ggml-org/llama.cpp release assets, one row per (target, runtime). Every URL here answered HTTP 200 on the b10749 release page on 2026-09-04; nothing is invented. 'gpu: true' rows offload layers (--n-gpu-layers > 0); 'cpu' rows run with 0. Windows CUDA also needs the matching cudart zip (extra) unpacked next to the binary. darwin-x64 has no GPU asset in this release (Intel Mac stays CPU). Runtimes unpack to bin/{target}/{runtime}/ so CPU and GPU trees coexist.",
   "targets": {
     "darwin-arm64": {
-      "filename": "llama-b10749-bin-macos-arm64.tar.gz",
-      "kind": "tar.gz",
-      "binary": "llama-server",
-      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10749/llama-b10749-bin-macos-arm64.tar.gz"
+      "default": "metal",
+      "runtimes": {
+        "metal": {
+          "label": "Metal (Apple Silicon)",
+          "gpu": true,
+          "filename": "llama-b10749-bin-macos-arm64.tar.gz",
+          "kind": "tar.gz",
+          "binary": "llama-server",
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10749/llama-b10749-bin-macos-arm64.tar.gz"
+        }
+      }
     },
     "darwin-x64": {
-      "filename": "llama-b10749-bin-macos-x64.tar.gz",
-      "kind": "tar.gz",
-      "binary": "llama-server",
-      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10749/llama-b10749-bin-macos-x64.tar.gz"
+      "default": "cpu",
+      "runtimes": {
+        "cpu": {
+          "label": "CPU",
+          "gpu": false,
+          "filename": "llama-b10749-bin-macos-x64.tar.gz",
+          "kind": "tar.gz",
+          "binary": "llama-server",
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10749/llama-b10749-bin-macos-x64.tar.gz"
+        }
+      }
     },
     "win32-x64": {
-      "filename": "llama-b10749-bin-win-cpu-x64.zip",
-      "kind": "zip",
-      "binary": "llama-server.exe",
-      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10749/llama-b10749-bin-win-cpu-x64.zip"
+      "default": "cpu",
+      "runtimes": {
+        "cpu": {
+          "label": "CPU",
+          "gpu": false,
+          "filename": "llama-b10749-bin-win-cpu-x64.zip",
+          "kind": "zip",
+          "binary": "llama-server.exe",
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10749/llama-b10749-bin-win-cpu-x64.zip"
+        },
+        "cuda-12.4": {
+          "label": "NVIDIA CUDA 12.4",
+          "gpu": true,
+          "filename": "llama-b10749-bin-win-cuda-12.4-x64.zip",
+          "kind": "zip",
+          "binary": "llama-server.exe",
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10749/llama-b10749-bin-win-cuda-12.4-x64.zip",
+          "extra": {
+            "filename": "cudart-llama-bin-win-cuda-12.4-x64.zip",
+            "kind": "zip",
+            "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10749/cudart-llama-bin-win-cuda-12.4-x64.zip"
+          }
+        },
+        "vulkan": {
+          "label": "Vulkan",
+          "gpu": true,
+          "filename": "llama-b10749-bin-win-vulkan-x64.zip",
+          "kind": "zip",
+          "binary": "llama-server.exe",
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10749/llama-b10749-bin-win-vulkan-x64.zip"
+        }
+      }
     },
     "linux-x64": {
-      "filename": "llama-b10749-bin-ubuntu-x64.tar.gz",
-      "kind": "tar.gz",
-      "binary": "llama-server",
-      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10749/llama-b10749-bin-ubuntu-x64.tar.gz"
+      "default": "cpu",
+      "runtimes": {
+        "cpu": {
+          "label": "CPU",
+          "gpu": false,
+          "filename": "llama-b10749-bin-ubuntu-x64.tar.gz",
+          "kind": "tar.gz",
+          "binary": "llama-server",
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10749/llama-b10749-bin-ubuntu-x64.tar.gz"
+        },
+        "vulkan": {
+          "label": "Vulkan",
+          "gpu": true,
+          "filename": "llama-b10749-bin-ubuntu-vulkan-x64.tar.gz",
+          "kind": "tar.gz",
+          "binary": "llama-server",
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10749/llama-b10749-bin-ubuntu-vulkan-x64.tar.gz"
+        }
+      }
     }
   }
 }

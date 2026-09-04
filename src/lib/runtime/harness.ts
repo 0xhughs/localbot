@@ -12,7 +12,14 @@ import type { TurnEvent } from "../harness/turns.ts";
 
 export type HarnessPromptInput = { agentName: string; text: string };
 export type HarnessPromptResult =
-  | { ok: true; turnId: string; sessionId: string; resumed: boolean }
+  | {
+      ok: true;
+      turnId: string;
+      sessionId: string;
+      resumed: boolean;
+      /** Stage 6: which file / route this turn runs on, and whether llama-server was restarted for it. */
+      model: { route: "llama.cpp" | "ollama"; name: string; path: string | null; source: "agent" | "fallback" | "none" | "ollama"; notice: string | null; restarted: boolean };
+    }
   | { ok: false; error: string };
 
 export type HarnessPollInput = { turnId: string; after: number };
@@ -30,14 +37,28 @@ function message(err: unknown): string {
 export const harnessPrompt = createServerFn({ method: "POST" })
   .validator((input: HarnessPromptInput) => input)
   .handler(async ({ data }): Promise<HarnessPromptResult> => {
-    const { appLaunchSpec } = await import("./harness-launch.ts");
+    const { appLaunchReport } = await import("./harness-launch.ts");
     const { getHarnessManager } = await import("../harness/index.ts");
     try {
-      const spec = await appLaunchSpec();
+      const report = await appLaunchReport(data.agentName);
+      const spec = report.spec;
       const mgr = getHarnessManager();
       const session = await mgr.ensureSession(spec, data.agentName);
       const rec = await mgr.prompt(spec, data.agentName, data.text);
-      return { ok: true, turnId: rec.turnId, sessionId: rec.sessionId, resumed: session.resumed };
+      return {
+        ok: true,
+        turnId: rec.turnId,
+        sessionId: rec.sessionId,
+        resumed: session.resumed,
+        model: {
+          route: report.route,
+          name: spec.modelName ?? "Local GGUF",
+          path: report.model?.path ?? null,
+          source: report.route === "ollama" ? "ollama" : (report.model?.source ?? "none"),
+          notice: report.model?.notice ?? null,
+          restarted: report.restarted,
+        },
+      };
     } catch (err) {
       return { ok: false, error: message(err) };
     }

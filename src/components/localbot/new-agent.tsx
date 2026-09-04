@@ -1,23 +1,40 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocalBot } from "@/lib/store";
 import { MASCOT_IDS, MASCOT_META, mascotIdForTemplate, type MascotId } from "@/lib/mascots";
+import { modelList } from "@/lib/runtime/model-server";
 import { AGENT_COLOR_LIST, type AgentColorId } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ColorSwatch } from "./avatar";
 import { MascotMark } from "./mascots";
+import { AgentModelSelect } from "./settings";
 
 export function NewAgentDialog() {
   const open = useLocalBot((s) => s.ui.newAgentOpen);
   const setUi = useLocalBot((s) => s.setUi);
   const createBot = useLocalBot((s) => s.createBot);
   const selectedCatalogId = useLocalBot((s) => s.selectedCatalogId);
+  const useOllama = useLocalBot((s) => s.settings.useExistingOllama);
   const bots = useLocalBot((s) => s.bots);
   const [name, setName] = useState("");
   const [job, setJob] = useState("");
   const [color, setColor] = useState<AgentColorId>("steel");
   const [mascotId, setMascotId] = useState<MascotId>("researcher");
+  const [modelId, setModelId] = useState<string>("");
+  const [models, setModels] = useState<Awaited<ReturnType<typeof modelList>>["models"]>([]);
   const [error, setError] = useState<string | null>(null);
+
+  // Files on disk only. Default to the last picked / verified file.
+  useEffect(() => {
+    if (!open) return;
+    void modelList().then((r) => {
+      setModels(r.models);
+      const verified = r.models.filter((m) => m.verified);
+      const preferred = verified.find((m) => m.modelId === selectedCatalogId) ?? verified[0];
+      setModelId((cur) => (cur && verified.some((m) => m.modelId === cur) ? cur : (preferred?.modelId ?? "")));
+    });
+  }, [open, selectedCatalogId]);
+
   if (!open) return null;
 
   const submit = async () => {
@@ -29,7 +46,7 @@ export function NewAgentDialog() {
         job: job.trim() || "Generalist",
         color,
         mascotId,
-        modelId: selectedCatalogId ?? "qwen25-05b-q4",
+        modelId: modelId || selectedCatalogId || "qwen25-05b-q4",
       });
       setName("");
       setJob("");
@@ -94,6 +111,15 @@ export function NewAgentDialog() {
               />
             ))}
           </div>
+        </div>
+        <div className="mt-3">
+          <p className="text-xs font-medium text-muted">Model (files on this computer)</p>
+          <div className="mt-2">
+            <AgentModelSelect value={modelId} onChange={setModelId} models={models} disabled={useOllama} testId="new-agent-model" />
+          </div>
+          {useOllama && (
+            <p className="mt-1 text-[11px] text-muted">Use existing Ollama is on; the Ollama model picked under Safety is used instead.</p>
+          )}
         </div>
         {error && <p className="mt-3 text-sm text-danger">{error}</p>}
         <div className="mt-5 flex justify-end gap-2">

@@ -3,7 +3,6 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { readActiveModelPath, spawnLlamaServer, stopLlamaServer } from "./llama.mjs";
 import {
   DEV_UI_URL,
   MISSING_UI_MESSAGE,
@@ -278,19 +277,11 @@ async function createWindow(uiUrl) {
   await win.loadURL(uiUrl);
 }
 
-async function maybeStartLlama() {
-  const dataDir = process.env.LOCALBOT_DATA_DIR;
-  const modelPath = readActiveModelPath(dataDir);
-  if (!modelPath) return;
-  try {
-    await spawnLlamaServer({ dataDir, modelPath });
-  } catch {
-    /* sidecar / first chat will retry */
-  }
-}
-
+// Stage 6: the sidecar owns the one llama-server (runtime pick, GPU layers,
+// restart onto the selected agent's GGUF). Electron main starts none of its
+// own, so there is never a second server the sidecar could not restart; the
+// sidecar kills its llama-server child when it exits.
 function stopChildren() {
-  stopLlamaServer();
   if (sidecarChild) {
     sidecarChild.kill();
     sidecarChild = null;
@@ -313,7 +304,6 @@ app.whenReady().then(async () => {
     const url = await ensureDevUi();
     await createWindow(url);
   }
-  void maybeStartLlama();
 });
 
 app.on("window-all-closed", () => {

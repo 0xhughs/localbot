@@ -50,7 +50,7 @@ Electron's own Node starts the already-built Nitro server (`resources/localbot-s
 
 ```
 {cwd}/data/LocalBot/models/{filename}     # GGUF weights
-{cwd}/data/LocalBot/bin/{platform-arch}/  # llama.cpp
+{cwd}/data/LocalBot/bin/{target}/{runtime}/  # llama.cpp (cpu / vulkan / cuda-12.4 / metal)
 {cwd}/data/localbot-config.json           # version 2: folders { employeeRoot, employeeShared, departmentShared, companyShared }
 {cwd}/data/LocalBot/{CompanyName}/        # only if you chose "Create my folders"
 ```
@@ -60,7 +60,7 @@ Electron's own Node starts the already-built Nitro server (`resources/localbot-s
 ```
 {appData}/LocalBot/localbot-config.json
 {appData}/LocalBot/models/
-{appData}/LocalBot/bin/{platform-arch}/
+{appData}/LocalBot/bin/{target}/{runtime}/
 {documents}/LocalBot/{CompanyName}/       # only if you chose "Create my folders"
 ```
 
@@ -68,7 +68,9 @@ Work folders are wherever you pointed the four scopes; see [FOLDER_CONTRACT.md](
 
 Agent menu (sidebar `…`): **Pin**, **Rename** (moves `agents/{Old}/` → `agents/{New}/`, memory and output included; refused while the agent is working), **Duplicate** (copies the agent's `private/` and standing instructions into `agents/{Name copy}/`), **Archive** (leaves the roster, files stay; restore from **Archived** at the bottom of the sidebar), **Hide** (this browser only), **Delete** (removes the folder). Changing a folder in Settings still does not move old files; renaming an agent does move that agent's own folder.
 
-llama.cpp binaries are resolved for **macOS arm64, macOS x64, Windows x64, Linux x64**.
+llama.cpp b10749 builds are pinned per (target, runtime): **macOS arm64** (Metal), **macOS x64** (CPU only — no GPU asset), **Windows x64** (CPU / CUDA 12.4 / Vulkan), **Linux x64** (CPU / Vulkan). The sidecar probes the GPU (`nvidia-smi`, `/dev/dri`, Vulkan ICDs, WMI, arch) and picks the build; `--n-gpu-layers` is 0 on a CPU build and > 0 only on a GPU build. Settings → Models shows the probe and lets you pin a build. GPU execution is UNVERIFIED in this repo (CPU-only host).
+
+Every GGUF is verified (size, GGUF magic, sha256 from the catalog) before it can be loaded; a mismatch is refused. Each agent picks its own file (Settings → Agents, New agent); one llama-server restarts onto the selected agent's file after a health check. **Use existing Ollama** (Settings → Safety) lists the tags on `127.0.0.1:11434` and routes the Harness at the one you pick; if nothing answers, chat is refused with that error — it never falls back to a hosted model.
 
 Two people share work only if they point at the **same real folder**. Files another person or program drops into a connected folder show up in the Computer pane on their own (the sidecar watches each folder; on network shares it polls metadata). **Refresh** re-lists everything now. A share that goes away shows **Disconnected** on that section; LocalBot does not switch to a local copy. In the desktop app, **reveal** opens the folder in Finder / Explorer.
 

@@ -18,9 +18,24 @@ import {
   type ToolKind,
 } from "@/lib/types";
 import { runAgentTurn } from "@/runtime/harnessAdapter";
+import { modelStatusForAgent } from "@/lib/runtime/model-server";
 import { Button } from "@/components/ui/button";
 import { AgentAvatar } from "./avatar";
 import { ChatMarkdown } from "./markdown";
+
+type AgentModelStatus = Awaited<ReturnType<typeof modelStatusForAgent>>;
+
+function modelBadgeTitle(s: AgentModelStatus | null): string | undefined {
+  if (!s) return undefined;
+  const lines: string[] = [];
+  if (s.ollama) lines.push(s.ollama.model ? `Ollama ${s.ollama.model} on 127.0.0.1:11434` : "Ollama switch is on; no model picked");
+  else if (s.path) lines.push(`${s.name}\n${s.path}`);
+  if (s.notice) lines.push(s.notice);
+  if (s.loaded) lines.push(`llama-server: ${s.loaded.modelPath.split(/[\\/]/).pop()} · ${s.loaded.runtime} · gpu layers ${s.loaded.gpuLayers}`);
+  if (s.willRestart) lines.push("Next message restarts llama-server onto this agent's model.");
+  if (s.runtime) lines.push(`Build: ${s.runtime.label} — ${s.runtime.reason}`);
+  return lines.join("\n");
+}
 
 const SUGGESTIONS = [
   "Write a one-page launch brief into private/output/brief.md",
@@ -43,10 +58,14 @@ export function ChatPane() {
   const showComputer = useLocalBot((s) => s.ui.showComputer);
   const aiAvailable = useLocalBot((s) => s.runtime.aiAvailable);
   const badge = useLocalBot((s) => s.runtime.badge);
+  const setRuntime = useLocalBot((s) => s.setRuntime);
+  const settingsOpen = useLocalBot((s) => s.ui.showSettings);
   const snap = useLocalBot.getState();
 
   const [chips, setChips] = useState<ToolChip[]>([]);
   const [pending, setPending] = useState<PermissionRequest | null>(null);
+  const [agentModel, setAgentModel] = useState<AgentModelStatus | null>(null);
+  const [switching, setSwitching] = useState(false);
   const permResolver = useRef<((d: PermissionDecision) => void) | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
@@ -60,6 +79,29 @@ export function ChatPane() {
     setChips([]);
     setPending(null);
   }, [selected]);
+
+  // Stage 6: the header badge names the file *this* agent's next turn loads
+  // (agent.json.modelId), refreshed on agent select, after each turn and when
+  // Settings closes — not the onboarding card's catalog id.
+  const botName = bot?.name ?? null;
+  const botModelId = bot?.modelId ?? null;
+  const turnRunning = Boolean(session?.running);
+  useEffect(() => {
+    if (!botName) return;
+    let stale = false;
+    void modelStatusForAgent({ data: { agentName: botName } }).then((s) => {
+      if (stale) return;
+      setAgentModel(s);
+      setRuntime({ badge: s.badge, aiAvailable: s.ready, model: s.name, ggufPath: s.path });
+      // agent.json is the durable record; a browser copy that drifted (edited
+      // on disk, another window) follows it so the pickers show the truth.
+      const cur = useLocalBot.getState().bots.find((b) => b.name === botName);
+      if (cur && s.modelId && cur.modelId !== s.modelId) useLocalBot.getState().updateBot(cur.id, { modelId: s.modelId });
+    });
+    return () => {
+      stale = true;
+    };
+  }, [botName, botModelId, turnRunning, settingsOpen, setRuntime]);
 
   if (!bot) {
     return (
@@ -95,12 +137,23 @@ export function ChatPane() {
     abortRef.current = ac;
     setChips([]);
     setRunning(bot.id, true);
+    setSwitching(Boolean(agentModel?.willRestart));
     const live: ToolChip[] = [];
     const result = await runAgentTurn({
       botId: bot.id,
       userText: trimmed,
       abort: ac.signal,
       events: {
+        onModel: (info) => {
+          setSwitching(false);
+          if (info.restarted) {
+            appendMessage(bot.id, {
+              role: "system",
+              content: `Switched llama-server to ${info.name}${info.path ? ` (${info.path.split(/[\\/]/).pop()})` : ""}.`,
+            });
+          }
+          if (info.notice) appendMessage(bot.id, { role: "system", content: info.notice });
+        },
         onChip: (chip) => {
           live.push(chip);
           setChips([...live]);
@@ -119,6 +172,7 @@ export function ChatPane() {
       },
     });
     setPending(null);
+    setSwitching(false);
     useLocalBot.getState().setUi({ pendingPermission: null });
     setRunning(bot.id, false);
     const sess = useLocalBot.getState().sessions[bot.id];
@@ -167,7 +221,7 @@ export function ChatPane() {
             <h1 className="truncate text-sm font-medium">{bot.name}</h1>
             {running && (
               <span className="shimmer-text font-mono text-[10px] tracking-wider uppercase">
-                Working
+                {switching ? "Switching model" : "Working"}
               </span>
             )}
           </div>
@@ -176,11 +230,13 @@ export function ChatPane() {
           </p>
         </div>
         <span
+          data-testid="model-badge"
+          title={modelBadgeTitle(agentModel)}
           className={`hidden rounded-full px-2 py-0.5 font-mono text-[10px] tracking-wide uppercase md:inline ${
-            aiAvailable ? "bg-accent/15 text-accent" : "bg-danger/15 text-danger"
+            (agentModel ? agentModel.ready : aiAvailable) ? "bg-accent/15 text-accent" : "bg-danger/15 text-danger"
           }`}
         >
-          {badge || (aiAvailable ? "Local model" : "Local model not ready")}
+          {agentModel?.badge || badge || (aiAvailable ? "Local model" : "Local model not ready")}
         </span>
         <Button
           variant={running ? "danger" : "ghost"}
