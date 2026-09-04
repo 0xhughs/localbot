@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -67,6 +67,8 @@ export function Onboarding() {
 
   const [scanning, setScanning] = useState(false);
   const [picked, setPicked] = useState<string | null>(null);
+  /** The model id that actually verified on the Download step (may differ from the card after an import). */
+  const [activeModelId, setActiveModelId] = useState<string | null>(null);
   const [company, setCompany] = useState("Studio");
   const [department, setDepartment] = useState("Operations");
   const [employee, setEmployee] = useState("You");
@@ -153,6 +155,12 @@ export function Onboarding() {
             catalogId={picked}
             onBack={() => setStep("models")}
             onReady={() => setStep("folders")}
+            onActivated={(modelId) => {
+              // The first agent runs on the file that actually verified — the
+              // imported GGUF's own id, not the wizard card's catalog id.
+              setActiveModelId(modelId);
+              noteCatalog(modelId);
+            }}
           />
         )}
         {step === "folders" && (
@@ -195,7 +203,7 @@ export function Onboarding() {
             onFinish={async () => {
               setBusy(true);
               setError(null);
-              const modelId = picked ?? "qwen25-05b-q4";
+              const modelId = activeModelId ?? picked ?? "qwen25-05b-q4";
               const result = await completeOnboarding({
                 companyName: company,
                 departmentName: department,
@@ -414,15 +422,20 @@ function DownloadStep({
   catalogId,
   onBack,
   onReady,
+  onActivated,
 }: {
   catalogId: string;
   onBack: () => void;
   onReady: () => void;
+  /** Called with the model id that verified (catalog id, or the imported file's own name). */
+  onActivated: (modelId: string) => void;
 }) {
   const [status, setStatus] = useState<Awaited<ReturnType<typeof modelDownloadStatus>> | null>(null);
   const [importPath, setImportPath] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+  const activatedRef = useRef(onActivated);
+  activatedRef.current = onActivated;
 
   useEffect(() => {
     let stop = false;
@@ -432,7 +445,10 @@ function DownloadStep({
       setStatus(s);
       if (s.status === "done") {
         const v = await modelVerify({ data: { catalogId } });
-        if (v.ok) setReady(true);
+        if (v.ok) {
+          setReady(true);
+          activatedRef.current(catalogId);
+        }
       }
     };
     void (async () => {
@@ -442,9 +458,11 @@ function DownloadStep({
         const v = await modelVerify({ data: { catalogId } });
         if (v.ok) {
           setReady(true);
-          setMsg(`Already on disk · ${hit.path}`);
+          activatedRef.current(catalogId);
+          setMsg(`Already on disk · ${hit.path} · sha256 ${v.sha256.slice(0, 12)}…`);
           return;
         }
+        setMsg(v.error);
       }
       await modelDownloadStart({ data: { catalogId } });
       await tick();
@@ -526,7 +544,8 @@ function DownloadStep({
             const r = await modelImport({ data: { absolutePath: importPath, catalogId } });
             if (r.ok) {
               setReady(true);
-              setMsg(`Imported ${r.path}`);
+              onActivated(r.modelId);
+              setMsg(`Imported ${r.path} · ${r.catalogId ? `catalog ${r.catalogId}` : `own file ${r.modelId}`} · sha256 ${r.sha256.slice(0, 12)}…`);
             } else {
               setMsg(r.error ?? "Import failed");
             }

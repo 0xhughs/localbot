@@ -339,9 +339,10 @@ describe("llama.cpp platform assets", () => {
     assert.equal(llamaAssetFor("linux", "arm64"), null);
     const raw = JSON.parse(
       fs.readFileSync(path.join(process.cwd(), "catalog/llama-assets.json"), "utf8"),
-    ) as { targets: Record<string, { filename: string }> };
-    assert.equal(raw.targets["win32-x64"].filename, map["win32-x64"]);
-    assert.equal(raw.targets["darwin-arm64"].filename, map["darwin-arm64"]);
+    ) as { targets: Record<string, { default: string; runtimes: Record<string, { filename: string }> }> };
+    const def = (t: string) => raw.targets[t]!.runtimes[raw.targets[t]!.default]!.filename;
+    assert.equal(def("win32-x64"), map["win32-x64"]);
+    assert.equal(def("darwin-arm64"), map["darwin-arm64"]);
   });
 });
 
@@ -360,10 +361,10 @@ describe("electron data dirs", () => {
         defaultCompanyRoot("Studio"),
         path.join(process.env.LOCALBOT_DOCUMENTS_DIR, "LocalBot", "Studio"),
       );
-      assert.equal(
-        llamaBinDir(),
-        path.join(process.env.LOCALBOT_DATA_DIR, "bin", llamaTarget() ?? `${process.platform}-${process.arch}`),
-      );
+      // Stage 6 layout: bin/{target}/{runtime}/ so CPU and GPU trees coexist.
+      const target = llamaTarget() ?? `${process.platform}-${process.arch}`;
+      assert.equal(llamaBinDir(), path.join(process.env.LOCALBOT_DATA_DIR, "bin", target, "cpu"));
+      assert.equal(llamaBinDir("vulkan"), path.join(process.env.LOCALBOT_DATA_DIR, "bin", target, "vulkan"));
     } finally {
       if (prevE === undefined) delete process.env.LOCALBOT_ELECTRON;
       else process.env.LOCALBOT_ELECTRON = prevE;
@@ -574,7 +575,7 @@ describe("import and verify", { concurrency: false }, () => {
     const dest = path.join(process.cwd(), "data/LocalBot/models/qwen2.5-0.5b-instruct-q4_k_m.gguf");
     if (!fs.existsSync(dest)) return;
     const v = verifyModel("qwen25-05b-q4");
-    assert.equal(v.ok, true, v.error);
-    assert.equal(v.path, dest);
+    assert.equal(v.ok, true, v.ok ? "" : v.error);
+    assert.equal(v.ok && v.path, dest);
   });
 });

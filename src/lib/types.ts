@@ -1,5 +1,6 @@
 import type { MascotId } from "./mascots";
 import type { FoldersConfig, ScopeId } from "./fs/scope-model";
+import type { GpuProbe, LlamaRuntimePreference } from "./runtime/llama-platform";
 
 export type { MascotId };
 export type { FoldersConfig, ScopeId };
@@ -61,6 +62,18 @@ export type HardwareReport = {
   freeDiskGb: number;
   isMobile: boolean;
   scannedAt: string;
+  /** Sidecar GPU probe (Stage 6). Absent on browser-only scans; null when nothing answered. */
+  gpu?: GpuProbe | null;
+};
+
+/** A GGUF that passed size + magic + sha256 and may be loaded. Keyed by absolute path in config. */
+export type VerifiedModel = {
+  sha256: string;
+  size: number;
+  /** File mtime at verification; a later write invalidates the record. */
+  mtimeMs: number;
+  catalogId: string | null;
+  verifiedAt: string;
 };
 
 export type ModelFit = {
@@ -176,6 +189,12 @@ export type DiskConfig = {
   activeModelPath: string | null;
   allowHostedDemo: boolean;
   useExistingOllama: boolean;
+  /** Ollama tag chosen in Settings when `useExistingOllama` is on. null = not picked yet. */
+  ollamaModel: string | null;
+  /** llama.cpp build preference: `auto` follows the GPU probe; a runtime id pins that row. */
+  llamaRuntime: LlamaRuntimePreference;
+  /** GGUFs that passed verification (size + magic + sha256), by absolute path. */
+  verifiedModels: Record<string, VerifiedModel>;
 };
 
 export type ChatRole = "user" | "assistant" | "system";

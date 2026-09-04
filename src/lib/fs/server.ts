@@ -23,6 +23,7 @@ import {
   requireFolders,
   ScopeError,
   setAgentArchived,
+  setAgentModel,
   uniqueCopyName,
   scopedDelete,
   scopedList,
@@ -158,6 +159,33 @@ export const agentSetArchived = createServerFn({ method: "POST" })
     }
   });
 
+/**
+ * Stage 6: pick the GGUF this agent runs on. Only files verified on disk are
+ * accepted; the change lands in agent.json and applies from the agent's next
+ * turn (llama-server restarts onto that file after a health check).
+ */
+export const agentSetModel = createServerFn({ method: "POST" })
+  .validator((input: { agentName: string; modelId: string }) => input)
+  .handler(async ({ data }): Promise<{ ok: true; modelId: string; name: string; path: string } | Fail> => {
+    try {
+      const { listModelsOnDisk, modelFileForId } = await import("../runtime/models.ts");
+      const target = modelFileForId(data.modelId);
+      const onDisk = target ? listModelsOnDisk().find((m) => m.path === target.path) : undefined;
+      if (!target || !onDisk) {
+        throw new ScopeError("NOT_FOUND", `${data.modelId} is not in the models folder. Download or import it first.`);
+      }
+      if (!onDisk.verified) {
+        const { ensureVerified } = await import("../runtime/models.ts");
+        const v = ensureVerified(onDisk.path, target.model);
+        if (!v.ok) throw new ScopeError("BAD_PATH", `${onDisk.filename} failed verification: ${v.error}`);
+      }
+      const rec = setAgentModel(requireFolders(), data.agentName, onDisk.modelId);
+      return { ok: true, modelId: rec.modelId, name: onDisk.name, path: onDisk.path };
+    } catch (err) {
+      return fail(err);
+    }
+  });
+
 export const agentSetScopes = createServerFn({ method: "POST" })
   .validator((input: { agentName: string; scopes: string[] }) => input)
   .handler(async ({ data }): Promise<{ ok: true; scopes: ScopeId[] } | Fail> => {
@@ -174,7 +202,7 @@ export const agentInfo = createServerFn({ method: "POST" })
     async ({
       data,
     }): Promise<
-      { ok: true; standing: string | null; scopes: ScopeId[]; exists: boolean; archived: boolean } | Fail
+      { ok: true; standing: string | null; scopes: ScopeId[]; exists: boolean; archived: boolean; modelId: string } | Fail
     > => {
       try {
         const folders = requireFolders();
@@ -185,6 +213,7 @@ export const agentInfo = createServerFn({ method: "POST" })
           standing: readAgentStanding(folders, data.agentName),
           scopes: rec?.scopes ?? ["private"],
           archived: rec?.archived ?? false,
+          modelId: rec?.modelId ?? "",
         };
       } catch (err) {
         return fail(err);

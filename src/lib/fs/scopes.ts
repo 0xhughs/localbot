@@ -353,6 +353,8 @@ export type AgentPaths = {
   scopes: ScopeId[];
   name: string;
   archived: boolean;
+  /** agent.json is the durable record for the model (Stage 6); the browser copy follows it. */
+  modelId: string;
 };
 
 /**
@@ -375,7 +377,9 @@ export function ensureAgent(folders: FoldersConfig, input: EnsureAgentInput): Ag
   const record: AgentRecord = {
     name,
     job: input.job,
-    modelId: input.modelId,
+    // An existing agent keeps the model written in its agent.json; a stale
+    // browser copy never overwrites the durable pick.
+    modelId: existing?.modelId || input.modelId,
     color: input.color,
     mascotId: input.mascotId,
     scopes,
@@ -391,7 +395,25 @@ export function ensureAgent(folders: FoldersConfig, input: EnsureAgentInput): Ag
   if (!fs.existsSync(notes)) {
     fs.writeFileSync(notes, `# Memory\n\nStanding context for ${name}.\n`, "utf8");
   }
-  return { agentDir: dir, privatePath: priv, scopes, name, archived: record.archived };
+  return { agentDir: dir, privatePath: priv, scopes, name, archived: record.archived, modelId: record.modelId };
+}
+
+/**
+ * Stage 6: write the agent's model (catalog id or imported GGUF filename) to
+ * agent.json. The next Harness turn loads that file; the ACP session is kept
+ * (the Harness only knows the loopback URL).
+ */
+export function setAgentModel(folders: FoldersConfig, agentName: string, modelId: string): AgentRecord {
+  const dir = requireAgentDir(folders, agentName);
+  const cur = readAgent(folders, agentName);
+  if (!cur) throw new ScopeError("NOT_FOUND", `agents/${path.basename(dir)} has no agent.json.`);
+  const id = modelId.trim();
+  if (!id || /[\\/]|\.\./.test(id) || id.includes("\0")) {
+    throw new ScopeError("BAD_PATH", `Bad model id: ${modelId}`);
+  }
+  const next: AgentRecord = { ...cur, modelId: id };
+  writeAgentRecord(dir, next);
+  return next;
 }
 
 function requireAgentDir(folders: FoldersConfig, agentName: string): string {
@@ -431,7 +453,7 @@ export function renameAgent(folders: FoldersConfig, oldName: string, newName: st
   const record = readAgent(folders, oldName);
   if (!record) throw new ScopeError("NOT_FOUND", `agents/${oldSlug} has no agent.json.`);
   if (next === oldSlug) {
-    return { agentDir: src, privatePath: path.join(src, "private"), scopes: record.scopes, name: oldSlug, archived: record.archived };
+    return { agentDir: src, privatePath: path.join(src, "private"), scopes: record.scopes, name: oldSlug, archived: record.archived, modelId: record.modelId };
   }
   const owner = agentDirOwner(folders, next);
   if (owner && owner !== oldSlug) {
@@ -456,7 +478,7 @@ export function renameAgent(folders: FoldersConfig, oldName: string, newName: st
   writeAgentRecord(dst, { ...record, name: next });
   retitleMarkdown(path.join(dst, "AGENTS.md"), record.name || oldSlug, next);
   retitleMarkdown(path.join(dst, "private", "AGENTS.md"), record.name || oldSlug, next);
-  return { agentDir: dst, privatePath: path.join(dst, "private"), scopes: record.scopes, name: next, archived: record.archived };
+  return { agentDir: dst, privatePath: path.join(dst, "private"), scopes: record.scopes, name: next, archived: record.archived, modelId: record.modelId };
 }
 
 /** `Writer copy`, then `Writer copy 2`, … — free on disk and not in `avoid`. */
@@ -514,7 +536,7 @@ export function copyAgent(
   }
   const fresh: AgentRecord = { ...record, name: next, createdAt: now, archived: false };
   writeAgentRecord(dst, fresh);
-  return { agentDir: dst, privatePath: dstPrivate, scopes: fresh.scopes, name: next, archived: false };
+  return { agentDir: dst, privatePath: dstPrivate, scopes: fresh.scopes, name: next, archived: false, modelId: fresh.modelId };
 }
 
 /** Flip `archived` in agent.json. Touches nothing else: no file is moved or removed. */

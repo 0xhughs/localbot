@@ -1,8 +1,14 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { llamaTarget } from "../runtime/llama-platform.ts";
-import type { DiskConfig, DiskEntry, FoldersConfig } from "../types.ts";
+import {
+  defaultRuntimeFor,
+  isLlamaRuntimeId,
+  llamaTarget,
+  type LlamaRuntimeId,
+  type LlamaRuntimePreference,
+} from "../runtime/llama-platform.ts";
+import type { DiskConfig, DiskEntry, FoldersConfig, VerifiedModel } from "../types.ts";
 
 export function isElectronRuntime(): boolean {
   return process.env.LOCALBOT_ELECTRON === "1";
@@ -58,16 +64,31 @@ export function llamaServerName(): string {
   return process.platform === "win32" ? "llama-server.exe" : "llama-server";
 }
 
-export function llamaBinDir(): string {
+/**
+ * Where one llama.cpp runtime lives: `bin/{target}/{runtime}/` (Stage 6), so
+ * the CPU tree and a GPU tree coexist. Installs from before Stage 6 unpacked
+ * the CPU build straight into `bin/{target}/`; that folder is still accepted
+ * for the target's default runtime so nothing is re-downloaded.
+ */
+export function llamaBinDir(runtime: LlamaRuntimeId = defaultRuntimeForHost()): string {
   const root = llamaBinRoot();
-  const key = llamaTarget() ?? `${process.platform}-${process.arch}`;
-  const preferred = path.join(root, key);
+  const target = llamaTarget();
+  const key = target ?? `${process.platform}-${process.arch}`;
+  const preferred = path.join(root, key, runtime);
   const name = llamaServerName();
-  const candidates = [preferred, path.join(root, "llama-b10749"), root];
+  const candidates = [preferred];
+  if (target && runtime === defaultRuntimeFor(target)) {
+    candidates.push(path.join(root, key), path.join(root, "llama-b10749"), root);
+  }
   for (const dir of candidates) {
     if (fs.existsSync(path.join(dir, name))) return dir;
   }
   return preferred;
+}
+
+export function defaultRuntimeForHost(): LlamaRuntimeId {
+  const t = llamaTarget();
+  return t ? defaultRuntimeFor(t) : "cpu";
 }
 
 const DEFAULT_CFG_FIELDS = {
@@ -75,7 +96,32 @@ const DEFAULT_CFG_FIELDS = {
   activeModelPath: null as string | null,
   allowHostedDemo: false,
   useExistingOllama: false,
+  ollamaModel: null as string | null,
+  llamaRuntime: "auto" as LlamaRuntimePreference,
+  verifiedModels: {} as Record<string, VerifiedModel>,
 };
+
+function normalizeVerified(raw: unknown): Record<string, VerifiedModel> {
+  if (!raw || typeof raw !== "object") return {};
+  const out: Record<string, VerifiedModel> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (!v || typeof v !== "object") continue;
+    const r = v as Partial<VerifiedModel>;
+    if (typeof r.sha256 !== "string" || r.sha256.length !== 64 || typeof r.size !== "number" || typeof r.mtimeMs !== "number") continue;
+    out[path.resolve(k)] = {
+      sha256: r.sha256,
+      size: r.size,
+      mtimeMs: r.mtimeMs,
+      catalogId: typeof r.catalogId === "string" ? r.catalogId : null,
+      verifiedAt: typeof r.verifiedAt === "string" ? r.verifiedAt : "",
+    };
+  }
+  return out;
+}
+
+function normalizeRuntimePref(raw: unknown): LlamaRuntimePreference {
+  return raw === "auto" || isLlamaRuntimeId(raw) ? raw : "auto";
+}
 
 export const CONFIG_VERSION = 2;
 
@@ -209,6 +255,9 @@ export function loadConfig(): DiskConfig {
         : null,
     allowHostedDemo: Boolean(raw.allowHostedDemo),
     useExistingOllama: Boolean(raw.useExistingOllama),
+    ollamaModel: typeof raw.ollamaModel === "string" && raw.ollamaModel ? raw.ollamaModel : null,
+    llamaRuntime: normalizeRuntimePref(raw.llamaRuntime),
+    verifiedModels: normalizeVerified(raw.verifiedModels),
   };
   if (migrated) {
     try {
@@ -243,6 +292,10 @@ export function patchConfig(patch: Partial<DiskConfig>): DiskConfig {
       patch.allowHostedDemo !== undefined ? patch.allowHostedDemo : cur.allowHostedDemo,
     useExistingOllama:
       patch.useExistingOllama !== undefined ? patch.useExistingOllama : cur.useExistingOllama,
+    ollamaModel: patch.ollamaModel !== undefined ? patch.ollamaModel : cur.ollamaModel,
+    llamaRuntime: patch.llamaRuntime !== undefined ? normalizeRuntimePref(patch.llamaRuntime) : cur.llamaRuntime,
+    verifiedModels:
+      patch.verifiedModels !== undefined ? normalizeVerified(patch.verifiedModels) : cur.verifiedModels,
   };
   fs.mkdirSync(next.modelsDir, { recursive: true });
   writeConfigFile(next);

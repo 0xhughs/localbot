@@ -19,10 +19,14 @@ import { resolveBot, useLocalBot } from "@/lib/store";
 import type { PermissionDecision, PermissionRequest, ToolChip, ToolKind } from "@/lib/types";
 import { uid } from "@/lib/utils";
 
+export type TurnModelInfo = Extract<Awaited<ReturnType<typeof harnessPrompt>>, { ok: true }>["model"];
+
 export type AdapterEvents = {
   onChip: (chip: ToolChip) => void;
   onChipUpdate: (id: string, patch: Partial<ToolChip>) => void;
   askPermission: (req: PermissionRequest) => Promise<PermissionDecision>;
+  /** Fired once the sidecar has resolved (and, if needed, restarted onto) this agent's model. */
+  onModel?: (info: TurnModelInfo) => void;
 };
 
 export const POLL_MS = 250;
@@ -73,7 +77,7 @@ export async function runAgentTurn(opts: {
   userText: string;
   events: AdapterEvents;
   abort: AbortSignal;
-}): Promise<{ stopped: boolean; error?: string }> {
+}): Promise<{ stopped: boolean; error?: string; model?: TurnModelInfo }> {
   const store = useLocalBot.getState();
   const ctx = resolveBot(store, opts.botId);
   if (!ctx) return { stopped: false, error: "Unknown agent" };
@@ -84,6 +88,9 @@ export async function runAgentTurn(opts: {
   const started = await harnessPrompt({ data: { agentName: ctx.bot.name, text: opts.userText } });
   if (!started.ok) return { stopped: false, error: started.error };
   const turnId = started.turnId;
+  // Stage 6: which file / route this turn runs on (the sidecar may have
+  // restarted llama-server onto this agent's GGUF before answering).
+  opts.events.onModel?.(started.model);
 
   let cancelled = false;
   const onAbort = () => {

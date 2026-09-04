@@ -13,6 +13,7 @@ import {
   agentRemove,
   agentRename,
   agentSetArchived,
+  agentSetModel,
   agentSetScopes,
   foldersGet,
   foldersSet,
@@ -162,6 +163,8 @@ type Actions = {
   pinBot: (id: string, pinned: boolean) => void;
   deleteBot: (id: string) => Promise<void>;
   setBotScopes: (id: string, scopes: ScopeId[]) => Promise<Result>;
+  /** Stage 6: writes agent.json.modelId via the sidecar; applies from the agent's next turn. */
+  setBotModel: (id: string, modelId: string) => Promise<Result>;
   markRead: (botId: string) => void;
   bumpUnread: (botId: string) => void;
   renameCompany: (name: string) => void;
@@ -334,7 +337,9 @@ export const useLocalBot = create<LocalBotState>()(
           });
           // agent.json is the durable record for `archived`; the browser copy follows it.
           next.push(
-            r.ok ? { ...bot, name: r.name, privatePath: r.privatePath, scopes: r.scopes, archived: r.archived } : bot,
+            r.ok
+              ? { ...bot, name: r.name, privatePath: r.privatePath, scopes: r.scopes, archived: r.archived, modelId: r.modelId || bot.modelId }
+              : bot,
           );
         }
         set({ bots: next, diskEpoch: get().diskEpoch + 1 });
@@ -597,6 +602,22 @@ export const useLocalBot = create<LocalBotState>()(
               s.ui.selectedBotId === id ? nextSelectable(remaining, id) : s.ui.selectedBotId,
           },
         });
+      },
+      setBotModel: async (id, modelId) => {
+        const s = get();
+        const bot = s.bots.find((b) => b.id === id);
+        if (!bot) return { ok: false, error: "Unknown agent" };
+        if (!s.folders) return { ok: false, error: "Pick your folders in Settings → Folders first" };
+        if (s.sessions[id]?.running) {
+          return { ok: false, error: `${bot.name} is still working on a message. Stop it first.` };
+        }
+        const r = await agentSetModel({ data: { agentName: bot.name, modelId } });
+        if (!r.ok) return { ok: false, error: r.error };
+        set((cur) => ({
+          bots: cur.bots.map((b) => (b.id === id ? { ...b, modelId: r.modelId } : b)),
+          diskEpoch: cur.diskEpoch + 1,
+        }));
+        return { ok: true };
       },
       setBotScopes: async (id, scopes) => {
         const s = get();

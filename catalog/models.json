@@ -1,7 +1,7 @@
 {
-  "pin": "2026.09-localbot-2",
-  "updated": "2026-09-01",
-  "notes": "Verified ungated Hugging Face GGUFs. Gemma 4 E2B and Qwen 3.5 rows 404 or gated — replaced with Qwen 2.5 Instruct Q4_K_M. Small 0.5B is the downloadable default for 4 GB machines.",
+  "pin": "2026.09-localbot-3",
+  "updated": "2026-09-04",
+  "notes": "Verified ungated Hugging Face GGUFs. Gemma 4 E2B and Qwen 3.5 rows 404 or gated — replaced with Qwen 2.5 Instruct Q4_K_M. Small 0.5B is the downloadable default for 4 GB machines. Stage 6: every downloadable row carries the Hub LFS sha256; the 0.5B and 1.5B hashes were confirmed by hashing the downloaded files, 3B / 7B are the Hub x-linked-etag values (UNVERIFIED against a local download).",
   "models": [
     {
       "id": "qwen25-05b-q4",
@@ -37,7 +37,7 @@
       "contextK": 8,
       "paramsLabel": "1.5B",
       "notes": "Preferred Small when RAM allows. Better tool calling than 0.5B.",
-      "sha256": ""
+      "sha256": "6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e"
     },
     {
       "id": "qwen25-3b-q4",
@@ -55,7 +55,7 @@
       "contextK": 8,
       "paramsLabel": "3B",
       "notes": "Recommended when the machine has ~16 GB RAM.",
-      "sha256": ""
+      "sha256": "626b4a6678b86442240e33df819e00132d3ba7dddfe1cdc4fbb18e0a9615c62d"
     },
     {
       "id": "qwen25-7b-q4",
@@ -73,7 +73,7 @@
       "contextK": 8,
       "paramsLabel": "7B",
       "notes": "Large card. Official Qwen 7B Q4_K_M is split; this is the single-file bartowski build.",
-      "sha256": ""
+      "sha256": "65b8fcd92af6b4fefa935c625d1ac27ea29dcb6ee14589c55a8f115ceaaa1423"
     }
   ]
 }
