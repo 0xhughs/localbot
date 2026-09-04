@@ -154,6 +154,12 @@ export function ChatPane() {
           }
           if (info.notice) appendMessage(bot.id, { role: "system", content: info.notice });
         },
+        onSession: (info) => {
+          // The sidecar restarted since the last turn and picked the persisted ACP session back up.
+          if (info.origin === "resumed") {
+            appendMessage(bot.id, { role: "system", content: "Resumed the previous Harness session." });
+          }
+        },
         onChip: (chip) => {
           live.push(chip);
           setChips([...live]);

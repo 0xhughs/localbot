@@ -1,10 +1,18 @@
 /**
  * The one Harness per sidecar: process + ACP sessions (one per LocalBot agent)
- * + turn registry. Session ids live in memory this stage (AGENTS.md item 7
- * moves the roster / chats off the browser and can persist them).
+ * + turn registry.
+ *
+ * Stage 7: the agent → sessionId map is persisted in the host index
+ * (`localbot-agents.json`, with the `agents/{Name}/private` cwd it was opened
+ * for). The in-memory map is only a cache. When it is empty for an agent the
+ * manager tries ACP `session/resume` with the persisted id; dsh restores its
+ * own log (no history is replayed by LocalBot). If resume is refused (unknown
+ * id, cwd moved, session active elsewhere) it falls back to `session/new` and
+ * stores the new id.
  */
 import fs from "node:fs";
 import path from "node:path";
+import { hostIndexSessionStore, type SessionStore } from "../fs/host-index.ts";
 import { readAgent, readAgentStanding, requireFolders, resolveScopePath, ScopeError } from "../fs/scopes.ts";
 import { HarnessProcess, type HarnessLaunchOptions } from "./process.ts";
 import { TurnRegistry, type TurnEvent, type TurnRecord } from "./turns.ts";
@@ -17,10 +25,26 @@ export type HarnessStatus = {
   nodeBin: string | undefined;
   dshHome: string | undefined;
   llamaBaseUrl: string | undefined;
-  sessions: { agentName: string; sessionId: string }[];
+  sessions: { agentName: string; sessionId: string; origin: SessionOrigin }[];
   agentInfo: { name: string; version: string } | null;
   lastExit: { code: number | null; stderr: string } | null;
 };
+
+export type SessionOrigin = "memory" | "resumed" | "new";
+
+export type EnsuredSession = {
+  sessionId: string;
+  cwd: string;
+  /** True when no session/new happened on this call (memory hit or a real ACP resume). */
+  resumed: boolean;
+  origin: SessionOrigin;
+  /** Why a persisted id could not be resumed (informational; a new session was opened). */
+  resumeError: string | null;
+};
+
+function sameDir(a: string, b: string): boolean {
+  return path.resolve(a) === path.resolve(b);
+}
 
 function launchKey(spec: LaunchSpec): string {
   return JSON.stringify([spec.dataDir, spec.dshHome ?? "", spec.llamaBaseUrl, spec.model ?? "", spec.contextTokens ?? 0, spec.maxTokens ?? 0, spec.nodeBin ?? ""]);
@@ -52,8 +76,15 @@ export class HarnessManager {
   private starting: Promise<HarnessProcess> | null = null;
   private lastExit: HarnessStatus["lastExit"] = null;
   readonly turns = new TurnRegistry();
-  /** agentName → ACP sessionId. In memory this stage. */
+  /** agentName → ACP sessionId for this process. Cache of the persisted map. */
   readonly sessions = new Map<string, string>();
+  /** How the last ensureSession for each agent got its id (status / tests). */
+  readonly lastSessionOrigin = new Map<string, SessionOrigin>();
+  readonly store: SessionStore;
+
+  constructor(store: SessionStore = hostIndexSessionStore) {
+    this.store = store;
+  }
 
   async ensureProcess(spec: LaunchSpec): Promise<HarnessProcess> {
     const key = launchKey(spec);
@@ -105,15 +136,38 @@ export class HarnessManager {
     if (cur !== next) fs.writeFileSync(file, next, "utf8");
   }
 
-  async ensureSession(spec: LaunchSpec, agentName: string): Promise<{ sessionId: string; cwd: string; resumed: boolean }> {
+  /**
+   * The ACP session for an agent. Order: the in-memory id for this process;
+   * else `session/resume` with the id persisted in the host index when its cwd
+   * is still this agent's `private/`; else `session/new`. Whatever id ends up
+   * in use is written back to the index.
+   */
+  async ensureSession(spec: LaunchSpec, agentName: string): Promise<EnsuredSession> {
     const cwd = this.privateRootOf(agentName);
     this.mirrorInstructions(agentName, cwd);
     const proc = await this.ensureProcess(spec);
     const existing = this.sessions.get(agentName);
-    if (existing) return { sessionId: existing, cwd, resumed: true };
+    if (existing) return { sessionId: existing, cwd, resumed: true, origin: "memory", resumeError: null };
+
+    const persisted = this.store.load(agentName);
+    let resumeError: string | null = null;
+    if (persisted && sameDir(persisted.cwd, cwd)) {
+      try {
+        await proc.resumeSession(persisted.sessionId, cwd);
+        this.sessions.set(agentName, persisted.sessionId);
+        this.lastSessionOrigin.set(agentName, "resumed");
+        return { sessionId: persisted.sessionId, cwd, resumed: true, origin: "resumed", resumeError: null };
+      } catch (err) {
+        resumeError = err instanceof Error ? err.message : String(err);
+      }
+    } else if (persisted) {
+      resumeError = `persisted session cwd ${persisted.cwd} is not ${cwd}`;
+    }
     const res = await proc.newSession(cwd);
     this.sessions.set(agentName, res.sessionId);
-    return { sessionId: res.sessionId, cwd, resumed: false };
+    this.store.save(agentName, res.sessionId, cwd);
+    this.lastSessionOrigin.set(agentName, "new");
+    return { sessionId: res.sessionId, cwd, resumed: false, origin: "new", resumeError };
   }
 
   /** Agents with a running turn right now (a model switch must not kill their generation). */
@@ -137,6 +191,8 @@ export class HarnessManager {
     if (this.hasActiveTurn(agentName)) {
       throw new ScopeError("BUSY", `${agentName} is still working on a message. Stop it first.`);
     }
+    this.store.clear(agentName);
+    this.lastSessionOrigin.delete(agentName);
     return this.sessions.delete(agentName);
   }
 
@@ -184,7 +240,11 @@ export class HarnessManager {
       nodeBin: this.proc?.nodeBin,
       dshHome: this.proc ? (this.proc.opts.dshHome ?? path.join(this.proc.opts.dataDir, "dsh-home")) : undefined,
       llamaBaseUrl: this.proc?.opts.llamaBaseUrl,
-      sessions: [...this.sessions].map(([agentName, sessionId]) => ({ agentName, sessionId })),
+      sessions: [...this.sessions].map(([agentName, sessionId]) => ({
+        agentName,
+        sessionId,
+        origin: this.lastSessionOrigin.get(agentName) ?? "new",
+      })),
       agentInfo: this.proc?.initializeResult?.agentInfo
         ? { name: this.proc.initializeResult.agentInfo.name, version: this.proc.initializeResult.agentInfo.version ?? "" }
         : null,

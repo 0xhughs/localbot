@@ -15,9 +15,19 @@ import {
   agentSetArchived,
   agentSetModel,
   agentSetScopes,
+  chatLoadAll,
+  chatSave,
   foldersGet,
   foldersSet,
+  stateLoad,
+  stateMigrate,
+  statePatchAgent,
+  statePatchIndex,
+  stateReset,
+  type ChatBody,
+  type StateLoadResult,
 } from "./fs/server";
+import type { LegacySnapshot, RosterEntry } from "./fs/host-index";
 import {
   agentSlug,
   displayPath,
@@ -29,6 +39,7 @@ import {
 } from "./fs/scope-model";
 import { mascotIdForTemplate, isMascotId, type MascotId } from "./mascots";
 import {
+  AGENT_COLORS,
   isActiveBot,
   type AgentColorId,
   type AppSnapshot,
@@ -107,9 +118,23 @@ export type FoldersMeta = {
 
 type Result = { ok: true } | { ok: false; error: string };
 
+/** Mirror of the switches in `localbot-config.json` that have no `Settings` field of their own. */
+export type HostConfigMirror = { ollamaModel: string | null; activeModelId: string | null };
+
 type Actions = {
   ui: UiState;
   hydrated: boolean;
+  /**
+   * Stage 7: true once `loadFromDisk` has replaced the roster / chats /
+   * onboarding flag with the sidecar's copy. Nothing renders before that, so a
+   * stale browser copy is never shown as the roster.
+   */
+  diskLoaded: boolean;
+  /** Why the roster could not be read (e.g. employee root DISCONNECTED). */
+  diskNotice: string | null;
+  /** The old `localStorage["localbot-state-v3"]`, kept only until `stateMigrate` has run once. */
+  legacySnapshot: LegacySnapshot | null;
+  hostConfig: HostConfigMirror;
   diskEpoch: number;
   /** Server-owned folder scopes. Not persisted in the browser; loaded from the sidecar. */
   folders: FoldersConfig | null;
@@ -117,6 +142,8 @@ type Actions = {
   setHydrated: (v: boolean) => void;
   setUi: (patch: Partial<UiState>) => void;
   resetAll: () => void;
+  /** Read index + roster + chats + config mirror from the sidecar; migrate the browser copy first when the data dir has no index yet. */
+  loadFromDisk: () => Promise<void>;
   setHardware: (h: HardwareReport) => void;
   noteCatalog: (catalogId: string) => void;
   setAiAvailable: (available: boolean) => void;
@@ -265,22 +292,166 @@ function withScope(bot: Bot, path: string): { scope: ScopeId; relPath: string } 
   return parsed;
 }
 
+function colorId(raw: string): AgentColorId {
+  return raw in AGENT_COLORS ? (raw as AgentColorId) : "sage";
+}
+
+/** One roster row from the sidecar (agent.json ⋈ host index) as the browser's `Bot`. */
+export function botFromRoster(r: RosterEntry, employeeId: string): Bot {
+  return {
+    id: r.id,
+    employeeId,
+    name: r.name,
+    job: r.job,
+    color: colorId(r.color),
+    mascotId: isMascotId(r.mascotId) ? r.mascotId : mascotIdForTemplate(r.name),
+    modelId: r.modelId,
+    scopes: r.scopes,
+    privatePath: r.privatePath,
+    standingInstructions: r.standingInstructions || DEFAULT_STANDING,
+    pinned: r.pinned,
+    hidden: r.hidden,
+    archived: r.archived,
+    unread: r.unread,
+    createdAt: r.createdAt,
+  };
+}
+
+type DiskState = Extract<StateLoadResult, { ok: true }>;
+type ChatBodies = Record<string, ChatBody>;
+
+/** Company / Department / Employee objects rebuilt from the index labels (display + `resolveBot`). */
+function labelsToOrg(index: DiskState["index"]): Pick<AppSnapshot, "company" | "departments" | "employees" | "activeEmployeeId"> {
+  const company: Company | null = index.company
+    ? { id: index.company.id, name: index.company.name, root: "", defaultDepartmentId: index.department?.id ?? "", catalogPin: CATALOG_PIN, createdAt: index.company.createdAt }
+    : null;
+  const department: Department | null =
+    company && index.department
+      ? { id: index.department.id, companyId: company.id, name: index.department.name, path: "", createdAt: index.department.createdAt }
+      : null;
+  const employee: Employee | null =
+    department && index.employee
+      ? { id: index.employee.id, departmentId: department.id, displayName: index.employee.name, path: "", defaultModelId: index.selectedCatalogId, createdAt: index.employee.createdAt }
+      : null;
+  return {
+    company,
+    departments: department ? [department] : [],
+    employees: employee ? [employee] : [],
+    activeEmployeeId: employee?.id ?? null,
+  };
+}
+
+const CHAT_SAVE_DEBOUNCE_MS = 400;
+const chatTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+/** Chats live in `{dataDir}/chats/{agentId}.json`; the browser only debounces the writes. */
+function scheduleChatSave(botId: string): void {
+  const prev = chatTimers.get(botId);
+  if (prev) clearTimeout(prev);
+  chatTimers.set(
+    botId,
+    setTimeout(() => {
+      chatTimers.delete(botId);
+      void saveChatNow(botId);
+    }, CHAT_SAVE_DEBOUNCE_MS),
+  );
+}
+
+async function saveChatNow(botId: string): Promise<void> {
+  const s = useLocalBot.getState();
+  if (!s.diskLoaded) return;
+  if (!s.bots.some((b) => b.id === botId)) return;
+  const sess = s.sessions[botId];
+  if (!sess) return;
+  await chatSave({
+    data: { agentId: botId, messages: sess.messages, chatGrants: sess.chatGrants, lastReadAt: sess.lastReadAt },
+  });
+}
+
+/** Write every pending chat now (window closing). */
+export function flushChatSaves(): void {
+  for (const [botId, t] of chatTimers) {
+    clearTimeout(t);
+    chatTimers.delete(botId);
+    void saveChatNow(botId);
+  }
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("pagehide", flushChatSaves);
+}
+
 export const useLocalBot = create<LocalBotState>()(
   persist(
     (set, get) => ({
       ...emptySnapshot(),
       ui: DEFAULT_UI,
       hydrated: false,
+      diskLoaded: false,
+      diskNotice: null,
+      legacySnapshot: null,
+      hostConfig: { ollamaModel: null, activeModelId: null },
       diskEpoch: 0,
       folders: null,
       foldersMeta: { legacyCompanyRoot: null, isElectron: false, loaded: false },
       setHydrated: (v) => set({ hydrated: v }),
       setUi: (patch) => set({ ui: { ...get().ui, ...patch } }),
-      resetAll: () =>
-        set({ ...emptySnapshot(), ui: { ...DEFAULT_UI }, hydrated: true, diskEpoch: 0 }),
+      resetAll: () => {
+        // Fresh host index (the old one is kept as .bak); agent folders and chat files stay on disk.
+        void stateReset();
+        set({ ...emptySnapshot(), ui: { ...DEFAULT_UI }, hydrated: true, diskLoaded: true, diskNotice: null, legacySnapshot: null, diskEpoch: 0 });
+      },
+
+      loadFromDisk: async () => {
+        let st = await stateLoad();
+        if (!st.ok) {
+          set({ diskLoaded: true, diskNotice: st.error });
+          return;
+        }
+        const legacy = get().legacySnapshot;
+        if (!st.hasIndex && legacy) {
+          // First launch after Stage 7 on this data dir: the browser copy is imported once, then never trusted again.
+          await stateMigrate({ data: { snapshot: legacy } });
+          const again = await stateLoad();
+          if (again.ok) st = again;
+        }
+        const chatsR = await chatLoadAll();
+        const chats: ChatBodies = chatsR.ok ? chatsR.chats : {};
+        const org = labelsToOrg(st.index);
+        const employeeId = org.activeEmployeeId ?? "";
+        const bots = st.roster.map((r) => botFromRoster(r, employeeId));
+        const sessions: Record<string, Session> = {};
+        for (const b of bots) {
+          const c = chats[b.id];
+          sessions[b.id] = c
+            ? { botId: b.id, messages: c.messages as ChatMessage[], running: false, stopRequested: false, chatGrants: c.chatGrants, lastReadAt: c.lastReadAt || nowIso() }
+            : sessionOf(b.id);
+        }
+        const cur = get();
+        const selectedBotId = cur.ui.selectedBotId && bots.some((b) => b.id === cur.ui.selectedBotId) ? cur.ui.selectedBotId : null;
+        set({
+          onboarded: st.index.onboarded,
+          ...org,
+          bots,
+          sessions,
+          selectedCatalogId: st.index.selectedCatalogId ?? st.config.activeModelId,
+          settings: { ...cur.settings, allowHostedDemo: st.config.allowHostedDemo, useExistingOllama: st.config.useExistingOllama },
+          hostConfig: { ollamaModel: st.config.ollamaModel, activeModelId: st.config.activeModelId },
+          folders: st.folders,
+          previewWritesToProjectData: cur.previewWritesToProjectData,
+          diskNotice: st.rosterError ? st.rosterError.error : null,
+          legacySnapshot: null,
+          diskLoaded: true,
+          ui: { ...cur.ui, selectedBotId },
+          diskEpoch: cur.diskEpoch + 1,
+        });
+      },
 
       setHardware: (h) => set({ hardware: h }),
-      noteCatalog: (catalogId) => set({ selectedCatalogId: catalogId }),
+      noteCatalog: (catalogId) => {
+        set({ selectedCatalogId: catalogId });
+        void statePatchIndex({ data: { selectedCatalogId: catalogId } });
+      },
       setAiAvailable: (available) =>
         set((s) => ({
           runtime: {
@@ -321,10 +492,13 @@ export const useLocalBot = create<LocalBotState>()(
       ensureAgents: async () => {
         const s = get();
         if (!s.folders) return;
-        const next: Bot[] = [];
+        // After a folder change every known agent gets its agents/{Name}/ under
+        // the new root (nothing old is moved), then the roster is re-read from disk.
         for (const bot of s.bots) {
-          const r = await agentEnsure({
+          await agentEnsure({
             data: {
+              id: bot.id,
+              pinned: bot.pinned,
               name: bot.name,
               job: bot.job,
               modelId: bot.modelId,
@@ -335,14 +509,8 @@ export const useLocalBot = create<LocalBotState>()(
               createdAt: bot.createdAt,
             },
           });
-          // agent.json is the durable record for `archived`; the browser copy follows it.
-          next.push(
-            r.ok
-              ? { ...bot, name: r.name, privatePath: r.privatePath, scopes: r.scopes, archived: r.archived, modelId: r.modelId || bot.modelId }
-              : bot,
-          );
         }
-        set({ bots: next, diskEpoch: get().diskEpoch + 1 });
+        await get().loadFromDisk();
       },
 
       completeOnboarding: async (input) => {
@@ -392,11 +560,12 @@ export const useLocalBot = create<LocalBotState>()(
             scopes,
             standingInstructions: DEFAULT_STANDING,
             createdAt: now,
+            pinned: true,
           },
         });
         if (!ensured.ok) return { ok: false, error: ensured.error };
         const bot: Bot = {
-          id: uid("bot"),
+          id: ensured.id,
           employeeId: employee.id,
           name: botName,
           job: input.botJob.trim() || "Generalist",
@@ -412,6 +581,17 @@ export const useLocalBot = create<LocalBotState>()(
           unread: 0,
           createdAt: now,
         };
+        // The host index is the durable record of "onboarded" and the labels.
+        const indexed = await statePatchIndex({
+          data: {
+            onboarded: true,
+            company: { id: company.id, name: company.name, createdAt: now },
+            department: { id: department.id, name: department.name, createdAt: now },
+            employee: { id: employee.id, name: employee.displayName, createdAt: now },
+            selectedCatalogId: input.modelId,
+          },
+        });
+        if (!indexed.ok) return { ok: false, error: indexed.error };
         set({
           onboarded: true,
           company,
@@ -462,7 +642,7 @@ export const useLocalBot = create<LocalBotState>()(
         });
         if (!ensured.ok) throw new Error(ensured.error);
         const bot: Bot = {
-          id: uid("bot"),
+          id: ensured.id,
           employeeId: employee.id,
           name,
           job,
@@ -532,7 +712,7 @@ export const useLocalBot = create<LocalBotState>()(
         });
         if (!r.ok) return { ok: false, error: r.error };
         const bot: Bot = {
-          id: uid("bot"),
+          id: r.id,
           employeeId: employee.id,
           name: r.name,
           job: src.job,
@@ -556,13 +736,15 @@ export const useLocalBot = create<LocalBotState>()(
         }));
         return { ok: true, bot };
       },
-      hideBot: (id, hidden) =>
+      hideBot: (id, hidden) => {
         set((s) => {
           const bots = s.bots.map((b) => (b.id === id ? { ...b, hidden } : b));
           const selectedBotId =
             hidden && s.ui.selectedBotId === id ? nextSelectable(bots, id) : s.ui.selectedBotId;
           return { bots, ui: { ...s.ui, selectedBotId } };
-        }),
+        });
+        void statePatchAgent({ data: { id, hidden } });
+      },
       archiveBot: async (id, archived) => {
         const s = get();
         const bot = s.bots.find((b) => b.id === id);
@@ -581,8 +763,10 @@ export const useLocalBot = create<LocalBotState>()(
         });
         return { ok: true };
       },
-      pinBot: (id, pinned) =>
-        set((s) => ({ bots: s.bots.map((b) => (b.id === id ? { ...b, pinned } : b)) })),
+      pinBot: (id, pinned) => {
+        set((s) => ({ bots: s.bots.map((b) => (b.id === id ? { ...b, pinned } : b)) }));
+        void statePatchAgent({ data: { id, pinned } });
+      },
       deleteBot: async (id) => {
         const s = get();
         const bot = s.bots.find((b) => b.id === id);
@@ -631,23 +815,34 @@ export const useLocalBot = create<LocalBotState>()(
         });
         return { ok: true };
       },
-      markRead: (botId) =>
+      markRead: (botId) => {
+        const had = get().bots.find((b) => b.id === botId)?.unread ?? 0;
         set((s) => ({
           bots: s.bots.map((b) => (b.id === botId ? { ...b, unread: 0 } : b)),
           sessions: {
             ...s.sessions,
             [botId]: { ...(s.sessions[botId] ?? sessionOf(botId)), lastReadAt: nowIso() },
           },
-        })),
-      bumpUnread: (botId) =>
+        }));
+        if (had > 0) void statePatchAgent({ data: { id: botId, unread: 0 } });
+      },
+      bumpUnread: (botId) => {
         set((s) => ({
           bots: s.bots.map((b) =>
             b.id === botId && s.ui.selectedBotId !== botId ? { ...b, unread: b.unread + 1 } : b,
           ),
-        })),
+        }));
+        const bot = get().bots.find((b) => b.id === botId);
+        if (bot) void statePatchAgent({ data: { id: botId, unread: bot.unread } });
+      },
 
-      renameCompany: (name) =>
-        set((s) => (s.company ? { company: { ...s.company, name: agentSlug(name) } } : s)),
+      renameCompany: (name) => {
+        const s = get();
+        if (!s.company) return;
+        const company = { ...s.company, name: agentSlug(name) };
+        set({ company });
+        void statePatchIndex({ data: { company: { id: company.id, name: company.name, createdAt: company.createdAt } } });
+      },
 
       appendMessage: (botId, msg) => {
         const message: ChatMessage = {
@@ -670,6 +865,7 @@ export const useLocalBot = create<LocalBotState>()(
             },
           };
         });
+        scheduleChatSave(botId);
         return message;
       },
       patchMessage: (botId, msgId, patch) => {
@@ -686,6 +882,7 @@ export const useLocalBot = create<LocalBotState>()(
             },
           };
         });
+        scheduleChatSave(botId);
       },
       setSessionRunning: (botId, running) =>
         set((s) => {
@@ -709,7 +906,7 @@ export const useLocalBot = create<LocalBotState>()(
           if (!sess) return s;
           return { sessions: { ...s.sessions, [botId]: { ...sess, stopRequested: false } } };
         }),
-      addChatGrant: (botId, key) =>
+      addChatGrant: (botId, key) => {
         set((s) => {
           const sess = s.sessions[botId] ?? sessionOf(botId);
           return {
@@ -718,7 +915,9 @@ export const useLocalBot = create<LocalBotState>()(
               [botId]: { ...sess, chatGrants: { ...sess.chatGrants, [key]: true } },
             },
           };
-        }),
+        });
+        scheduleChatSave(botId);
+      },
       hasChatGrant: (botId, key) => Boolean(get().sessions[botId]?.chatGrants[key]),
 
       writeBotFile: async (botId, path, content) => {
@@ -828,6 +1027,8 @@ export const useLocalBot = create<LocalBotState>()(
           },
           bots: s.bots.map((b) => (b.id === to.id ? { ...b, unread: b.unread + 1 } : b)),
         });
+        scheduleChatSave(to.id);
+        void statePatchAgent({ data: { id: to.id, unread: to.unread + 1 } });
         return { ok: true, toBotId: to.id, path: display };
       },
 
@@ -840,9 +1041,16 @@ export const useLocalBot = create<LocalBotState>()(
     {
       name: "localbot-state-v3",
       storage: createJSONStorage(() => memoryStorage),
+      /**
+       * Stage 7: the browser copy is UI chrome only. Roster / chats /
+       * onboarding / labels come from the sidecar in `loadFromDisk`. A
+       * pre-Stage-7 `localbot-state-v3` that still carries bots is stashed as
+       * `legacySnapshot` for the one-time `stateMigrate`; it is never merged
+       * into the live roster.
+       */
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<AppSnapshot>;
-        const bots = (p.bots ?? current.bots).map((raw) => {
+        const legacyBots = (p.bots ?? []).map((raw) => {
           const legacy = raw as Bot & { grants?: FolderGrant[] };
           const scopes =
             Array.isArray(legacy.scopes) && legacy.scopes.length > 0
@@ -851,42 +1059,49 @@ export const useLocalBot = create<LocalBotState>()(
           return {
             ...raw,
             scopes,
-            privatePath: typeof legacy.privatePath === "string" ? legacy.privatePath : "",
             mascotId: isMascotId(raw.mascotId) ? raw.mascotId : mascotIdForTemplate(raw.name ?? ""),
             hidden: Boolean(raw.hidden),
             archived: Boolean(raw.archived),
           };
         });
+        const legacySnapshot: LegacySnapshot | null =
+          legacyBots.length > 0 || p.onboarded === true
+            ? {
+                onboarded: p.onboarded,
+                company: p.company,
+                departments: p.departments,
+                employees: p.employees,
+                activeEmployeeId: p.activeEmployeeId,
+                selectedCatalogId: p.selectedCatalogId,
+                bots: legacyBots,
+                sessions: p.sessions,
+              }
+            : null;
         return {
           ...current,
-          ...p,
-          bots,
+          version: current.version,
+          hardware: p.hardware ?? current.hardware,
+          runtime: p.runtime ? { ...current.runtime, ...p.runtime, aiAvailable: false } : current.runtime,
+          previewWritesToProjectData: p.previewWritesToProjectData ?? current.previewWritesToProjectData,
           settings: {
             ...current.settings,
             ...p.settings,
+            // Mirrors of localbot-config.json; loadFromDisk overwrites them from the sidecar.
             allowHostedDemo: Boolean(p.settings?.allowHostedDemo),
             useExistingOllama: Boolean(p.settings?.useExistingOllama),
           },
+          legacySnapshot,
         };
       },
+      // UI chrome only. NOT persisted here any more: onboarded, company /
+      // departments / employees / activeEmployeeId, bots, selectedCatalogId,
+      // sessions (chats + chat grants). Those live in {dataDir}/localbot-agents.json,
+      // agents/{Name}/agent.json and {dataDir}/chats/.
       partialize: (s) => ({
         version: s.version,
-        onboarded: s.onboarded,
-        company: s.company,
-        departments: s.departments,
-        employees: s.employees,
-        bots: s.bots,
-        selectedCatalogId: s.selectedCatalogId,
-        sessions: Object.fromEntries(
-          Object.entries(s.sessions).map(([id, sess]) => [
-            id,
-            { ...sess, running: false, stopRequested: false },
-          ]),
-        ),
         hardware: s.hardware,
         settings: s.settings,
         runtime: { ...s.runtime, aiAvailable: false },
-        activeEmployeeId: s.activeEmployeeId,
         previewWritesToProjectData: s.previewWritesToProjectData,
       }),
     },

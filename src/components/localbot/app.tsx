@@ -8,9 +8,10 @@ import { AppShell } from "./shell";
 export function LocalBotApp() {
   const [ready, setReady] = useState(false);
   const onboarded = useLocalBot((s) => s.onboarded);
+  const diskLoaded = useLocalBot((s) => s.diskLoaded);
   const setRuntime = useLocalBot((s) => s.setRuntime);
   const refreshFolders = useLocalBot((s) => s.refreshFolders);
-  const ensureAgents = useLocalBot((s) => s.ensureAgents);
+  const loadFromDisk = useLocalBot((s) => s.loadFromDisk);
 
   useEffect(() => {
     const unsub = useLocalBot.persist.onFinishHydration(() => setReady(true));
@@ -18,17 +19,14 @@ export function LocalBotApp() {
     return unsub;
   }, []);
 
-  // Folder scopes are server-owned. Load them once, then make sure every agent
-  // has its agents/{Name}/private folder (covers sessions migrated from the
-  // single-company-root layout; nothing old is moved).
+  // Stage 7: the browser copy is chrome only. Roster, chats, onboarding flag,
+  // labels and the Safety / model switches come from the sidecar (host index,
+  // agents/*/agent.json, chats/, localbot-config.json). A pre-Stage-7 browser
+  // copy is migrated to disk once inside loadFromDisk.
   useEffect(() => {
-    if (!ready || !onboarded) return;
-    void refreshFolders().then((folders) => {
-      if (!folders) return;
-      const s = useLocalBot.getState();
-      if (s.bots.some((b) => !b.privatePath)) void ensureAgents();
-    });
-  }, [ready, onboarded, refreshFolders, ensureAgents]);
+    if (!ready) return;
+    void loadFromDisk().then(() => refreshFolders());
+  }, [ready, loadFromDisk, refreshFolders]);
 
   useEffect(() => {
     if (!ready) return;
@@ -45,7 +43,7 @@ export function LocalBotApp() {
     );
   }, [ready, setRuntime]);
 
-  if (!ready) {
+  if (!ready || !diskLoaded) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-bg text-fg">
         <Wordmark className="text-lg opacity-80" />
