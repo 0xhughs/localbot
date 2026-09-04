@@ -93,6 +93,10 @@ export function ChatPane() {
       if (stale) return;
       setAgentModel(s);
       setRuntime({ badge: s.badge, aiAvailable: s.ready, model: s.name, ggufPath: s.path });
+      // agent.json is the durable record; a browser copy that drifted (edited
+      // on disk, another window) follows it so the pickers show the truth.
+      const cur = useLocalBot.getState().bots.find((b) => b.name === botName);
+      if (cur && s.modelId && cur.modelId !== s.modelId) useLocalBot.getState().updateBot(cur.id, { modelId: s.modelId });
     });
     return () => {
       stale = true;

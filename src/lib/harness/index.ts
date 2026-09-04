@@ -116,6 +116,11 @@ export class HarnessManager {
     return { sessionId: res.sessionId, cwd, resumed: false };
   }
 
+  /** Agents with a running turn right now (a model switch must not kill their generation). */
+  activeAgents(): string[] {
+    return [...this.sessions].filter(([, sessionId]) => Boolean(this.turns.activeForSession(sessionId))).map(([name]) => name);
+  }
+
   /** True while this agent's ACP session has a running turn. */
   hasActiveTurn(agentName: string): boolean {
     const sessionId = this.sessions.get(agentName);

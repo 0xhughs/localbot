@@ -493,6 +493,7 @@ function fakeLlama(spawned: LlamaSpawnPlan[], killed: string[]) {
       res.setHeader("content-type", "application/json");
       if (req.url === "/health") res.end(JSON.stringify({ status: "ok" }));
       else if (req.url === "/props") res.end(JSON.stringify({ model_path: plan.modelPath }));
+      else if (req.url === "/v1/chat/completions") res.end(JSON.stringify({ choices: [{ message: { role: "assistant", content: "hi" } }] }));
       else {
         res.statusCode = 404;
         res.end();
@@ -501,6 +502,7 @@ function fakeLlama(spawned: LlamaSpawnPlan[], killed: string[]) {
     Object.assign(em, {
       pid: 4242 + spawned.length,
       exitCode: null as number | null,
+      signalCode: null as NodeJS.Signals | null,
       stdout: null,
       stderr: null,
       kill: () => {

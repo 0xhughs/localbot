@@ -280,15 +280,6 @@ export async function servedModelPath(): Promise<string | null> {
   }
 }
 
-async function waitForHealth(ms = 60000): Promise<boolean> {
-  const start = Date.now();
-  while (Date.now() - start < ms) {
-    if (await pingLocal()) return true;
-    await new Promise((r) => setTimeout(r, 400));
-  }
-  return false;
-}
-
 async function waitForDark(ms = 15000): Promise<boolean> {
   const start = Date.now();
   while (Date.now() - start < ms) {
@@ -499,6 +490,23 @@ export function __setSpawnForTests(fn: SpawnFn | null): void {
   spawnOverride = fn;
 }
 
+function waitForExit(child: ChildProcess, ms: number): Promise<boolean> {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const t = setTimeout(() => resolve(false), ms);
+    child.once("exit", () => {
+      clearTimeout(t);
+      resolve(true);
+    });
+  });
+}
+
+/**
+ * Stop the child we own. The process's own exit is the primary signal (a
+ * busy server can still answer /health while it winds down); only then is
+ * the port checked, so a new server is never spawned onto a port the old one
+ * still holds.
+ */
 async function stopChild(): Promise<boolean> {
   const st = g();
   const child = st.child;
@@ -506,18 +514,58 @@ async function stopChild(): Promise<boolean> {
   st.loaded = null;
   if (child && child.exitCode === null) {
     child.kill();
-    const dark = await waitForDark();
-    if (!dark) {
+    // llama-server ignores SIGTERM while a generation is in flight; the
+    // caller already refused to switch under a running turn, so escalate.
+    let gone = await waitForExit(child, 5000);
+    if (!gone) {
       try {
         child.kill("SIGKILL");
       } catch {
         /* gone */
       }
-      return waitForDark(5000);
+      gone = await waitForExit(child, 5000);
     }
-    return true;
+    if (!gone) return false;
   }
-  return waitForDark(3000);
+  return waitForDark(5000);
+}
+
+/**
+ * Ready means: /health 200, /props names the file we launched, and one
+ * 1-token completion answered 200 (a server still loading answers 503 to
+ * everything; a lingering old process would name another file).
+ */
+async function waitForReady(child: ChildProcess, modelPath: string, ms: number): Promise<{ ok: true } | { ok: false; error: string }> {
+  const start = Date.now();
+  const base = `http://${LOOPBACK_HOST}:${LOOPBACK_PORT}`;
+  let stderr = "";
+  child.stderr?.on("data", (d: Buffer) => {
+    stderr = (stderr + d.toString()).slice(-2000);
+  });
+  while (Date.now() - start < ms) {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      const tail = stderr.trim().split("\n").slice(-4).join("\n");
+      return { ok: false, error: `llama-server exited before it was ready (code ${child.exitCode ?? child.signalCode}).${tail ? `\n${tail}` : ""}` };
+    }
+    if (await pingLocal()) {
+      const serving = await servedModelPath();
+      if (serving && serving === path.resolve(modelPath)) {
+        try {
+          const res = await fetch(`${base}/v1/chat/completions`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ model: "local", messages: [{ role: "user", content: "hi" }], max_tokens: 1 }),
+            signal: AbortSignal.timeout(20000),
+          });
+          if (res.ok) return { ok: true };
+        } catch {
+          /* still coming up */
+        }
+      }
+    }
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  return { ok: false, error: `llama-server did not become ready within ${Math.round(ms / 1000)} s.` };
 }
 
 /**
@@ -592,7 +640,6 @@ async function ensureLocalServerUnlocked(modelPath: string | undefined, deps: { 
   const child = (deps.spawn ?? spawnOverride ?? defaultSpawn)(exe, plan, env, exeDir);
   st.child = child;
   st.loaded = { modelPath: wanted, runtime: plan.runtime, gpuLayers: plan.gpuLayers, pid: child.pid, startedAt: new Date().toISOString() };
-  child.stderr?.on("data", () => undefined);
   child.stdout?.on("data", () => undefined);
   child.on("exit", () => {
     if (st.child === child) {
@@ -600,14 +647,14 @@ async function ensureLocalServerUnlocked(modelPath: string | undefined, deps: { 
       st.loaded = null;
     }
   });
-  const ok = await waitForHealth(90000);
-  if (!ok) {
-    child.kill();
+  const up = await waitForReady(child, wanted, 120000);
+  if (!up.ok) {
+    if (child.exitCode === null) child.kill();
     if (st.child === child) {
       st.child = null;
       st.loaded = null;
     }
-    return { ok: false, error: `llama-server (${rt.asset.label}) failed to start on ${path.basename(wanted)}. Local model not ready.` };
+    return { ok: false, error: `llama-server (${rt.asset.label}) failed to start on ${path.basename(wanted)}: ${up.error}` };
   }
   return { ok: true, url: LOCAL_OPENAI_BASE_URL, modelPath: wanted, restarted, runtime: plan.runtime, gpuLayers: plan.gpuLayers };
 }
