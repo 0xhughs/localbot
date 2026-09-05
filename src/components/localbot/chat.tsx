@@ -14,12 +14,15 @@ import {
 import { useLocalBot, resolveBot } from "@/lib/store";
 import {
   isActiveBot,
+  type ChatMessage,
   type PermissionDecision,
   type PermissionRequest,
   type ToolChip,
   type ToolKind,
 } from "@/lib/types";
 import { runAgentTurn } from "@/runtime/harnessAdapter";
+import { describeSchedule, splitRoutineBlocks, type RoutineProposal } from "@/lib/routines-model";
+import { routinesCreate } from "@/lib/runtime/routines";
 import { modelStatusForAgent } from "@/lib/runtime/model-server";
 import { Button } from "@/components/ui/button";
 import { AgentAvatar } from "./avatar";
@@ -452,10 +455,7 @@ export function ChatPane() {
                     <p className="text-sm leading-relaxed whitespace-pre-wrap">{m.content}</p>
                   </div>
                 ) : (
-                  <div>
-                    {m.chips && m.chips.length > 0 && <ChipRow chips={m.chips} />}
-                    <ChatMarkdown text={m.content} />
-                  </div>
+                  <AssistantBody message={m} botId={bot.id} botName={bot.name} />
                 )}
               </li>
             ))}
@@ -630,6 +630,89 @@ function Empty({ botName, onPick }: { botName: string; onPick: (t: string) => vo
           </button>
         ))}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Stage 15: an assistant reply may carry ```localbot-routine blocks — a
+ * *proposal*. The block is replaced by a card with Confirm / Dismiss. Only
+ * Confirm calls `routinesCreate` (the sidecar writes `routines/{id}.json`);
+ * Dismiss writes nothing. The model itself has no way to reach routines/.
+ */
+function AssistantBody({ message, botId, botName }: { message: ChatMessage; botId: string; botName: string }) {
+  const { text, proposals } = splitRoutineBlocks(message.content);
+  const patchMessage = useLocalBot((s) => s.patchMessage);
+  const appendMessage = useLocalBot((s) => s.appendMessage);
+  const [busy, setBusy] = useState<number | null>(null);
+  const [errors, setErrors] = useState<Record<number, string>>({});
+
+  const confirm = async (i: number, p: RoutineProposal) => {
+    setBusy(i);
+    const r = await routinesCreate({ data: { name: p.name, agentId: botId, instructions: p.instructions, schedule: p.schedule } });
+    setBusy(null);
+    if (!r.ok) {
+      setErrors((e) => ({ ...e, [i]: `${r.error} (${r.code})` }));
+      return;
+    }
+    patchMessage(botId, message.id, { routineProposals: { ...(message.routineProposals ?? {}), [i]: { status: "saved", id: r.routine.id, name: r.routine.name } } });
+    appendMessage(botId, {
+      role: "system",
+      content: `Saved routine "${r.routine.name}" (${describeSchedule(r.routine.schedule)}) for ${botName} → routines/${r.routine.id}.json. Runs while LocalBot is open.`,
+    });
+  };
+  const dismiss = (i: number) => {
+    patchMessage(botId, message.id, { routineProposals: { ...(message.routineProposals ?? {}), [i]: { status: "dismissed" } } });
+  };
+
+  return (
+    <div>
+      {message.chips && message.chips.length > 0 && <ChipRow chips={message.chips} />}
+      {text && <ChatMarkdown text={text} />}
+      {proposals.map((p, i) => {
+        const done = message.routineProposals?.[i];
+        return (
+          <div
+            key={i}
+            data-testid="routine-proposal"
+            data-proposal-state={done ? done.status : p.ok ? "pending" : "invalid"}
+            className="mt-3 rounded-xl bg-raised p-4 shadow-[0_0_0_1px_var(--color-border-strong)]"
+          >
+            <p className="font-mono text-[10px] tracking-wider text-subtle uppercase">Routine proposal</p>
+            {p.ok ? (
+              <>
+                <h3 className="mt-1 text-sm font-medium">{p.proposal.name}</h3>
+                <p className="mt-0.5 font-mono text-[11px] text-muted">{describeSchedule(p.proposal.schedule)} · agent: {botName}</p>
+                <p className="mt-2 text-xs leading-relaxed whitespace-pre-wrap text-fg">{p.proposal.instructions}</p>
+              </>
+            ) : (
+              <p className="mt-1 text-xs text-danger">{p.error}</p>
+            )}
+            {errors[i] && <p className="mt-2 text-xs text-danger">{errors[i]}</p>}
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              {done?.status === "saved" ? (
+                <span className="font-mono text-[11px] text-accent" data-testid="routine-proposal-saved">
+                  Saved as routines/{done.id}.json
+                </span>
+              ) : done?.status === "dismissed" ? (
+                <span className="font-mono text-[11px] text-subtle">Dismissed — nothing was saved.</span>
+              ) : (
+                <>
+                  <Button variant="ghost" size="sm" data-testid="routine-proposal-dismiss" disabled={busy !== null} onClick={() => dismiss(i)}>
+                    Dismiss
+                  </Button>
+                  {p.ok && (
+                    <Button size="sm" data-testid="routine-proposal-confirm" disabled={busy !== null} onClick={() => void confirm(i, p.proposal)}>
+                      Confirm
+                    </Button>
+                  )}
+                  <span className="font-mono text-[10px] text-subtle">Nothing is saved until you confirm.</span>
+                </>
+              )}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

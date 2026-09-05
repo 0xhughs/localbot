@@ -10,8 +10,10 @@ import { EditProfileDialog } from "./edit-profile";
 import { NewAgentDialog } from "./new-agent";
 import { CommandPalette } from "./palette";
 import { PluginsDialog } from "./plugins";
+import { RoutinesDialog } from "./routines";
 import { SettingsDialog } from "./settings";
 import { Sidebar } from "./sidebar";
+import { useRoutineTicker } from "@/runtime/routineRunner";
 
 export function AppShell() {
   const setUi = useLocalBot((s) => s.setUi);
@@ -19,6 +21,10 @@ export function AppShell() {
   const showComputer = useLocalBot((s) => s.ui.showComputer);
   const selected = useLocalBot((s) => s.ui.selectedBotId);
   const bots = useLocalBot((s) => s.bots);
+  const diskLoaded = useLocalBot((s) => s.diskLoaded);
+  // Stage 15: while this window is open, ask the sidecar for due routines on
+  // open and every 30 s; due ones run through runAgentTurn like a typed message.
+  useRoutineTicker(diskLoaded);
 
   useEffect(() => {
     if (!selected) {
@@ -100,6 +106,8 @@ export function AppShell() {
       <SettingsDialog />
       {/* Stage 14: DSH / Cordis plugins for the isolated DSH_HOME — same dialog style as Settings. */}
       <PluginsDialog />
+      {/* Stage 15: routines — disk records, gates on the sidecar, runs through runAgentTurn. */}
+      <RoutinesDialog />
       {/* Stage 12: the modal is the Advanced path; + opens a setup chat instead. */}
       <NewAgentDialog />
       <EditProfileDialog />

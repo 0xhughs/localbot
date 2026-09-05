@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Archive,
   ArchiveRestore,
+  CalendarClock,
   Copy,
   EyeOff,
   FolderPlus,
@@ -371,8 +372,19 @@ export function Sidebar() {
         </div>
       )}
       {/* Stage 11: Settings lives at the bottom of the roster, away from the title corner.
-          Stage 14: Plugins sits directly above it — DSH / Cordis plugins in the isolated DSH_HOME. */}
+          Stage 14: Plugins sits directly above it — DSH / Cordis plugins in the isolated DSH_HOME.
+          Stage 15: Routines sits above Plugins — scheduled turns, records in {dataDir}/routines/. */}
       <div data-testid="sidebar-footer" className="border-t border-border p-2">
+        <Button
+          variant="ghost"
+          className="w-full justify-start text-muted hover:text-fg"
+          aria-label="Routines"
+          data-testid="sidebar-routines"
+          onClick={() => setUi({ showRoutines: true })}
+        >
+          <CalendarClock className="size-4" />
+          Routines
+        </Button>
         <Button
           variant="ghost"
           className="w-full justify-start text-muted hover:text-fg"

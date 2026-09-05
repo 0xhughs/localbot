@@ -237,6 +237,8 @@ export type ChatMessage = {
   permission?: PermissionRequest;
   permissionDecision?: PermissionDecision;
   handoffTo?: string;
+  /** Stage 15: what the employee did with the ```localbot-routine proposals in this assistant message. */
+  routineProposals?: Record<number, { status: "saved"; id: string; name: string } | { status: "dismissed" }>;
 };
 
 export type Session = {
@@ -288,6 +290,10 @@ export type UiState = {
   /** Stage 14: the Plugins screen (DSH / Cordis plugins in the isolated DSH_HOME, profile acp). */
   showPlugins: boolean;
   pluginsTab: "catalog" | "installed";
+  /** Stage 15: the Routines screen (records in `{dataDir}/routines/`, run through runAgentTurn). */
+  showRoutines: boolean;
+  /** Stage 15: when the ticker last asked the sidecar for due routines (display only). */
+  routinesLastTickAt: string | null;
 };
 
 export type AppSnapshot = {

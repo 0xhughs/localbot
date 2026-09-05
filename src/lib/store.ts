@@ -87,6 +87,8 @@ const DEFAULT_UI: UiState = {
   editProfileBotId: null,
   showPlugins: false,
   pluginsTab: "catalog",
+  showRoutines: false,
+  routinesLastTickAt: null,
 };
 
 /** Placeholder name for an agent created by the setup chat before it has told us its name. */
@@ -995,6 +997,7 @@ export const useLocalBot = create<LocalBotState>()(
           permission: msg.permission,
           permissionDecision: msg.permissionDecision,
           handoffTo: msg.handoffTo,
+          routineProposals: msg.routineProposals,
         };
         set((s) => {
           const sess = s.sessions[botId] ?? sessionOf(botId);

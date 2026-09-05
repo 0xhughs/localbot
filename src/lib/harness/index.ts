@@ -14,6 +14,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { hostIndexSessionStore, type SessionStore } from "../fs/host-index.ts";
 import { readAgent, readAgentStanding, requireFolders, resolveScopePath, ScopeError } from "../fs/scopes.ts";
+import { ROUTINE_BLOCK_INSTRUCTION } from "../routines-model.ts";
 import { HarnessProcess, type HarnessLaunchOptions } from "./process.ts";
 import { TurnRegistry, type TurnEvent, type TurnRecord } from "./turns.ts";
 
@@ -63,6 +64,8 @@ export function standingInstructionsText(agentName: string): string {
     "",
     `Granted folders: ${scopes.map((s) => `\`${s}/\``).join(", ")}. Everything else is off limits.`,
     "Paths are `scope/relative/path`; a bare path means `private/`. Keep durable notes in `private/memory/notes.md`.",
+    "",
+    ROUTINE_BLOCK_INSTRUCTION,
     "",
     "<!-- Managed by LocalBot from agents/{Name}/AGENTS.md. Edit that file, not this copy. -->",
     "",

@@ -21,7 +21,7 @@
     "preview:stop": "node scripts/preview.mjs stop",
     "typecheck": "tsc --noEmit",
     "check:auth": "node scripts/check-auth-invariant.mjs",
-    "test": "node --test 'scripts/**/*.test.mjs' && node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/auth/gate-identity.test.ts src/lib/localbot.test.ts src/lib/fs/scopes.test.ts src/lib/fs/watch.test.ts src/lib/fs/agents.test.ts src/lib/fs/host-index.test.ts src/lib/runtime/model-platform.test.ts src/lib/desktop-packaging.test.ts src/lib/desktop-chrome.test.ts src/lib/agent-identity.test.ts src/lib/harness/harness.test.ts src/lib/runtime/stt.test.ts src/lib/audio/voice-toggle.test.ts src/lib/harness/plugins.test.ts",
+    "test": "node --test 'scripts/**/*.test.mjs' && node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/auth/gate-identity.test.ts src/lib/localbot.test.ts src/lib/fs/scopes.test.ts src/lib/fs/watch.test.ts src/lib/fs/agents.test.ts src/lib/fs/host-index.test.ts src/lib/runtime/model-platform.test.ts src/lib/desktop-packaging.test.ts src/lib/desktop-chrome.test.ts src/lib/agent-identity.test.ts src/lib/harness/harness.test.ts src/lib/runtime/stt.test.ts src/lib/audio/voice-toggle.test.ts src/lib/harness/plugins.test.ts src/lib/routines.test.ts",
     "prove:stt": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/prove-stt.mjs",
     "build:whisper-mac": "node scripts/build-whisper-mac.mjs",
     "prove:packaged": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/prove-packaged.mjs",
@@ -35,7 +35,8 @@
     "build:desktop": "node scripts/build-desktop.mjs",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "prove:plugins": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/prove-plugins.mjs"
+    "prove:plugins": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/prove-plugins.mjs",
+    "prove:routines": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/prove-routines.mjs"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "1.4.0",
