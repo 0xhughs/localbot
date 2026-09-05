@@ -1,5 +1,43 @@
 # LOCALBOT_HANDOFF.md
 
+## Stage 14 — DSH / Cordis plugins
+Date: 2026-09-05
+Branch: `stage-14-plugins` (PR → `main`, off `23a8f0a` = merge of PR #13)
+
+DeepSeek Harness plugin management only: a Plugins screen that drives the real `dsh plugin --profile acp add|remove` against LocalBot's isolated `DSH_HOME`, real `disabled: true` rows in the profile's `cordis.patch.yml`, everything verified with `dsh --dump-config`, and a guard that undoes any plugin that turns hosted / telemetry / web / fs-sandbox back on. No marketplace, no registry scrape, no routines, no channels. `runAgentTurn`, `dsh/localbot-fs.mjs` (sha256 pinned), the overlay, `resolveScopePath`, dsh `0.1.2-alpha.5`, ACP `1.4.0`, scopes, host index, mic, chrome — unchanged. Still UNSIGNED, not notarized, no `.dmg` rebuilt this stage. Full detail and the exact pass output: `STAGE_HANDOFF.md`.
+
+### Built
+- **Sidebar → Plugins: WORKS.** Footer button `data-testid="sidebar-plugins"` **above Settings** → `PluginsDialog` (`src/components/localbot/plugins.tsx`, mounted in `shell.tsx`, same dark dialog as Settings). Tabs **Catalog / Installed**, one search filters both, Refresh, footer **Add by package name (`@scope/name@version`) or absolute local path**. `UiState.showPlugins` / `pluginsTab`.
+- **Catalog: WORKS, checked in.** `catalog/dsh-plugins.json`, 5 entries `{ id, name, summary, risk, install: { kind, spec } }`: `localbot-plugin-hello` (safe, `path` → `dsh/plugins/localbot-plugin-hello`, our fixture) + the four optional bundles inside the pinned dsh install (`@deepseek-ai/dsh-headless`, `dsh-web-app`, `dsh-sdk-app`, `dsh-sdk-minimal` @ `0.1.2-alpha.5`, all **dangerous** — they insert hosted rows; the guard refuses them). Each entry is checked against disk / `node_modules` (`verified`). No invented names, no registry fetch (test + prove gate). Dangerous → **Add anyway…** → arm delay → separate **Yes, add it**.
+- **Installed is not UI-only: WORKS.** `pluginsInstalled()` (`src/lib/harness/plugins.ts`) = `{DSH_HOME}/profiles/acp/package.json` (`dsh.profile.bundles`, `dependencies`) + the profile `cordis.patch.yml` (LocalBot-managed disabled rows) + a real `dsh --profile acp --patch … --dump-config` parsed by `# == layer` markers. Built in, not removable: `@deepseek-ai/dsh-base`, `@deepseek-ai/dsh-acp-app`, `localbot-acp.cordis.yml`, `localbot-fs-plugin.patch.yml` (overlay, `--patch`, composes last).
+- **Add / Remove: WORKS via `dsh plugin`.** `findHarnessNode()` → `dsh/lib/bin.js plugin --profile acp add|remove …`, `DSH_HOME` set, cwd = profile. Allowlist: `name`, `@scope/name[@version]`, or an absolute path with `package.json`; refused before any spawn: `git+`, `github:`, URLs, `file:`, tarballs, `./`, `../`, `..` segments. Non-zero exit (incl. dsh's "pnpm not found on PATH", exit 127) shown **verbatim**; success only when the manifest actually changed. Live: fixture added → `bundles = [dsh-base, dsh-acp-app, localbot-plugin-hello]`, dump layer `# == localbot-plugin-hello`; removed → back to two.
+- **Enable / Disable: WORKS on disk.** Managed block in the profile `cordis.patch.yml` with `- id: <row>` / `disabled: true` per inserted row, employee lines untouched, re-verified with `--dump-config`. Prove: the disabled plugin's `loaded` marker is absent from dsh stderr on the next boot, back after Enable.
+- **Restart rule: WORKS.** After add / remove / enable / disable: no running turn → `HarnessManager.stop()`; the **next prompt boots the new composition** (`patchReload: startup`, nothing hot-reloads). Turn running → **BUSY**, nothing spawned or written.
+- **Guard + rollback: WORKS.** `GUARD_ROW_IDS` (`llm-deepseek`, `web`, `web-search-deepseek`, `web-fetch-http`, `tool-web`, `session-telemetry-otel`, `fs-sandbox`) checked on **every** row of the post-change dump — dsh's id-targeted disable lands on the last duplicate, so a bundle inserting a second `llm-deepseek` leaves dsh-base's hosted row live (seen live with `dsh-sdk-minimal`). Offender → `dsh plugin remove` / patch restored, `ok: false`, `Refused: with <name> composed these rows come back on: llm-deepseek (@deepseek-ai/dsh-base). … The bundle was removed again.`
+- **Safety unchanged: WORKS.** `localbot-fs.mjs` sha256 `0bb5593a…2b0a6` pinned; file tools still end in `resolveScopePath`; a plugin-shaped caller gets `FS_PERMISSION_DENIED` for `../`, host-absolute and symlink-out paths; overlay still last on the dsh argv, so hosted / telemetry / web / fs-sandbox stay disabled with a plugin added.
+- **Fixture:** `dsh/plugins/localbot-plugin-hello/` (`dsh.bundle.patch` inserting row `localbot-hello`; `index.mjs` writes `[localbot-plugin-hello] loaded` on `apply`); `scripts/desktop-stage.mjs` copies `dsh/plugins` into the packaged stage.
+- **Tests:** `npm test` → 203 + **290** pass (new `src/lib/harness/plugins.test.ts`, 32: pins, sidebar order, catalog offline, spec allowlist, dump / patch parsers, guard offenders, fake-runner add/remove/enable incl. exit 127 verbatim + BUSY + rollback, FS escape); lint + tsc clean. **Proof:** new `npm run prove:plugins` (temp `DSH_HOME`, real pinned dsh + pnpm) → `STAGE14_PLUGINS_PASS static+live add/dump/boot/disable/enable/busy/guard-rollback/remove/escape`. Negative check: a runner that never spawns `dsh plugin` fails the test and the prove.
+
+### Not built
+- **pnpm in the packaged app** — NOT BUILT, by rule: `dsh plugin` needs pnpm on PATH; without it Add / Remove show dsh's exit 127 text and change nothing (Installed shows the `plugins-pnpm-missing` banner; Installed / Enable / Disable still work). Live npm search, Grok store, routines, channels — by rule. Hot reload — NOT BUILT (next prompt boots). Per-plugin config UI — NOT BUILT. Packaged-app Plugins screen, Windows / Linux — UNVERIFIED (no `.dmg` rebuilt). Registry installs of the catalog's `npm` entries — UNVERIFIED offline (packages exist in the pinned install; the guard refuses them anyway). Signing / notarization — NOT BUILT.
+
+### Prove it
+```
+npm test && npm run prove:plugins
+```
+Pass: `ℹ pass 290` … `[prove-plugins] ok: Plugins button is above Settings in the footer` … `ok: dsh.profile.bundles = [@deepseek-ai/dsh-base, @deepseek-ai/dsh-acp-app, localbot-plugin-hello]` … `ok: --dump-config has layer \`# == localbot-plugin-hello\`` … `ok: plugin really ran: dsh stderr has "[localbot-plugin-hello] loaded"` … `ok: disable: verified in --dump-config (disabled: true)` … `ok: while a turn runs: add / remove / disable refused BUSY` … `exit 0 → Refused: with localbot-evil-fixture composed these rows come back on: llm-deepseek (@deepseek-ai/dsh-base) … The bundle was removed again.` … `ok: bundles back to built-ins` … `ok: plugin-shaped caller: symlink out of private/ → FS_PERMISSION_DENIED` … `STAGE14_PLUGINS_PASS static+live add/dump/boot/disable/enable/busy/guard-rollback/remove/escape`. Exits 1 if `dsh plugin` was never spawned / the manifest did not change (Installed UI-only), `sidebar-plugins` is missing or below Settings, `chat.tsx` drops `runAgentTurn`, the dsh / ACP pins float, `localbot-fs.mjs` changes, a guard row is live, disable is not in the dump, BUSY touches disk, the evil bundle is not undone, or an escape path resolves. Needs pnpm on PATH for the live half.
+
+### How I test in the app
+1. Sidebar footer → **Plugins** (above Settings). Installed shows the profile path, `bundles: …`, `dsh --dump-config: 7 layers · hosted / telemetry / web / fs-sandbox still disabled`.
+2. Catalog → `localbot-plugin-hello` → **Add** → the exact dsh command + exit 0; Installed lists it (`in --dump-config: localbot-hello`). Send a message: dsh boots with it.
+3. **Disable** → `Wrote disabled: true … Verified with dsh --dump-config: yes`; **Enable**; **Remove**.
+4. Catalog → `dsh-sdk-minimal` → Add anyway… → Yes, add it → guard refuses and removes it again.
+5. Footer field: `git+…` / `../x` → **Refused — nothing changed**. While a turn runs → **Busy — nothing changed**.
+
+### Ready for
+Stage 15 only after you say GO.
+
+
 ## Stage 13 — Click-to-toggle mic
 Date: 2026-09-05
 Branch: `stage-13-mic-toggle` (PR → `main`, off `6b958b3` = merge of PR #12)

@@ -285,6 +285,9 @@ export type UiState = {
   setupBotId: string | null;
   /** Stage 12: the agent whose Edit profile panel is open. */
   editProfileBotId: string | null;
+  /** Stage 14: the Plugins screen (DSH / Cordis plugins in the isolated DSH_HOME, profile acp). */
+  showPlugins: boolean;
+  pluginsTab: "catalog" | "installed";
 };
 
 export type AppSnapshot = {

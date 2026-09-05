@@ -1,0 +1,15 @@
+# localbot-plugin-hello — LocalBot's fixture plugin bundle.
+#
+# `dsh plugin --profile acp add /abs/path/to/dsh/plugins/localbot-plugin-hello`
+# links this folder into `{DSH_HOME}/profiles/acp/node_modules` and, because
+# package.json declares `dsh.bundle.patch`, dsh appends the package name to
+# `dsh.profile.bundles`. This patch is then composed after dsh-base and
+# dsh-acp-app and before LocalBot's own overlays (`--patch`), which therefore
+# still win: hosted / telemetry / web stay disabled whatever a plugin says.
+#
+# It inserts exactly one row. The module writes one line to stderr at boot and
+# does nothing else — no tools, no fs, no network.
+
+- insert:
+    - id: localbot-hello
+      name: localbot-plugin-hello

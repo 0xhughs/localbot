@@ -121,6 +121,11 @@ export function stageHarness({ root, stage, dshPin, npm = "npm", log = console.l
   for (const name of ["localbot-acp.cordis.yml", "localbot-fs.mjs"]) {
     fs.copyFileSync(path.join(root, "dsh", name), path.join(stage, "dsh", name));
   }
+  // Stage 14: the checked-in fixture plugin bundles the catalog's `path` entries point at.
+  const pluginsDir = path.join(root, "dsh", "plugins");
+  if (fs.existsSync(pluginsDir)) {
+    fs.cpSync(pluginsDir, path.join(stage, "dsh", "plugins"), { recursive: true, dereference: false });
+  }
   const traced = traceRelativeImports(path.join(root, "dsh/localbot-fs.mjs"), root);
   for (const rel of traced) {
     if (rel === "dsh/localbot-fs.mjs") continue;

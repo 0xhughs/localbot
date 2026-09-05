@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "profile": "acp",
+  "note": "Curated DeepSeek Harness (Cordis) plugin bundles for LocalBot's isolated DSH_HOME, profile acp. Checked in, never fetched. Every entry is verifiable offline: `path` entries live in this repo under dsh/, `npm` entries are bundles already present in the pinned @deepseek-ai/dsh install (node_modules/@deepseek-ai/<name>/package.json declares dsh.bundle). Adding an npm entry runs `dsh plugin --profile acp add <spec>` which forwards to pnpm and may fetch from the npm registry.",
+  "plugins": [
+    {
+      "id": "localbot-plugin-hello",
+      "name": "LocalBot hello (fixture)",
+      "summary": "Shipped with LocalBot. Adds one no-op Cordis row (`localbot-hello`) that writes a single marker line to dsh's stderr at boot. No tools, no filesystem, no network. Use it to see Add → Disable → Remove work end to end.",
+      "risk": "safe",
+      "install": {
+        "kind": "path",
+        "spec": "plugins/localbot-plugin-hello"
+      },
+      "verified": "checked in at dsh/plugins/localbot-plugin-hello (package.json declares dsh.bundle.patch)"
+    },
+    {
+      "id": "deepseek-dsh-headless",
+      "name": "@deepseek-ai/dsh-headless",
+      "summary": "Official dsh headless app bundle. Runs one job from the command line, prints the answer and exits. Inside the acp profile it competes with the ACP stdio transport LocalBot depends on. Listed because it exists in the pinned install; not recommended for LocalBot. If composing it re-enables a hosted / telemetry / web / fs-sandbox row, LocalBot refuses the add and removes it again.",
+      "risk": "dangerous",
+      "install": {
+        "kind": "npm",
+        "spec": "@deepseek-ai/dsh-headless@0.1.2-rc.1"
+      },
+      "verified": "present in the pinned dsh 0.1.2-alpha.5 install as node_modules/@deepseek-ai/dsh-headless 0.1.2-rc.1 (dsh.bundle)"
+    },
+    {
+      "id": "deepseek-dsh-web-app",
+      "name": "@deepseek-ai/dsh-web-app",
+      "summary": "Official dsh web GUI app bundle. Starts a local HTTP server and browser UI inside the dsh process. In LocalBot's acp profile that is a second app claiming ports and stdio next to ACP. Listed because it exists in the pinned install; not recommended for LocalBot. If composing it re-enables a hosted / telemetry / web / fs-sandbox row, LocalBot refuses the add and removes it again.",
+      "risk": "dangerous",
+      "install": {
+        "kind": "npm",
+        "spec": "@deepseek-ai/dsh-web-app@0.1.2-rc.1"
+      },
+      "verified": "present in the pinned dsh 0.1.2-alpha.5 install as node_modules/@deepseek-ai/dsh-web-app 0.1.2-rc.1 (dsh.bundle)"
+    },
+    {
+      "id": "deepseek-dsh-sdk-app",
+      "name": "@deepseek-ai/dsh-sdk-app",
+      "summary": "Official dsh SDK app bundle. Serves SDK clients over JSON-RPC on stdio — the same stdio ACP uses, so the two transports collide. Listed because it exists in the pinned install; not recommended for LocalBot. If composing it re-enables a hosted / telemetry / web / fs-sandbox row, LocalBot refuses the add and removes it again.",
+      "risk": "dangerous",
+      "install": {
+        "kind": "npm",
+        "spec": "@deepseek-ai/dsh-sdk-app@0.1.2-rc.1"
+      },
+      "verified": "present in the pinned dsh 0.1.2-alpha.5 install as node_modules/@deepseek-ai/dsh-sdk-app 0.1.2-rc.1 (dsh.bundle)"
+    },
+    {
+      "id": "deepseek-dsh-sdk-minimal",
+      "name": "@deepseek-ai/dsh-sdk-minimal",
+      "summary": "Official standalone minimal agent tree for the SDK. Composes its own agent loop beside the acp profile's. Listed because it exists in the pinned install; not recommended for LocalBot. If composing it re-enables a hosted / telemetry / web / fs-sandbox row, LocalBot refuses the add and removes it again.",
+      "risk": "dangerous",
+      "install": {
+        "kind": "npm",
+        "spec": "@deepseek-ai/dsh-sdk-minimal@0.1.2-rc.1"
+      },
+      "verified": "present in the pinned dsh 0.1.2-alpha.5 install as node_modules/@deepseek-ai/dsh-sdk-minimal 0.1.2-rc.1 (dsh.bundle)"
+    }
+  ]
+}

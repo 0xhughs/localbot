@@ -1,0 +1,21 @@
+{
+  "name": "localbot-plugin-hello",
+  "version": "0.1.0",
+  "private": true,
+  "description": "LocalBot fixture plugin bundle for DeepSeek Harness. Adds one no-op Cordis row so Add / Disable / Remove can be proven end to end.",
+  "type": "module",
+  "main": "index.mjs",
+  "exports": {
+    ".": "./index.mjs",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.mjs",
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}
