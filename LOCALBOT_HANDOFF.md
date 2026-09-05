@@ -1,5 +1,41 @@
 # LOCALBOT_HANDOFF.md
 
+## Stage 15 — Routines
+Date: 2026-09-05
+Branch: `stage-15-routines` (PR → `main`, off `1f1de14` = merge of PR #14)
+
+Routines only: one disk record per routine in `{dataDir}/routines/{id}.json` (outside every scope root, like `chats/`), host-side gates + exclusive claim / finish, a 30 s renderer ticker that runs due routines through the **existing** `runAgentTurn` (no second Harness loop), a Routines screen in the sidebar footer, and a Confirm / Dismiss card for routines the model proposes in chat. No channels, no launchd / Task Scheduler, no plugin catalog change, no installers. `runAgentTurn`, `dsh/localbot-fs.mjs` (sha256 pinned), the overlay, `resolveScopePath`, dsh `0.1.2-alpha.5`, ACP `1.4.0`, scopes, host index, Plugins, mic, chrome — unchanged. Still UNSIGNED, not notarized, no `.dmg` rebuilt this stage. Full detail and the exact pass output: `STAGE_HANDOFF.md`.
+
+### Built
+- **Record on disk: WORKS.** `src/lib/fs/routines.ts` → `{LOCALBOT_DATA_DIR}/routines/{id}.json` = `{ id, name, agentId, instructions, schedule, enabled, createdAt, lastRunAt, lastStatus, lastError }`, `atomicWriteJson` (temp + rename, `.bak` kept). Refuses empty name (`BAD_NAME`), unknown agent (`UNKNOWN_AGENT`), archived target (`ARCHIVED`), bad schedule (`BAD_SCHEDULE`). `assertRoutinesOutsideScopes` runs first on every create / update / list — `routines/` inside the employee / company / any agent scope → `OUTSIDE_SCOPE`, nothing written.
+- **Schedules: WORKS.** `src/lib/routines-model.ts` (browser-safe): `manual`, `every N minutes`, `daily HH:MM` local, minimal 5-field cron (`*`, lists, ranges, `*/step`). Next beat is computed from the **last run**, so beats missed while the app was closed collapse into **one** catch-up on open — no backlog replay.
+- **Gates on the host: WORKS.** `src/lib/harness/routines.ts`: `routinesDue(now)` skips with `DISABLED` / `ARCHIVED` / `DISCONNECTED` / `NOT_CONFIGURED` / `BUSY` (active turn for that agent) / `ALREADY_RUNNING`. `routinesClaim` re-checks the gates (Run now refused for archived / disconnected / busy too), takes an exclusive `{id}.running` marker (`O_EXCL`) and writes `lastStatus: "running"` to the JSON — a second window cannot double-fire; a `running` older than 2 h is stale and re-claimable. `routinesFinish(id, "ok" | "error" | "stopped", error)` writes status + `lastError`, releases the marker.
+- **Runner through `runAgentTurn`: WORKS.** `src/runtime/routineRunner.ts` + `useRoutineTicker(diskLoaded)` in `shell.tsx`: on open and every 30 s → `routinesDue` → per due routine `routinesClaim` → system line `Routine "<name>" ran (<schedule>[, Run now]): <instructions>` → **`runAgentTurn({ botId, userText: instructions })` exactly like `send()`** → assistant output in that agent's durable chat → `routinesFinish`. **Run now** is the same `runRoutine()`. Live (dev, no GGUF staged): Run now → record `lastStatus: "error"`, `lastError: "No verified GGUF on disk."` (that is `runAgentTurn`'s own model check), chat has the system line + `No verified GGUF on disk.`; an `every 1 minute` routine fired unattended at the next tick.
+- **Permissions during a routine: Deny, locked.** Every ungranted request is denied with the note `Routine "<name>": denied <summary> — routines never grant permissions. Grant it in this chat first (Allow for this chat), then run again.` No unattended Allow exists (test + prove grep).
+- **Chat proposal: WORKS.** One standing-instruction line (`ROUTINE_BLOCK_INSTRUCTION`): the model may reply with a fenced ```` ```localbot-routine ```` JSON block `{ name, instructions, schedule }` and cannot create / edit / run routines itself (`routines/` is outside every scope). `chat.tsx` renders the block as a **Routine proposal** card with **Dismiss** / **Confirm** — `Nothing is saved until you confirm.` Only Confirm calls `routinesCreate` (exactly one write path); Dismiss writes nothing; the decision is stored on the message. Live: Confirm → `routines/rt_….json` + `Saved routine "Weekday check-in" (Cron 0 9 * * 1-5) for Writer → routines/rt_….json. Runs while LocalBot is open.`
+- **UI: WORKS.** Footer **Routines** (`data-testid="sidebar-routines"`) above **Plugins** above **Settings**. `RoutinesDialog`: list (agent, schedule, next run, last run + status), Enable / Disable, **Run now**, Edit, Delete, New / Edit form (name, agent, instructions, Manual / Every / Daily / Cron). The dialog states: runs only while LocalBot is open; a missed beat runs once on the next open, no backlog replay, no login item; ungranted permissions are denied; the model can propose, nothing is saved until Confirm.
+- **Server fns:** `src/lib/runtime/routines.ts` — `routinesList / Create / Update / Delete / Due / Claim / Finish` (`createServerFn`, same `HarnessManager` singleton for BUSY).
+- **Tests:** `npm test` → 203 + **318** pass (new `src/lib/routines.test.ts`, 28: pins + `localbot-fs.mjs` hash, footer order, mounts, `chat.tsx` keeps `runAgentTurn` / one write path / Dismiss inert, runner uses `runAgentTurn` + no Harness import + deny only, schedules + cron, `OUTSIDE_SCOPE` under each root, refusals, atomic + `.bak`, fresh-process read-back, gates, exclusive + stale claim, one catch-up, standing line); lint + tsc clean. **Proof:** new `npm run prove:routines` (temp `LOCALBOT_DATA_DIR` + roots, real roster) → `STAGE15_ROUTINES_PASS static+live outside/record-fresh-process/refuse/busy/disabled/archived/disconnected/claim/finish/once/proposal-inert`. It reads the record back in a **fresh `node` process**, so routines that exist only in React state fail it.
+
+### Not built
+- Background routines with the app closed (launchd / login item / Task Scheduler) — NOT BUILT, by rule; missed beats wait for the next open. Channels, plugin catalog changes, installers, signing — by rule. Per-routine permission grants, run history, cron names / seconds / `L W #` — NOT BUILT. Packaged-app Routines screen, Windows / Linux — UNVERIFIED (no `.dmg` rebuilt). A non-error routine turn — UNVERIFIED on this box (no GGUF staged; ok / stopped finishes covered by tests + prove with a fake turn).
+
+### Prove it
+```
+npm test && npm run prove:routines
+```
+Pass: `ℹ pass 318` … `[prove-routines] ok: footer order is Routines > Plugins > Settings` … `ok: Run now is runRoutine() — the same path as the ticker` … `ok: routineRunner uses runAgentTurn` … `ok: routineRunner has no second Harness loop` … `ok: ungranted permissions during a routine are denied` … `ok: chat.tsx: exactly one write path, inside Confirm` … `ok: routines/ under emp refused with OUTSIDE_SCOPE` … `ok: fresh process read back "Every minute" from …/routines` … `ok: BUSY: a running turn keeps it out of due (BUSY)` … `ok: archived agent: Run now refused (ARCHIVED)` … `ok: DISCONNECTED: Run now refused` … `ok: second claim refused (ALREADY_RUNNING)` … `ok: three missed daily beats → due once on open` … `ok: parsing the proposal wrote nothing (Confirm is the only write)` … `STAGE15_ROUTINES_PASS …`. Exits 1 if a routine file is accepted under a scope root, the record is not readable by a fresh process, Run now is not `runRoutine` / the runner does not call `runAgentTurn`, a proposal writes before Confirm, archived / BUSY / DISCONNECTED is due or claimable, a second claim succeeds, missed beats replay, the footer order is wrong, `chat.tsx` drops `runAgentTurn`, the dsh / ACP pins float, or `localbot-fs.mjs` changes.
+
+### How I test in the app
+1. Sidebar footer → **Routines** (above Plugins). **New routine** → name, agent, instructions, **Daily at 09:00** → Create → `ls {dataDir}/routines/`.
+2. **Run now** → chat: `Routine "…" ran (Daily at 09:00, Run now): …` + the reply; row shows last run + status; JSON has `lastRunAt` / `lastStatus`.
+3. Leave an **Every 1 minute** routine and the window open → it runs by itself within 30 s of the beat. Archive the agent / disconnect the root / start a long turn → skipped, Run now refused.
+4. Model replies with a ```` ```localbot-routine ```` block → card → **Dismiss** (nothing on disk) or **Confirm** (`Saved as routines/rt_….json`).
+
+### Ready for
+Stage 16 only after you say GO.
+
+
 ## Stage 14 — DSH / Cordis plugins
 Date: 2026-09-05
 Branch: `stage-14-plugins` (PR → `main`, off `23a8f0a` = merge of PR #13)
