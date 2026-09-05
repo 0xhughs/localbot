@@ -3,6 +3,7 @@ import { Menu, Monitor, Plus, Settings as SettingsIcon } from "lucide-react";
 import { useLocalBot } from "@/lib/store";
 import { isActiveBot } from "@/lib/types";
 import { Button } from "@/components/ui/button";
+import { ChannelPane } from "./channel";
 import { ChatPane } from "./chat";
 import { ComputerPane } from "./computer";
 import { DesktopTitlebar } from "./desktop-titlebar";
@@ -20,6 +21,8 @@ export function AppShell() {
   const agentsOpen = useLocalBot((s) => s.ui.agentsOpen);
   const showComputer = useLocalBot((s) => s.ui.showComputer);
   const selected = useLocalBot((s) => s.ui.selectedBotId);
+  // Stage 16: a channel is open instead of a 1:1 chat (exactly one of the two is set).
+  const selectedChannel = useLocalBot((s) => s.ui.selectedChannelId);
   const bots = useLocalBot((s) => s.bots);
   const diskLoaded = useLocalBot((s) => s.diskLoaded);
   // Stage 15: while this window is open, ask the sidecar for due routines on
@@ -27,11 +30,11 @@ export function AppShell() {
   useRoutineTicker(diskLoaded);
 
   useEffect(() => {
-    if (!selected) {
+    if (!selected && !selectedChannel) {
       const first = bots.find(isActiveBot) ?? bots.find((b) => !b.archived);
       if (first) useLocalBot.getState().selectBot(first.id);
     }
-  }, [selected, bots]);
+  }, [selected, selectedChannel, bots]);
 
   return (
     <div className="flex h-dvh flex-col bg-bg text-fg">
@@ -88,7 +91,8 @@ export function AppShell() {
             />
           )}
         </div>
-        <ChatPane />
+        {/* Stage 16: the shared thread when a channel is open; the 1:1 chat otherwise. Never both. */}
+        {selectedChannel ? <ChannelPane /> : <ChatPane />}
         {showComputer && (
           <>
             <button

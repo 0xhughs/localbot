@@ -33,6 +33,17 @@ import {
 } from "./fs/server";
 import type { LegacySnapshot, RosterEntry } from "./fs/host-index";
 import {
+  channelsAddMember,
+  channelsAppend,
+  channelsCreate,
+  channelsDelete,
+  channelsList,
+  channelsRead,
+  channelsRemoveMember,
+  channelsRename,
+} from "./runtime/channels";
+import type { Channel, ChannelMessage } from "./channels-model";
+import {
   agentSlug,
   displayPath,
   handoffScope,
@@ -49,6 +60,7 @@ import {
   type AgentSection,
   type AppSnapshot,
   type Bot,
+  type ChannelSession,
   type ChatMessage,
   type Company,
   type Department,
@@ -74,6 +86,7 @@ const DEFAULT_SETTINGS: Settings = {
 
 const DEFAULT_UI: UiState = {
   selectedBotId: null,
+  selectedChannelId: null,
   showComputer: false,
   showSettings: false,
   settingsTab: "general",
@@ -156,6 +169,14 @@ type Actions = {
   foldersMeta: FoldersMeta;
   /** Stage 12: roster sections from the host index. Not persisted in the browser. */
   sections: AgentSection[];
+  /**
+   * Stage 16: channel records from `{dataDir}/channels/` (`channelsList` in
+   * `loadFromDisk`). Not persisted in the browser; a wiped localStorage
+   * changes nothing here.
+   */
+  channels: Channel[];
+  /** Stage 16: the loaded shared transcripts + per-channel turn state, keyed by channel id. */
+  channelSessions: Record<string, ChannelSession>;
   setHydrated: (v: boolean) => void;
   setUi: (patch: Partial<UiState>) => void;
   resetAll: () => void;
@@ -273,7 +294,27 @@ type Actions = {
     task: string,
   ) => Promise<{ ok: true; toBotId: string; path: string } | { ok: false; error: string }>;
   updateSettings: (patch: Partial<Settings>) => void;
+  /** Selecting an agent closes the open channel (exactly one of the two is set). */
   selectBot: (id: string | null) => void;
+  /* ---------- Stage 16: channels — every mutation writes {dataDir}/channels/ first ---------- */
+  /** Re-read the channel records from disk. */
+  loadChannels: () => Promise<void>;
+  /** Open a channel: `selectedChannelId` set, `selectedBotId` cleared; the transcript is read from disk once. */
+  selectChannel: (id: string | null) => Promise<void>;
+  createChannel: (name: string, memberIds: string[]) => Promise<{ ok: true; channel: Channel } | { ok: false; error: string }>;
+  /** Roster "Open channel with…": a channel of {the selected agent, target}. The only promotion from 1:1. */
+  openChannelWith: (targetBotId: string) => Promise<{ ok: true; channel: Channel } | { ok: false; error: string }>;
+  renameChannel: (id: string, name: string) => Promise<Result>;
+  deleteChannel: (id: string) => Promise<Result>;
+  addChannelMember: (id: string, agentId: string) => Promise<Result>;
+  removeChannelMember: (id: string, agentId: string) => Promise<Result>;
+  /** Append one line to the shared transcript: local first, then `channelsAppend` (the durable copy). */
+  appendChannelMessage: (
+    channelId: string,
+    msg: Omit<ChannelMessage, "id" | "createdAt"> & Partial<Pick<ChannelMessage, "id" | "createdAt">>,
+  ) => Promise<ChannelMessage>;
+  patchChannelMessage: (channelId: string, msgId: string, patch: Partial<ChannelMessage>) => void;
+  patchChannelSession: (channelId: string, patch: Partial<Omit<ChannelSession, "channelId" | "messages">>) => void;
 };
 
 export type LocalBotState = AppSnapshot & Actions;
@@ -287,6 +328,10 @@ function sessionOf(botId: string): Session {
     chatGrants: {},
     lastReadAt: nowIso(),
   };
+}
+
+function channelSessionOf(channelId: string): ChannelSession {
+  return { channelId, messages: [], loaded: false, activeSpeakerId: null, queued: [], pendingPermission: null, chips: [] };
 }
 
 const memoryStorage = {
@@ -434,12 +479,14 @@ export const useLocalBot = create<LocalBotState>()(
       folders: null,
       foldersMeta: { legacyCompanyRoot: null, isElectron: false, loaded: false },
       sections: [],
+      channels: [],
+      channelSessions: {},
       setHydrated: (v) => set({ hydrated: v }),
       setUi: (patch) => set({ ui: { ...get().ui, ...patch } }),
       resetAll: () => {
-        // Fresh host index (the old one is kept as .bak); agent folders and chat files stay on disk.
+        // Fresh host index (the old one is kept as .bak); agent folders, chat files and channel files stay on disk.
         void stateReset();
-        set({ ...emptySnapshot(), ui: { ...DEFAULT_UI }, hydrated: true, diskLoaded: true, diskNotice: null, legacySnapshot: null, diskEpoch: 0, sections: [] });
+        set({ ...emptySnapshot(), ui: { ...DEFAULT_UI }, hydrated: true, diskLoaded: true, diskNotice: null, legacySnapshot: null, diskEpoch: 0, sections: [], channels: [], channelSessions: {} });
       },
 
       loadFromDisk: async () => {
@@ -487,6 +534,8 @@ export const useLocalBot = create<LocalBotState>()(
           ui: { ...cur.ui, selectedBotId },
           diskEpoch: cur.diskEpoch + 1,
         });
+        // Stage 16: channel records come from {dataDir}/channels/ — never from the browser copy.
+        await get().loadChannels();
       },
 
       setHardware: (h) => set({ hardware: h }),
@@ -1177,8 +1226,139 @@ export const useLocalBot = create<LocalBotState>()(
 
       updateSettings: (patch) => set((s) => ({ settings: { ...s.settings, ...patch } })),
       selectBot: (id) => {
-        set((s) => ({ ui: { ...s.ui, selectedBotId: id, agentsOpen: false } }));
+        // Exactly one of selectedBotId / selectedChannelId: picking an agent closes the channel.
+        set((s) => ({ ui: { ...s.ui, selectedBotId: id, selectedChannelId: id ? null : s.ui.selectedChannelId, agentsOpen: false } }));
         if (id) get().markRead(id);
+      },
+
+      /* ---------- Stage 16: channels ---------- */
+      loadChannels: async () => {
+        const r = await channelsList();
+        if (!r.ok) {
+          set({ channels: [] });
+          return;
+        }
+        set((s) => {
+          const selectedChannelId = s.ui.selectedChannelId && r.channels.some((c) => c.id === s.ui.selectedChannelId) ? s.ui.selectedChannelId : null;
+          return { channels: r.channels, ui: { ...s.ui, selectedChannelId } };
+        });
+      },
+      selectChannel: async (id) => {
+        if (!id) {
+          set((s) => ({ ui: { ...s.ui, selectedChannelId: null } }));
+          return;
+        }
+        // Exactly one of selectedBotId / selectedChannelId: opening a channel closes the 1:1 chat.
+        set((s) => ({ ui: { ...s.ui, selectedChannelId: id, selectedBotId: null, agentsOpen: false, composer: "" } }));
+        if (get().channelSessions[id]?.loaded) return;
+        const r = await channelsRead({ data: { id } });
+        if (!r.ok) return;
+        set((s) => {
+          const cur = s.channelSessions[id] ?? channelSessionOf(id);
+          // Lines this window appended while the read was in flight stay (deduped by id).
+          const seen = new Set(r.transcript.messages.map((m) => m.id));
+          const messages = [...r.transcript.messages, ...cur.messages.filter((m) => !seen.has(m.id))];
+          return {
+            channels: s.channels.some((c) => c.id === id) ? s.channels.map((c) => (c.id === id ? r.channel : c)) : [...s.channels, r.channel],
+            channelSessions: { ...s.channelSessions, [id]: { ...cur, messages, loaded: true } },
+          };
+        });
+      },
+      createChannel: async (name, memberIds) => {
+        const r = await channelsCreate({ data: { name, memberIds } });
+        if (!r.ok) return { ok: false, error: r.error };
+        set((s) => ({
+          channels: [...s.channels.filter((c) => c.id !== r.channel.id), r.channel],
+          channelSessions: { ...s.channelSessions, [r.channel.id]: { ...channelSessionOf(r.channel.id), loaded: true } },
+        }));
+        await get().selectChannel(r.channel.id);
+        return { ok: true, channel: r.channel };
+      },
+      openChannelWith: async (targetBotId) => {
+        const s = get();
+        const target = s.bots.find((b) => b.id === targetBotId);
+        if (!target) return { ok: false, error: "Unknown agent" };
+        const current = s.ui.selectedBotId ? s.bots.find((b) => b.id === s.ui.selectedBotId) : null;
+        if (!current) return { ok: false, error: "Open an agent's chat first, then choose who to open a channel with." };
+        if (current.id === target.id) return { ok: false, error: `Pick a different agent than ${current.name} — a channel needs two members.` };
+        if (target.archived) return { ok: false, error: `${target.name} is archived. Unarchive it before opening a channel with it.` };
+        return get().createChannel(`${current.name} + ${target.name}`, [current.id, target.id]);
+      },
+      renameChannel: async (id, name) => {
+        const r = await channelsRename({ data: { id, name } });
+        if (!r.ok) return { ok: false, error: r.error };
+        set((s) => ({ channels: s.channels.map((c) => (c.id === id ? r.channel : c)) }));
+        return { ok: true };
+      },
+      deleteChannel: async (id) => {
+        const r = await channelsDelete({ data: { id } });
+        if (!r.ok) return { ok: false, error: r.error };
+        set((s) => {
+          const channelSessions = { ...s.channelSessions };
+          delete channelSessions[id];
+          const bots = s.bots;
+          const selectedBotId = s.ui.selectedChannelId === id ? (bots.find(isActiveBot) ?? bots.find((b) => !b.archived))?.id ?? null : s.ui.selectedBotId;
+          return {
+            channels: s.channels.filter((c) => c.id !== id),
+            channelSessions,
+            ui: { ...s.ui, selectedChannelId: s.ui.selectedChannelId === id ? null : s.ui.selectedChannelId, selectedBotId },
+          };
+        });
+        return { ok: true };
+      },
+      addChannelMember: async (id, agentId) => {
+        const r = await channelsAddMember({ data: { id, agentId } });
+        if (!r.ok) return { ok: false, error: r.error };
+        set((s) => ({ channels: s.channels.map((c) => (c.id === id ? r.channel : c)) }));
+        return { ok: true };
+      },
+      removeChannelMember: async (id, agentId) => {
+        const r = await channelsRemoveMember({ data: { id, agentId } });
+        if (!r.ok) return { ok: false, error: r.error };
+        set((s) => ({ channels: s.channels.map((c) => (c.id === id ? r.channel : c)) }));
+        return { ok: true };
+      },
+      appendChannelMessage: async (channelId, msg) => {
+        const message: ChannelMessage = {
+          id: msg.id ?? uid("cmsg"),
+          role: msg.role,
+          speakerId: msg.speakerId ?? null,
+          content: msg.content,
+          createdAt: msg.createdAt ?? nowIso(),
+          ...(msg.chips && msg.chips.length > 0 ? { chips: msg.chips } : {}),
+        };
+        set((s) => {
+          const cur = s.channelSessions[channelId] ?? channelSessionOf(channelId);
+          return { channelSessions: { ...s.channelSessions, [channelId]: { ...cur, messages: [...cur.messages, message] } } };
+        });
+        // The durable copy: {dataDir}/channels/{id}.messages.json. A failure is shown, never hidden.
+        const r = await channelsAppend({ data: { id: channelId, messages: [message] } });
+        if (!r.ok) {
+          const note: ChannelMessage = { id: uid("cmsg"), role: "system", speakerId: null, content: `Not saved to channels/${channelId}.messages.json: ${r.error}`, createdAt: nowIso() };
+          set((s) => {
+            const cur = s.channelSessions[channelId] ?? channelSessionOf(channelId);
+            return { channelSessions: { ...s.channelSessions, [channelId]: { ...cur, messages: [...cur.messages, note] } } };
+          });
+        }
+        return message;
+      },
+      patchChannelMessage: (channelId, msgId, patch) => {
+        set((s) => {
+          const cur = s.channelSessions[channelId];
+          if (!cur) return s;
+          return {
+            channelSessions: {
+              ...s.channelSessions,
+              [channelId]: { ...cur, messages: cur.messages.map((m) => (m.id === msgId ? { ...m, ...patch } : m)) },
+            },
+          };
+        });
+      },
+      patchChannelSession: (channelId, patch) => {
+        set((s) => {
+          const cur = s.channelSessions[channelId] ?? channelSessionOf(channelId);
+          return { channelSessions: { ...s.channelSessions, [channelId]: { ...cur, ...patch } } };
+        });
       },
     }),
     {

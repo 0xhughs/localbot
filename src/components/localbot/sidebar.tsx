@@ -6,6 +6,7 @@ import {
   Copy,
   EyeOff,
   FolderPlus,
+  Hash,
   MoreHorizontal,
   Pencil,
   Pin,
@@ -21,7 +22,8 @@ import {
 import { archivedBots, useLocalBot, visibleBots } from "@/lib/store";
 import { filterRoster, normalizeRosterQuery } from "@/lib/roster-search";
 import { groupRoster } from "@/lib/roster-sections";
-import type { Bot } from "@/lib/types";
+import { CHANNEL_MIN_MEMBERS } from "@/lib/channels-model";
+import { isActiveBot, type Bot } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { AgentAvatar } from "./avatar";
 import { Wordmark } from "./logo";
@@ -51,6 +53,16 @@ export function Sidebar() {
   const deleteSection = useLocalBot((s) => s.deleteSection);
   const startSetupAgent = useLocalBot((s) => s.startSetupAgent);
   const setUi = useLocalBot((s) => s.setUi);
+  // Stage 16: channels come from {dataDir}/channels/ (loadFromDisk → channelsList), never from React state alone.
+  const channels = useLocalBot((s) => s.channels);
+  const selectedChannelId = useLocalBot((s) => s.ui.selectedChannelId);
+  const selectChannel = useLocalBot((s) => s.selectChannel);
+  const createChannel = useLocalBot((s) => s.createChannel);
+  const renameChannel = useLocalBot((s) => s.renameChannel);
+  const deleteChannel = useLocalBot((s) => s.deleteChannel);
+  const openChannelWith = useLocalBot((s) => s.openChannelWith);
+  const [renamingChannelId, setRenamingChannelId] = useState<string | null>(null);
+  const [creatingChannel, setCreatingChannel] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renamingSectionId, setRenamingSectionId] = useState<string | null>(null);
   const [addingSection, setAddingSection] = useState(false);
@@ -125,6 +137,10 @@ export function Sidebar() {
             </MenuItem>
             <MenuItem onClick={() => void duplicateBot(bot.id).then(report)}>
               <Copy className="size-3.5" /> Duplicate
+            </MenuItem>
+            {/* Stage 16: the only promotion from 1:1 — a channel of {the selected agent, this one}. @ in a 1:1 chat still hands off to a file. */}
+            <MenuItem onClick={() => void openChannelWith(bot.id).then(report)}>
+              <Hash className="size-3.5" /> Open channel with…
             </MenuItem>
             {sections.length > 0 && (
               <div className="my-1 border-t border-border pt-1" data-testid="move-to-section">
@@ -312,6 +328,95 @@ export function Sidebar() {
               <FolderPlus className="size-3.5" /> New section
             </button>
           ))}
+        {/* Stage 16: channels — a labelled group of their own, never mixed into the agent rows.
+            Each row is a shared thread + member list on disk ({dataDir}/channels/{id}.json). */}
+        {!searching && (
+          <div data-testid="channels-section" className="mt-3 border-t border-border pt-2">
+            <h3 className="px-2 py-1 text-[11px] font-medium tracking-wide text-subtle uppercase select-none">
+              Channels
+              <span className="ml-1.5 font-normal normal-case text-subtle/70">{channels.length}</span>
+            </h3>
+            {channels.map((ch) => {
+              const active = selectedChannelId === ch.id;
+              const members = ch.memberIds.map((id) => allBots.find((b) => b.id === id)).filter((b): b is Bot => Boolean(b));
+              return (
+                <div
+                  key={ch.id}
+                  data-testid="channel-row"
+                  data-channel-id={ch.id}
+                  className={`group relative mb-0.5 flex items-center rounded-md ${active ? "bg-raised" : "hover:bg-hover"}`}
+                >
+                  {renamingChannelId === ch.id ? (
+                    <SectionNameField
+                      initial={ch.name}
+                      label={`Rename channel ${ch.name}`}
+                      onDone={async (next) => {
+                        setRenamingChannelId(null);
+                        if (next === null || next === ch.name) return;
+                        report(await renameChannel(ch.id, next));
+                      }}
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => void selectChannel(ch.id)}
+                      onDoubleClick={() => setRenamingChannelId(ch.id)}
+                      className="flex min-w-0 flex-1 items-center gap-2.5 px-2 py-2 text-left"
+                      title={members.map((m) => m.name).join(", ")}
+                    >
+                      <Hash className="size-4 shrink-0 text-muted" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium text-fg">{ch.name}</span>
+                        <span className="block truncate text-[11px] text-muted">{members.map((m) => m.name).join(", ") || `${ch.memberIds.length} members`}</span>
+                      </span>
+                      <span className="flex -space-x-1.5">
+                        {members.slice(0, 3).map((m) => (
+                          <AgentAvatar key={m.id} bot={m} size="xs" />
+                        ))}
+                      </span>
+                    </button>
+                  )}
+                  <details className="relative mr-1">
+                    <summary
+                      aria-label={`Actions for channel ${ch.name}`}
+                      className="flex size-8 list-none items-center justify-center rounded-sm text-subtle opacity-0 hover:bg-hover hover:text-fg group-hover:opacity-100 [&::-webkit-details-marker]:hidden"
+                    >
+                      <MoreHorizontal className="size-4" />
+                    </summary>
+                    <div className="absolute top-8 right-0 z-20 w-44 rounded-md bg-raised py-1 shadow-[0_0_0_1px_var(--color-border),0_16px_40px_rgb(0_0_0/0.45)]">
+                      <MenuItem onClick={() => setRenamingChannelId(ch.id)}>
+                        <Pencil className="size-3.5" /> Rename channel
+                      </MenuItem>
+                      <MenuItem onClick={() => void deleteChannel(ch.id).then(report)}>
+                        <Trash2 className="size-3.5" /> Delete channel
+                      </MenuItem>
+                    </div>
+                  </details>
+                </div>
+              );
+            })}
+            {creatingChannel ? (
+              <ChannelCreateForm
+                bots={allBots.filter(isActiveBot)}
+                onCancel={() => setCreatingChannel(false)}
+                onCreate={async (name, memberIds) => {
+                  const r = await createChannel(name, memberIds);
+                  report(r);
+                  if (r.ok) setCreatingChannel(false);
+                }}
+              />
+            ) : (
+              <button
+                type="button"
+                data-testid="new-channel"
+                onClick={() => setCreatingChannel(true)}
+                className="mt-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[11px] text-subtle hover:bg-hover hover:text-fg"
+              >
+                <Hash className="size-3.5" /> New channel
+              </button>
+            )}
+          </div>
+        )}
         {archived.length > 0 && (
           <details className="mt-3 border-t border-border pt-2" data-testid="archived-agents">
             <summary className="cursor-pointer list-none px-2 py-1 text-[11px] font-medium tracking-wide text-subtle uppercase select-none [&::-webkit-details-marker]:hidden">
@@ -507,6 +612,80 @@ function SectionNameField({
         placeholder="Section name"
         className="h-7 min-w-0 flex-1 rounded-sm bg-bg px-1.5 text-xs text-fg outline-none ring-1 ring-border focus:ring-accent"
       />
+    </form>
+  );
+}
+
+/**
+ * Stage 16: inline "New channel" — a name and at least CHANNEL_MIN_MEMBERS
+ * active agents. Create calls `createChannel` → `channelsCreate` (disk first).
+ */
+function ChannelCreateForm({
+  bots,
+  onCancel,
+  onCreate,
+}: {
+  bots: Bot[];
+  onCancel: () => void;
+  onCreate: (name: string, memberIds: string[]) => Promise<void>;
+}) {
+  const [name, setName] = useState("");
+  const [picked, setPicked] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    ref.current?.focus();
+  }, []);
+  const toggle = (id: string) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+  const canCreate = name.trim().length > 0 && picked.length >= CHANNEL_MIN_MEMBERS && !busy;
+  return (
+    <form
+      data-testid="new-channel-form"
+      className="mt-1 flex flex-col gap-1.5 rounded-md bg-bg p-2 ring-1 ring-border"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        if (!canCreate) return;
+        setBusy(true);
+        await onCreate(name, picked);
+        setBusy(false);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          onCancel();
+        }
+      }}
+    >
+      <input
+        ref={ref}
+        aria-label="Channel name"
+        data-testid="new-channel-name"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        maxLength={60}
+        placeholder="Channel name"
+        className="h-7 min-w-0 rounded-sm bg-surface px-1.5 text-xs text-fg outline-none ring-1 ring-border focus:ring-accent"
+      />
+      <p className="px-0.5 text-[10px] text-subtle">Members (pick at least {CHANNEL_MIN_MEMBERS}; the first picked answers when nobody is @-paged)</p>
+      <div className="max-h-40 overflow-y-auto scrollbar-thin">
+        {bots.map((b) => (
+          <label key={b.id} className="flex cursor-pointer items-center gap-2 rounded-sm px-1 py-1 text-xs text-fg hover:bg-hover">
+            <input type="checkbox" checked={picked.includes(b.id)} onChange={() => toggle(b.id)} data-testid="new-channel-member" data-agent-id={b.id} />
+            <AgentAvatar bot={b} size="xs" />
+            <span className="truncate">{b.name}</span>
+            {picked[0] === b.id && <span className="ml-auto font-mono text-[9px] text-subtle uppercase">default</span>}
+          </label>
+        ))}
+        {bots.length < CHANNEL_MIN_MEMBERS && <p className="px-1 py-1 text-[11px] text-subtle">You need at least two active agents.</p>}
+      </div>
+      <div className="flex justify-end gap-1">
+        <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button type="submit" size="sm" disabled={!canCreate} data-testid="new-channel-create">
+          Create
+        </Button>
+      </div>
     </form>
   );
 }
