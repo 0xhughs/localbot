@@ -15,10 +15,14 @@ import {
   agentSetArchived,
   agentSetModel,
   agentSetScopes,
+  agentUpdateProfile,
   chatLoadAll,
   chatSave,
   foldersGet,
   foldersSet,
+  sectionCreate,
+  sectionDelete,
+  sectionRename,
   stateLoad,
   stateMigrate,
   statePatchAgent,
@@ -42,6 +46,7 @@ import {
   AGENT_COLORS,
   isActiveBot,
   type AgentColorId,
+  type AgentSection,
   type AppSnapshot,
   type Bot,
   type ChatMessage,
@@ -78,7 +83,13 @@ const DEFAULT_UI: UiState = {
   pendingPermission: null,
   previewPath: null,
   newAgentOpen: false,
+  setupBotId: null,
+  editProfileBotId: null,
 };
+
+/** Placeholder name for an agent created by the setup chat before it has told us its name. */
+export const SETUP_PLACEHOLDER_NAME = "New agent";
+export const SETUP_PLACEHOLDER_JOB = "Setting up";
 
 const DEFAULT_STANDING =
   "Do the work in your private folder. Put finished deliverables in private/output/. Use the shared folders when handing work to another agent.";
@@ -139,6 +150,8 @@ type Actions = {
   /** Server-owned folder scopes. Not persisted in the browser; loaded from the sidecar. */
   folders: FoldersConfig | null;
   foldersMeta: FoldersMeta;
+  /** Stage 12: roster sections from the host index. Not persisted in the browser. */
+  sections: AgentSection[];
   setHydrated: (v: boolean) => void;
   setUi: (patch: Partial<UiState>) => void;
   resetAll: () => void;
@@ -180,6 +193,27 @@ type Actions = {
   }) => Promise<Bot>;
   /** Sidecar first: moves agents/{Old}/ → agents/{New}/, then the roster label. */
   renameBot: (id: string, name: string) => Promise<Result>;
+  /**
+   * Stage 12 — Edit profile. Sidecar first (`agentUpdateProfile`: rename on
+   * disk when the name changed, agent.json, AGENTS.md body), then the roster row.
+   */
+  updateBotProfile: (
+    id: string,
+    patch: { name?: string; job?: string; description?: string; mascotId?: MascotId; color?: AgentColorId },
+  ) => Promise<Result>;
+  /**
+   * Stage 12 — conversational create. `agentEnsure`s a placeholder folder
+   * (agents/New agent/) through `createBot`, selects it and puts its chat in
+   * setup mode; the setup chat then renames it and writes job / AGENTS.md.
+   */
+  startSetupAgent: () => Promise<{ ok: true; bot: Bot } | { ok: false; error: string }>;
+  /** Setup chat done (or abandoned): the chat becomes a normal chat on that agent. */
+  endSetup: (botId: string) => void;
+  /** Stage 12: roster sections — every call writes the host index first. */
+  createSection: (name: string) => Promise<{ ok: true; section: AgentSection } | { ok: false; error: string }>;
+  renameSection: (id: string, name: string) => Promise<Result>;
+  deleteSection: (id: string) => Promise<Result>;
+  moveBotToSection: (botId: string, sectionId: string | null) => Promise<Result>;
   updateBot: (id: string, patch: Partial<Bot>) => void;
   /** Sidecar copies private/ + AGENTS.md into a new agents/{Name copy}/ tree. */
   duplicateBot: (id: string) => Promise<{ ok: true; bot: Bot } | { ok: false; error: string }>;
@@ -313,6 +347,7 @@ export function botFromRoster(r: RosterEntry, employeeId: string): Bot {
     hidden: r.hidden,
     archived: r.archived,
     unread: r.unread,
+    sectionId: r.sectionId ?? null,
     createdAt: r.createdAt,
   };
 }
@@ -394,12 +429,13 @@ export const useLocalBot = create<LocalBotState>()(
       diskEpoch: 0,
       folders: null,
       foldersMeta: { legacyCompanyRoot: null, isElectron: false, loaded: false },
+      sections: [],
       setHydrated: (v) => set({ hydrated: v }),
       setUi: (patch) => set({ ui: { ...get().ui, ...patch } }),
       resetAll: () => {
         // Fresh host index (the old one is kept as .bak); agent folders and chat files stay on disk.
         void stateReset();
-        set({ ...emptySnapshot(), ui: { ...DEFAULT_UI }, hydrated: true, diskLoaded: true, diskNotice: null, legacySnapshot: null, diskEpoch: 0 });
+        set({ ...emptySnapshot(), ui: { ...DEFAULT_UI }, hydrated: true, diskLoaded: true, diskNotice: null, legacySnapshot: null, diskEpoch: 0, sections: [] });
       },
 
       loadFromDisk: async () => {
@@ -438,6 +474,8 @@ export const useLocalBot = create<LocalBotState>()(
           settings: { ...cur.settings, allowHostedDemo: st.config.allowHostedDemo, useExistingOllama: st.config.useExistingOllama },
           hostConfig: { ollamaModel: st.config.ollamaModel, activeModelId: st.config.activeModelId },
           folders: st.folders,
+          // Stage 12: sections come from the index on disk; a wiped localStorage changes nothing here.
+          sections: [...(st.index.sections ?? [])].sort((a, b) => a.order - b.order),
           previewWritesToProjectData: cur.previewWritesToProjectData,
           diskNotice: st.rosterError ? st.rosterError.error : null,
           legacySnapshot: null,
@@ -579,6 +617,7 @@ export const useLocalBot = create<LocalBotState>()(
           hidden: false,
           archived: false,
           unread: 0,
+          sectionId: null,
           createdAt: now,
         };
         // The host index is the durable record of "onboarded" and the labels.
@@ -657,6 +696,7 @@ export const useLocalBot = create<LocalBotState>()(
           hidden: false,
           archived: false,
           unread: 0,
+          sectionId: null,
           createdAt: now,
         };
         set({
@@ -694,6 +734,99 @@ export const useLocalBot = create<LocalBotState>()(
         }));
         return { ok: true };
       },
+      updateBotProfile: async (id, patch) => {
+        const s = get();
+        const bot = s.bots.find((b) => b.id === id);
+        if (!bot) return { ok: false, error: "Unknown agent" };
+        if (!s.folders) return { ok: false, error: "Pick your folders in Settings → Folders first" };
+        if (s.sessions[id]?.running) {
+          return { ok: false, error: `${bot.name} is still working on a message. Stop it first.` };
+        }
+        const wanted = patch.name !== undefined ? patch.name.trim().replace(/\s+/g, " ") : undefined;
+        if (wanted !== undefined && !wanted) return { ok: false, error: "Agent name cannot be empty." };
+        if (wanted && wanted !== bot.name && s.bots.some((b) => b.id !== id && sameName(b.name, wanted))) {
+          return { ok: false, error: `An agent named ${wanted} already exists.` };
+        }
+        // Sidecar first: folder move (if renamed) + agent.json + AGENTS.md. Only then the roster row.
+        const r = await agentUpdateProfile({
+          data: {
+            agentName: bot.name,
+            newName: wanted && wanted !== bot.name ? wanted : undefined,
+            job: patch.job,
+            description: patch.description,
+            mascotId: patch.mascotId,
+            color: patch.color,
+          },
+        });
+        if (!r.ok) return { ok: false, error: r.error };
+        set((cur) => ({
+          bots: cur.bots.map((b) =>
+            b.id === id
+              ? {
+                  ...b,
+                  name: r.name,
+                  privatePath: r.privatePath,
+                  scopes: r.scopes,
+                  job: r.job,
+                  color: colorId(r.color),
+                  mascotId: isMascotId(r.mascotId) ? r.mascotId : b.mascotId,
+                  standingInstructions: r.standingInstructions || DEFAULT_STANDING,
+                }
+              : b,
+          ),
+          diskEpoch: cur.diskEpoch + 1,
+        }));
+        return { ok: true };
+      },
+      startSetupAgent: async () => {
+        const s = get();
+        // "New agent", then "New agent 2", … — free in the roster (disk collisions are refused by ensureAgent).
+        const taken = new Set(s.bots.map((b) => agentSlug(b.name).toLowerCase()));
+        let name = SETUP_PLACEHOLDER_NAME;
+        for (let i = 2; taken.has(name.toLowerCase()) && i < 1000; i++) name = `${SETUP_PLACEHOLDER_NAME} ${i}`;
+        const modelId = s.selectedCatalogId ?? s.hostConfig.activeModelId ?? "";
+        try {
+          // The same disk path as the Advanced modal: createBot → agentEnsure → agents/{Name}/.
+          const bot = await get().createBot({ name, job: SETUP_PLACEHOLDER_JOB, color: "steel", mascotId: "ops", modelId });
+          set((cur) => ({ ui: { ...cur.ui, selectedBotId: bot.id, setupBotId: bot.id, newAgentOpen: false, composer: "" } }));
+          return { ok: true, bot };
+        } catch (err) {
+          return { ok: false, error: err instanceof Error ? err.message : String(err) };
+        }
+      },
+      endSetup: (botId) => {
+        set((cur) => (cur.ui.setupBotId === botId ? { ui: { ...cur.ui, setupBotId: null } } : {}));
+      },
+      createSection: async (name) => {
+        const r = await sectionCreate({ data: { name } });
+        if (!r.ok) return { ok: false, error: r.error };
+        set({ sections: r.sections });
+        return { ok: true, section: r.section };
+      },
+      renameSection: async (id, name) => {
+        const r = await sectionRename({ data: { id, name } });
+        if (!r.ok) return { ok: false, error: r.error };
+        set({ sections: r.sections });
+        return { ok: true };
+      },
+      deleteSection: async (id) => {
+        const r = await sectionDelete({ data: { id } });
+        if (!r.ok) return { ok: false, error: r.error };
+        set((cur) => ({
+          sections: r.sections,
+          bots: cur.bots.map((b) => (b.sectionId === id ? { ...b, sectionId: null } : b)),
+        }));
+        return { ok: true };
+      },
+      moveBotToSection: async (botId, sectionId) => {
+        const bot = get().bots.find((b) => b.id === botId);
+        if (!bot) return { ok: false, error: "Unknown agent" };
+        // Index row first; the browser copy follows.
+        const r = await statePatchAgent({ data: { id: botId, sectionId } });
+        if (!r.ok) return { ok: false, error: r.error };
+        set((cur) => ({ bots: cur.bots.map((b) => (b.id === botId ? { ...b, sectionId } : b)) }));
+        return { ok: true };
+      },
       updateBot: (id, patch) => {
         set((s) => ({
           bots: s.bots.map((b) => (b.id === id ? { ...b, ...patch, id: b.id } : b)),
@@ -711,6 +844,8 @@ export const useLocalBot = create<LocalBotState>()(
           data: { agentName: src.name, avoid: s.bots.map((b) => b.name) },
         });
         if (!r.ok) return { ok: false, error: r.error };
+        // The copy is filed where the source is; the index row is written first.
+        if (src.sectionId) await statePatchAgent({ data: { id: r.id, sectionId: src.sectionId } });
         const bot: Bot = {
           id: r.id,
           employeeId: employee.id,
@@ -726,6 +861,7 @@ export const useLocalBot = create<LocalBotState>()(
           hidden: false,
           archived: false,
           unread: 0,
+          sectionId: src.sectionId,
           createdAt: nowIso(),
         };
         set((cur) => ({
@@ -784,6 +920,8 @@ export const useLocalBot = create<LocalBotState>()(
             ...s.ui,
             selectedBotId:
               s.ui.selectedBotId === id ? nextSelectable(remaining, id) : s.ui.selectedBotId,
+            setupBotId: s.ui.setupBotId === id ? null : s.ui.setupBotId,
+            editProfileBotId: s.ui.editProfileBotId === id ? null : s.ui.editProfileBotId,
           },
         });
       },

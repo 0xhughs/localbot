@@ -141,8 +141,13 @@ export type Bot = {
   /** Mirrors `archived` in agents/{Name}/agent.json. Files stay on disk. */
   archived: boolean;
   unread: number;
+  /** Stage 12: roster section (host index row). null = unsorted. */
+  sectionId: string | null;
   createdAt: string;
 };
+
+/** Stage 12: a roster section heading. Mirrors `HostSection` in the host index. */
+export type AgentSection = { id: string; name: string; order: number };
 
 /** Roster rows the default UI shows: not hidden here, not archived on disk. */
 export function isActiveBot(bot: Pick<Bot, "hidden" | "archived">): boolean {
@@ -154,7 +159,7 @@ export function isActiveBot(bot: Pick<Bot, "hidden" | "archived">): boolean {
  * (`fs/company.ts`, `fs/company-disk.ts`, `permissions.ts` grant classifier)
  * and their disk-grant tests. The live app uses `Bot.scopes`.
  */
-export type LegacyBot = Omit<Bot, "scopes" | "privatePath" | "archived"> & {
+export type LegacyBot = Omit<Bot, "scopes" | "privatePath" | "archived" | "sectionId"> & {
   path: string;
   workspacePath: string;
   outputPath: string;
@@ -274,7 +279,12 @@ export type UiState = {
   agentsOpen: boolean;
   pendingPermission: PermissionRequest | null;
   previewPath: string | null;
+  /** The Advanced "New agent" modal (Stage 12: no longer the default for +). */
   newAgentOpen: boolean;
+  /** Stage 12: the agent whose chat is in setup mode (asks name + job before the first normal turn). */
+  setupBotId: string | null;
+  /** Stage 12: the agent whose Edit profile panel is open. */
+  editProfileBotId: string | null;
 };
 
 export type AppSnapshot = {

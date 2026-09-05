@@ -284,8 +284,70 @@ export function readAgent(folders: FoldersConfig, agentName: string): AgentRecor
   }
 }
 
-function writeAgentRecord(dir: string, record: AgentRecord): void {
+export function writeAgentRecord(dir: string, record: AgentRecord): void {
   fs.writeFileSync(path.join(dir, "agent.json"), JSON.stringify(record, null, 2) + "\n", "utf8");
+}
+
+/**
+ * `agents/{Name}/AGENTS.md` is `# Name\n\n{job}\n\n{standing instructions}`.
+ * The roster reads the third part back as `standingInstructions`
+ * (`host-index.ts` → `standingBody`); this is the matching writer.
+ */
+export function standingMarkdown(name: string, job: string, body: string): string {
+  const trimmedBody = body.replace(/\r\n/g, "\n").trim();
+  return `# ${name}\n\n${job.trim()}\n${trimmedBody ? `\n${trimmedBody}\n` : ""}`;
+}
+
+export function writeAgentStanding(folders: FoldersConfig, agentName: string, job: string, body: string): string {
+  const dir = requireAgentDir(folders, agentName);
+  const rec = readAgent(folders, agentName);
+  const text = standingMarkdown(rec?.name || path.basename(dir), job, body);
+  fs.writeFileSync(path.join(dir, "AGENTS.md"), text, "utf8");
+  return text;
+}
+
+export type AgentProfilePatch = {
+  job?: string;
+  /** The standing-instructions body of AGENTS.md (everything after the job line). */
+  description?: string;
+  mascotId?: string;
+  color?: string;
+};
+
+export type AgentProfile = AgentRecord & { standingInstructions: string; privatePath: string; agentDir: string };
+
+/**
+ * Stage 12 — Edit profile. Writes job / mascot / color into agent.json and
+ * rewrites AGENTS.md as `# Name / job / description`. Renames are not done
+ * here: the caller runs `renameAgent` first and then patches the new name, so
+ * the folder move and the record write stay two explicit disk steps.
+ */
+export function updateAgentProfile(folders: FoldersConfig, agentName: string, patch: AgentProfilePatch): AgentProfile {
+  const dir = requireAgentDir(folders, agentName);
+  const cur = readAgent(folders, agentName);
+  if (!cur) throw new ScopeError("NOT_FOUND", `agents/${path.basename(dir)} has no agent.json.`);
+  const job = patch.job !== undefined ? patch.job.trim().replace(/\s+/g, " ") || "Generalist" : cur.job;
+  const mascotId = patch.mascotId !== undefined ? patch.mascotId.trim() : cur.mascotId;
+  const color = patch.color !== undefined ? patch.color.trim() : cur.color;
+  for (const [k, v] of [["mascotId", mascotId], ["color", color]] as const) {
+    if (v.includes("\0") || /[\\/]|\.\./.test(v) || v.length > 32) throw new ScopeError("BAD_PATH", `Bad ${k}: ${v}`);
+  }
+  const next: AgentRecord = { ...cur, job, mascotId, color };
+  writeAgentRecord(dir, next);
+  const currentBody = standingBodyOf(readAgentStanding(folders, agentName));
+  const body = patch.description !== undefined ? patch.description : currentBody;
+  writeAgentStanding(folders, agentName, job, body);
+  return { ...next, standingInstructions: body.trim(), privatePath: path.join(dir, "private"), agentDir: dir };
+}
+
+/** Everything after the `# Name` heading and the job line. Mirrors `standingBody` in host-index.ts. */
+export function standingBodyOf(text: string | null): string {
+  if (!text) return "";
+  const lines = text.split("\n");
+  if (lines[0]?.startsWith("# ")) lines.shift();
+  while (lines.length && !lines[0]!.trim()) lines.shift();
+  if (lines.length && lines[0]!.trim()) lines.shift(); // the job line
+  return lines.join("\n").trim();
 }
 
 /** Folder names directly under `agents/` (case preserved). Missing `agents/` is an empty list. */

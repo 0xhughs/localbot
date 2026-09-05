@@ -20,8 +20,9 @@
  *      gutter clears them
  *   2. Settings button is in the bottom 64 px of the sidebar, below the roster;
  *      the title strip contains no Settings button
- *   3. + New agent is above the search field, which is above the roster; clicking
- *      + New agent opens the same New agent dialog
+ *   3. + New agent is above the search field, which is above the roster; the
+ *      Advanced control beside it opens the New agent dialog (Stage 12: + itself
+ *      opens a setup chat — see prove-identity.mjs)
  *   4. typing in the search narrows the roster by name and by job; a miss shows
  *      "No agents match"; clearing shows everyone again
  *   5. composer: one line → grows per line → caps at 6 lines with overflowY auto
@@ -270,12 +271,14 @@ if (settingsBox.y + settingsBox.height < sidebarBottom - 64) fail(`Settings is $
 if (settingsBox.y < stripBox.y + stripBox.height + 100) fail("Settings is up in the title corner");
 if ((await page.locator('[aria-label="Settings"]:visible').count()) !== 1) fail("expected exactly one visible Settings button (the sidebar footer)");
 log(`sidebar: + New agent y=${Math.round(newBox.y)} · search y=${Math.round(searchBox.y)} · roster y=${Math.round(rosterBox.y)} · Settings y=${Math.round(settingsBox.y)} (sidebar bottom ${Math.round(sidebarBottom)})`);
-await page.getByTestId("new-agent").click();
+// Stage 12: + New agent opens a setup chat (proven in prove:identity); the same
+// modal is now behind the Advanced control next to it.
+await page.getByTestId("new-agent-advanced").click();
 const newAgentHeading = page.getByRole("heading", { name: "New agent" });
 await newAgentHeading.waitFor({ timeout: 10000 });
 await page.getByRole("button", { name: "Cancel" }).click();
 await newAgentHeading.waitFor({ state: "hidden", timeout: 10000 });
-log("+ New agent opens the same New agent modal (unchanged this stage); Cancel closes it");
+log("Advanced (next to + New agent) opens the same New agent modal; Cancel closes it");
 
 if (chromeOnly) {
   console.log(
