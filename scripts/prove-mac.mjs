@@ -13,9 +13,11 @@
  *     (prints the build command and exits 1 — Mic is NOT BUILT on this Mac)
  *   - live gate (skip with --no-mic): the packaged LocalBot.app, launched with
  *     node/npm/npx removed from PATH, does not enable the Mic button, does not get
- *     microphone access from macOS TCC, or a real hold-to-talk (jfk.wav played out
- *     of the speakers while the button is held) does not put a transcript into the
- *     composer without sending a message.
+ *     microphone access from macOS TCC, or a real click-click (Stage 13: click to
+ *     start, jfk.wav played out of the speakers, click to stop) does not put a
+ *     transcript into the composer without sending a message — or the mic stops
+ *     right after the first click (hold-only control). The press-and-hold
+ *     fallback is checked second with the same fixture.
  *
  * Usage:
  *   npm run prove:mac                 # newest dist/desktop/*.dmg + dist/desktop/mac-arm64/LocalBot.app
@@ -280,40 +282,77 @@ if (mic === "not-determined") {
 }
 log("TCC microphone status:", mic);
 
-// ---- 4. hold-to-talk with the real microphone -------------------------------
+// ---- 4. voice input with the real microphone ---------------------------------
+// Stage 13: the default gesture is click-click (click to start, click to stop).
+// The old press-and-hold is kept as a fallback and checked second.
+const voiceState = () => micBtn.getAttribute("data-voice-state");
+const voiceNote = async () => (await page.getByTestId("voice-note").textContent().catch(() => "")) ?? "";
+const waitVoice = async (want, ms) => {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    if ((await voiceState()) === want) return true;
+    await page.waitForTimeout(100);
+  }
+  return false;
+};
+const waitTranscript = async (ms) => {
+  const end = Date.now() + ms;
+  let n = "";
+  while (Date.now() < end) {
+    n = await voiceNote();
+    if ((await voiceState()) === "idle" && n) return n;
+    await page.waitForTimeout(250);
+  }
+  return n;
+};
+const playFixture = async () => {
+  log("listening — playing", path.basename(wav), "out of the default output so the default input hears it");
+  const play = spawn("afplay", [wav], { stdio: "ignore" });
+  await new Promise((r) => play.on("exit", r));
+  await page.waitForTimeout(600);
+};
+
+// 4a. click-click (default)
 await box.fill("");
 const sentBefore = await page.locator("li[data-role='user']").count();
+if ((await micBtn.getAttribute("data-voice-gesture")) !== "toggle") fail("mic-button is not a click-to-toggle control (data-voice-gesture)");
+await micBtn.click();
+if (!(await waitVoice("listening", 5000))) fail(`Mic did not enter listening after one click: ${(await voiceNote()) || "no note"}`);
+await page.waitForTimeout(1500);
+if ((await voiceState()) !== "listening") fail(`the mic stopped ${await voiceState()} after a single click — the control still requires a hold`);
+const elapsedEarly = Number(await micBtn.getAttribute("data-elapsed-seconds"));
+if (!(elapsedEarly >= 1)) fail(`the listening timer is not counting (data-elapsed-seconds=${elapsedEarly})`);
+await playFixture();
+await micBtn.click();
+const note = await waitTranscript(60000);
+const composer = await box.inputValue();
+log("click-click voice note:", JSON.stringify(note));
+log("composer:", JSON.stringify(composer));
+let sent = (await page.locator("li[data-role='user']").count()) - sentBefore;
+if (sent) fail(`click-to-toggle sent ${sent} message(s); the transcript must only land in the composer`);
+if (!/Heard /.test(note)) fail(`no transcript after click-click: ${note || "no voice note"}`);
+if (!norm(composer).includes(norm(expect))) fail(`composer "${composer}" does not contain "${expect}" — the mic did not hear the fixture (check speaker → mic path)`);
+const heard = /Heard ([\d.]+) s · (\S+) · (\d+) ms/.exec(note);
+
+// 4b. press-and-hold fallback
+await box.fill("");
 const bb = await micBtn.boundingBox();
 if (!bb) fail("mic button has no bounding box");
 await page.mouse.move(bb.x + bb.width / 2, bb.y + bb.height / 2);
 await page.mouse.down();
-const listening = Date.now() + 5000;
-while (Date.now() < listening && (await micBtn.getAttribute("data-voice-state")) !== "listening") await page.waitForTimeout(100);
-if ((await micBtn.getAttribute("data-voice-state")) !== "listening") {
+if (!(await waitVoice("listening", 5000))) {
   await page.mouse.up();
-  fail(`Mic did not enter listening: ${(await page.getByTestId("voice-note").textContent().catch(() => "")) || "no note"}`);
+  fail(`Mic did not enter listening on press: ${(await voiceNote()) || "no note"}`);
 }
-log("listening — playing", path.basename(wav), "out of the default output so the default input hears it");
-const play = spawn("afplay", [wav], { stdio: "ignore" });
-await new Promise((r) => play.on("exit", r));
-await page.waitForTimeout(600);
+await playFixture();
 await page.mouse.up();
-const done = Date.now() + 60000;
-let note = "";
-while (Date.now() < done) {
-  note = (await page.getByTestId("voice-note").textContent().catch(() => "")) ?? "";
-  const st = await micBtn.getAttribute("data-voice-state");
-  if (st === "idle" && note) break;
-  await page.waitForTimeout(250);
-}
-const composer = await box.inputValue();
-log("voice note:", JSON.stringify(note));
-log("composer:", JSON.stringify(composer));
-const sent = (await page.locator("li[data-role='user']").count()) - sentBefore;
-if (sent) fail(`hold-to-talk sent ${sent} message(s); the transcript must only land in the composer`);
-if (!/Heard /.test(note)) fail(`no transcript: ${note || "no voice note"}`);
-if (!norm(composer).includes(norm(expect))) fail(`composer "${composer}" does not contain "${expect}" — the mic did not hear the fixture (check speaker → mic path)`);
-const heard = /Heard ([\d.]+) s · (\S+) · (\d+) ms/.exec(note);
+const holdNote = await waitTranscript(60000);
+const holdComposer = await box.inputValue();
+log("hold voice note:", JSON.stringify(holdNote));
+sent = (await page.locator("li[data-role='user']").count()) - sentBefore;
+if (sent) fail(`hold-to-talk sent ${sent} message(s)`);
+if (!/Heard /.test(holdNote)) fail(`hold fallback gave no transcript: ${holdNote || "no voice note"}`);
+if (!norm(holdComposer).includes(norm(expect))) fail(`hold fallback composer "${holdComposer}" does not contain "${expect}"`);
 
 // The sidecar transcribed with the built binary: the clip dir is empty again and whisper-cli was the one in AppData.
 const clipDir = path.join(appData, "stt");
@@ -322,7 +361,7 @@ if (leftover.length) fail(`voice clip left behind: ${leftover.join(", ")}`);
 log("clip deleted after transcription; Enter is still bound to send → runAgentTurn (static)");
 
 console.log(
-  `STAGE10_MAC_MIC_PASS tcc=${mic} heard_s=${heard?.[1] ?? "?"} model=${heard?.[2] ?? "?"} ms=${heard?.[3] ?? "?"} text=${JSON.stringify(composer)} whisper=${whisperCli} app=${appBundle} dmg_sha256=${dmgSha}`,
+  `STAGE10_MAC_MIC_PASS tcc=${mic} gesture=click-click heard_s=${heard?.[1] ?? "?"} model=${heard?.[2] ?? "?"} ms=${heard?.[3] ?? "?"} text=${JSON.stringify(composer)} hold_fallback=WORKS whisper=${whisperCli} app=${appBundle} dmg_sha256=${dmgSha}`,
 );
 await electronApp.close().catch(() => {});
 process.exit(0);

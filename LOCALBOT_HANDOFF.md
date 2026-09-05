@@ -1,5 +1,39 @@
 # LOCALBOT_HANDOFF.md
 
+## Stage 13 — Click-to-toggle mic
+Date: 2026-09-05
+Branch: `stage-13-mic-toggle` (PR → `main`, off `6b958b3` = merge of PR #12)
+
+Gesture only, engine untouched: `sttTranscribe` → `transcribeWav` → one-shot `whisper-cli` (whisper.cpp v1.9.2), renderer-built PCM16 mono 16 kHz WAV, `desktop/main.mjs` media permission handlers, `runAgentTurn`, dsh `0.1.2-alpha.5`, ACP `1.4.0`, scopes, host index, sections, profile, Stage 11 chrome — all unchanged. No cloud STT, no whisper-server, no auto-send. Still UNSIGNED, not notarized, no Windows work. Full detail and the exact pass output: `STAGE_HANDOFF.md`.
+
+### Built
+- **Click to start, click to stop: WORKS.** `src/lib/audio/voice-toggle.ts` (pure): pointer down at idle starts listening at once (`micPress`); on release `micRelease` treats a press < `HOLD_MS` (500 ms) as a click → keep listening, ≥ 500 ms as a hold → stop; a press that began while listening is the second click → stop. Space / Enter → `voice.toggle()` (`micToggleAction`). `aria-label` = **Start voice input** / **Stop listening** / **Transcribing** (never "Hold to talk"); `data-voice-gesture="toggle"`. Pointer capture / Space-keyup (which made every release a stop) removed. Transcript → `appendTranscript(ui.composer, text)`; the employee presses Enter / Send. Live: one click → listening, still listening 2 s later; second click → `"And so my fellow Americans, ask not what your country can do for you, ask what you can do for your country."` in the composer, 0 sent.
+- **Live timer: WORKS.** `elapsedSeconds` ticks every 250 ms while listening; header **Listening 0:07** (`formatTimer`), a `voice-timer` counter beside the Mic, `data-elapsed-seconds` on the button.
+- **Escape cancels: WORKS.** Chosen: cancel (discard) — clip dropped, whisper-cli not run, composer unchanged, note "Cancelled — nothing transcribed." Window-level listener while listening.
+- **60 s cap → auto-stop + transcribe: WORKS.** `mic-capture.ts` fires `onCap` once (`takeForCap`); the hook passes `onCap: () => stop()`. Live: no second click → at 60 s `Heard 60.0 s · base.en · 760 ms`, transcript in the composer.
+- **Hold fallback: WORKS** (≥ 500 ms press, release = stop). **Disabled** while a turn runs / no `mediaDevices` / no whisper-cli row or binary for this arch — unchanged rules.
+- **Tests:** `npm test` → 203 + **258** pass (new `src/lib/audio/voice-toggle.test.ts`, 12: pure gesture + timer + cap, source gates); `stt.test.ts` Mic gate rewritten from `aria-label="Hold to talk"` to the toggle control; lint + tsc clean. Negative check: main's hold-only `chat.tsx` fails 2 tests and `prove:mic -- --static`.
+- **Proofs:** new `npm run prove:mic` (dev Electron, Chromium fake mic fed `jfk.wav`, real whisper-cli; `--cap` adds the 60 s gate) → `STAGE13_MIC_TOGGLE_PASS`. `npm run prove:mac` (rebuilt UNSIGNED `.dmg` sha256 `e843f469c7762f4f6a7fe404c053057384185f7dc4b9121f4218c8cb9fdd5061`, real USB mic via speakers) now drives click → `afplay jfk.wav` → click, then the hold fallback → `STAGE10_MAC_MIC_PASS … gesture=click-click heard_s=13.6 … hold_fallback=WORKS`. `prove:stt` `STAGE9_STT_PASS`, `prove:chrome` `STAGE11_CHROME_PASS` still.
+
+### Not built
+- Plugins (Stage 14), routines, channels, Windows NSIS, streaming partials, auto-send, multilingual — by rule. Escape stop-without-send — by choice (Escape cancels; click / Space / Enter stops and keeps the words). Windows / Linux UNVERIFIED; touch / pen hold threshold UNVERIFIED; signing / notarization NOT BUILT.
+
+### Prove it
+```
+npm test && npm run prove:mic -- --cap
+```
+Pass: `ℹ pass 258` … `[prove-mic] click 1 → listening · aria "Stop listening" · header "Listening 0:02" · timer 0:02 · still listening after 2 s (not hold-only)` … `click 2 → transcribing → idle · Voice · Heard 11.8 s · base.en · 304 ms · composer "And so my fellow Americans, ask not what your country can do for you, …" · 0 messages sent` … `Escape → idle · Cancelled — nothing transcribed.` … `60 s cap → stopped on its own → Heard 60.0 s` … `STAGE13_MIC_TOGGLE_PASS gesture=toggle click1=listening … escape=cancelled hold_fallback=WORKS … sent=0`. Fails if the mic is idle 2 s after a single click (hold-only), the timer does not count, the JFK phrase is missing, anything was sent, Escape transcribes, or the cap does not stop by itself.
+
+### How I test in the app
+1. Click the Mic once: red stop square, header counts **Listening 0:01, 0:02…**. Speak. Click again → "Transcribing" → words in the composer; press Enter to send.
+2. Click, speak, press **Escape**: nothing transcribed, composer unchanged.
+3. Click and wait: at 1:00 it stops by itself and the minute's transcript lands in the composer.
+4. Press-and-hold still works (release = stop). Space / Enter on the focused button toggle. Mic disabled while the agent is working.
+
+### Ready for
+Stage 14 (plugins) only after you say GO.
+
+
 ## Stage 12 — Agent identity
 Date: 2026-09-05
 Branch: `stage-12-agent-identity` (PR → `main`, off `36863cc` = merge of PR #11)

@@ -25,6 +25,7 @@ import { Button } from "@/components/ui/button";
 import { AgentAvatar } from "./avatar";
 import { ChatMarkdown } from "./markdown";
 import { appendTranscript } from "@/lib/audio/voice-text";
+import { formatTimer, micAriaLabel, micPress, micRelease, micTitle, type MicPress } from "@/lib/audio/voice-toggle";
 import { COMPOSER_MAX_LINES, composerHeight, isPinnedToBottom } from "@/lib/chat-layout";
 import { parseSetupAnswer, setupPrompt, setupStepForAnswers } from "@/lib/setup-chat";
 import { useVoiceInput } from "./use-voice-input";
@@ -186,8 +187,9 @@ export function ChatPane() {
     };
   }, [botName, botModelId, turnRunning, settingsOpen, setRuntime]);
 
-  // Stage 9: hold-to-talk. The transcript lands in the composer; the employee
-  // presses Enter. Nothing here sends — send() below stays the only path.
+  // Stage 9 / 13: voice input (click-to-toggle, hold as fallback). The
+  // transcript lands in the composer; the employee presses Enter. Nothing
+  // here sends — send() below stays the only path.
   const voice = useVoiceInput({
     enabled: !turnRunning,
     onText: (text) => {
@@ -195,6 +197,8 @@ export function ChatPane() {
       useLocalBot.getState().setUi({ composer: appendTranscript(cur, text) });
     },
   });
+  // The pointer press in flight on the Mic button (click vs hold is decided on release).
+  const micPressRef = useRef<MicPress | null>(null);
 
   if (!bot) {
     return (
@@ -388,7 +392,7 @@ export function ChatPane() {
                 data-testid="voice-state"
                 className="shimmer-text font-mono text-[10px] tracking-wider uppercase"
               >
-                {voice.state === "listening" ? "Listening" : "Transcribing"}
+                {voice.state === "listening" ? `Listening ${formatTimer(voice.elapsedSeconds)}` : "Transcribing"}
               </span>
             ) : null}
           </div>
@@ -528,43 +532,60 @@ export function ChatPane() {
               >
                 <Paperclip className="size-4" />
               </Button>
+              {/*
+                Stage 13: click-to-toggle. Pointer down at idle starts listening at
+                once; a release within HOLD_MS is a click and leaves the mic on
+                (toggle). The next press + release stops and transcribes. A press
+                held ≥ HOLD_MS is the old hold-to-talk: releasing stops. Space /
+                Enter toggle. Escape (window-level, in the hook) cancels. Nothing
+                here sends; the transcript lands in the composer via onText.
+              */}
               <Button
                 variant={voice.state === "listening" ? "danger" : "ghost"}
                 size="icon-sm"
-                aria-label="Hold to talk"
+                aria-label={micAriaLabel(voice.state)}
                 aria-pressed={voice.state === "listening"}
                 data-testid="mic-button"
                 data-voice-state={voice.state}
-                title={
-                  voice.disabledReason ?? "Hold to talk (release to transcribe on this computer)"
-                }
+                data-voice-gesture="toggle"
+                data-elapsed-seconds={voice.state === "listening" ? voice.elapsedSeconds : 0}
+                title={micTitle(voice.state, voice.disabledReason)}
                 disabled={Boolean(voice.disabledReason)}
                 onPointerDown={(e) => {
                   if (e.button !== 0) return;
-                  e.currentTarget.setPointerCapture(e.pointerId);
-                  voice.start();
+                  const r = micPress(voice.state, Date.now());
+                  micPressRef.current = r.press;
+                  if (r.action === "start") voice.start();
                 }}
-                onPointerUp={() => voice.stop()}
-                onPointerCancel={() => voice.cancel()}
-                onLostPointerCapture={() => {
-                  if (voice.state === "listening") voice.stop();
+                onPointerUp={() => {
+                  const action = micRelease(micPressRef.current, Date.now());
+                  micPressRef.current = null;
+                  if (action === "stop") voice.stop();
                 }}
-                onKeyDown={(e) => {
-                  if (e.key === " " && !e.repeat) {
-                    e.preventDefault();
-                    voice.start();
-                  }
+                onPointerCancel={() => {
+                  // A cancelled press (touch scroll, window switch) counts as a release.
+                  const action = micRelease(micPressRef.current, Date.now());
+                  micPressRef.current = null;
+                  if (action === "stop") voice.stop();
                 }}
-                onKeyUp={(e) => {
-                  if (e.key === " ") {
-                    e.preventDefault();
-                    voice.stop();
-                  }
+                onClick={(e) => {
+                  // Keyboard activation only (Space / Enter give detail 0); a mouse
+                  // click already ran through pointerdown / pointerup above.
+                  if (e.detail === 0) voice.toggle();
                 }}
                 onContextMenu={(e) => e.preventDefault()}
               >
-                <Mic className="size-4" />
+                {voice.state === "listening" ? <Square className="size-3.5" /> : <Mic className="size-4" />}
               </Button>
+              {voice.state === "listening" && (
+                <span
+                  data-testid="voice-timer"
+                  className="font-mono text-[11px] tabular-nums text-danger"
+                  aria-live="off"
+                >
+                  {formatTimer(voice.elapsedSeconds)}
+                </span>
+              )}
               <MentionHint />
             </div>
             <Button
