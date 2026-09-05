@@ -7,8 +7,26 @@
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- sandboxed preload must be CJS
 const { contextBridge, ipcRenderer } = require("electron");
 
+// Stage 17: main passes the per-launch sidecar token as an
+// `additionalArguments` entry (`--localbot-sidecar-token=<64 hex>`). Sandboxed
+// preloads see `process.argv`, so it is read here once and handed to the
+// renderer as a plain string; nothing else on this bridge can fetch it later.
+// Must match SIDECAR_TOKEN_ARG in desktop/sidecar-token.mjs (CJS cannot import it).
+const SIDECAR_TOKEN_ARG = "--localbot-sidecar-token=";
+const sidecarToken = (() => {
+  for (const a of process.argv || []) {
+    if (typeof a === "string" && a.startsWith(SIDECAR_TOKEN_ARG)) {
+      const v = a.slice(SIDECAR_TOKEN_ARG.length);
+      return /^[0-9a-f]{64}$/.test(v) ? v : null;
+    }
+  }
+  return null;
+})();
+
 contextBridge.exposeInMainWorld("localbotDesktop", {
   platform: process.platform,
+  /** Per-launch sidecar token, or null when main did not start the UI server. */
+  sidecarToken,
   setTitle: (title) => ipcRenderer.send("localbot:title", title),
   minimize: () => ipcRenderer.send("localbot:minimize"),
   maximize: () => ipcRenderer.send("localbot:maximize"),
