@@ -21,9 +21,10 @@ import path from "node:path";
 import type { FoldersConfig, ScopeId } from "../types.ts";
 import { atomicWriteJson, dataDir, isUnderDir } from "./disk.ts";
 import { agentSlug } from "./scope-model.ts";
-import { listAgentDirs, privateRoot, readAgent, readAgentStanding } from "./scopes.ts";
+import { listAgentDirs, privateRoot, readAgent, readAgentStanding, standingBodyOf } from "./scopes.ts";
 
 export const HOST_INDEX_VERSION = 1;
+export const SECTION_NAME_MAX = 40;
 export const HOST_INDEX_FILE = "localbot-agents.json";
 export const CHATS_DIR = "chats";
 export const LEGACY_BROWSER_KEY = "localbot-state-v3";
@@ -42,8 +43,13 @@ export type HostAgentRow = {
   sessionId: string | null;
   /** The `agents/{Name}/private` cwd that session was opened with; resume requires the same. */
   sessionCwd: string | null;
+  /** Stage 12: the roster section this agent is filed under; null = unsorted. Lives here, not in React state. */
+  sectionId: string | null;
   createdAt: string;
 };
+
+/** Stage 12: a roster section (a heading the sidebar groups agents under). Lives in the host index. */
+export type HostSection = { id: string; name: string; order: number };
 
 export type HostIndex = {
   version: 1;
@@ -56,6 +62,8 @@ export type HostIndex = {
   /** Set once by `stateMigrate`; never treats the browser copy as truth afterwards. */
   migratedFrom: string | null;
   updatedAt: string;
+  /** Stage 12: roster sections, sorted by `order`. */
+  sections: HostSection[];
   agents: HostAgentRow[];
 };
 
@@ -77,6 +85,7 @@ export function emptyHostIndex(): HostIndex {
     selectedCatalogId: null,
     migratedFrom: null,
     updatedAt: "",
+    sections: [],
     agents: [],
   };
 }
@@ -111,7 +120,20 @@ function row(raw: unknown): HostAgentRow | null {
     unread: typeof r.unread === "number" && r.unread > 0 ? Math.floor(r.unread) : 0,
     sessionId,
     sessionCwd: sessionId && typeof r.sessionCwd === "string" && r.sessionCwd ? r.sessionCwd : null,
+    sectionId: typeof r.sectionId === "string" && r.sectionId ? r.sectionId : null,
     createdAt: typeof r.createdAt === "string" ? r.createdAt : "",
+  };
+}
+
+function section(raw: unknown, fallbackOrder: number): HostSection | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const name = typeof r.name === "string" ? r.name.trim().slice(0, SECTION_NAME_MAX) : "";
+  if (!name) return null;
+  return {
+    id: typeof r.id === "string" && r.id ? r.id : newId("sec"),
+    name,
+    order: typeof r.order === "number" && Number.isFinite(r.order) ? r.order : fallbackOrder,
   };
 }
 
@@ -127,13 +149,23 @@ export function loadHostIndex(): HostIndex {
   } catch {
     return emptyHostIndex();
   }
+  const sections: HostSection[] = [];
+  const sectionIds = new Set<string>();
+  (Array.isArray(raw.sections) ? raw.sections : []).forEach((s, i) => {
+    const sec = section(s, i);
+    if (!sec || sectionIds.has(sec.id)) return;
+    sectionIds.add(sec.id);
+    sections.push(sec);
+  });
+  sections.sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
   const agents: HostAgentRow[] = [];
   const seen = new Set<string>();
   for (const a of Array.isArray(raw.agents) ? raw.agents : []) {
     const r = row(a);
     if (!r || seen.has(r.name.toLowerCase())) continue;
     seen.add(r.name.toLowerCase());
-    agents.push(r);
+    // A row filed under a section that no longer exists is unsorted, not lost.
+    agents.push(r.sectionId && !sectionIds.has(r.sectionId) ? { ...r, sectionId: null } : r);
   }
   return {
     version: HOST_INDEX_VERSION,
@@ -144,6 +176,7 @@ export function loadHostIndex(): HostIndex {
     selectedCatalogId: typeof raw.selectedCatalogId === "string" && raw.selectedCatalogId ? raw.selectedCatalogId : null,
     migratedFrom: typeof raw.migratedFrom === "string" && raw.migratedFrom ? raw.migratedFrom : null,
     updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : "",
+    sections,
     agents,
   };
 }
@@ -198,26 +231,112 @@ export function ensureRow(agentName: string, seed?: Partial<Pick<HostAgentRow, "
     unread: seed?.unread ?? 0,
     sessionId: null,
     sessionCwd: null,
+    sectionId: null,
     createdAt: seed?.createdAt || new Date().toISOString(),
   };
   saveHostIndex({ ...index, agents: [...index.agents, fresh] });
   return fresh;
 }
 
-export type HostAgentPatch = Partial<Pick<HostAgentRow, "pinned" | "hidden" | "unread">>;
+export type HostAgentPatch = Partial<Pick<HostAgentRow, "pinned" | "hidden" | "unread" | "sectionId">>;
+
+export class HostIndexError extends Error {
+  code: "BAD_NAME" | "NOT_FOUND" | "EXISTS";
+  constructor(code: "BAD_NAME" | "NOT_FOUND" | "EXISTS", message: string) {
+    super(message);
+    this.code = code;
+    this.name = "HostIndexError";
+  }
+}
 
 export function patchRowById(id: string, patch: HostAgentPatch): HostAgentRow | null {
   const index = loadHostIndex();
   const cur = findRowById(index, id);
   if (!cur) return null;
+  let sectionId = cur.sectionId;
+  if (patch.sectionId !== undefined) {
+    if (patch.sectionId !== null && !index.sections.some((s) => s.id === patch.sectionId)) {
+      throw new HostIndexError("NOT_FOUND", `No section with id ${patch.sectionId}.`);
+    }
+    sectionId = patch.sectionId;
+  }
   const next: HostAgentRow = {
     ...cur,
     pinned: patch.pinned !== undefined ? Boolean(patch.pinned) : cur.pinned,
     hidden: patch.hidden !== undefined ? Boolean(patch.hidden) : cur.hidden,
     unread: patch.unread !== undefined ? Math.max(0, Math.floor(patch.unread)) : cur.unread,
+    sectionId,
   };
   saveHostIndex({ ...index, agents: index.agents.map((r) => (r.id === id ? next : r)) });
   return next;
+}
+
+/* ---------- Stage 12: roster sections (durable, in the index) ---------- */
+
+function cleanSectionName(raw: unknown): string {
+  const name = typeof raw === "string" ? raw.trim().replace(/\s+/g, " ") : "";
+  if (!name) throw new HostIndexError("BAD_NAME", "Section name cannot be empty.");
+  if (name.length > SECTION_NAME_MAX) throw new HostIndexError("BAD_NAME", `Section name is longer than ${SECTION_NAME_MAX} characters.`);
+  return name;
+}
+
+export function listSections(): HostSection[] {
+  return loadHostIndex().sections;
+}
+
+/** New section at the end of the list. Names are unique case-insensitively. */
+export function createSection(name: string): HostSection {
+  const clean = cleanSectionName(name);
+  const index = loadHostIndex();
+  if (index.sections.some((s) => s.name.toLowerCase() === clean.toLowerCase())) {
+    throw new HostIndexError("EXISTS", `A section named ${clean} already exists.`);
+  }
+  const order = index.sections.reduce((m, s) => Math.max(m, s.order), -1) + 1;
+  const fresh: HostSection = { id: newId("sec"), name: clean, order };
+  saveHostIndex({ ...index, sections: [...index.sections, fresh] });
+  return fresh;
+}
+
+export function renameSection(id: string, name: string): HostSection {
+  const clean = cleanSectionName(name);
+  const index = loadHostIndex();
+  const cur = index.sections.find((s) => s.id === id);
+  if (!cur) throw new HostIndexError("NOT_FOUND", `No section with id ${id}.`);
+  if (index.sections.some((s) => s.id !== id && s.name.toLowerCase() === clean.toLowerCase())) {
+    throw new HostIndexError("EXISTS", `A section named ${clean} already exists.`);
+  }
+  const next: HostSection = { ...cur, name: clean };
+  saveHostIndex({ ...index, sections: index.sections.map((s) => (s.id === id ? next : s)) });
+  return next;
+}
+
+/** Delete a section; the agents filed under it become unsorted. No agent folder is touched. */
+export function deleteSection(id: string): { removed: HostSection; unsorted: number } {
+  const index = loadHostIndex();
+  const cur = index.sections.find((s) => s.id === id);
+  if (!cur) throw new HostIndexError("NOT_FOUND", `No section with id ${id}.`);
+  const unsorted = index.agents.filter((r) => r.sectionId === id).length;
+  saveHostIndex({
+    ...index,
+    sections: index.sections.filter((s) => s.id !== id),
+    agents: index.agents.map((r) => (r.sectionId === id ? { ...r, sectionId: null } : r)),
+  });
+  return { removed: cur, unsorted };
+}
+
+/** Reorder: `ids` in the wanted order; sections not listed keep their relative order after them. */
+export function reorderSections(ids: readonly string[]): HostSection[] {
+  const index = loadHostIndex();
+  const byId = new Map(index.sections.map((s) => [s.id, s]));
+  const ordered: HostSection[] = [];
+  for (const id of ids) {
+    const s = byId.get(id);
+    if (s && !ordered.includes(s)) ordered.push(s);
+  }
+  for (const s of index.sections) if (!ordered.includes(s)) ordered.push(s);
+  const sections = ordered.map((s, i) => ({ ...s, order: i }));
+  saveHostIndex({ ...index, sections });
+  return sections;
 }
 
 /** Rename keeps the id (chats stay addressable) and drops the session (its cwd moved). */
@@ -298,6 +417,8 @@ export type RosterEntry = {
   hidden: boolean;
   archived: boolean;
   unread: number;
+  /** Stage 12: from the index row; null = unsorted. */
+  sectionId: string | null;
   createdAt: string;
   sessionId: string | null;
 };
@@ -322,6 +443,7 @@ export function loadRoster(folders: FoldersConfig): RosterEntry[] {
       unread: 0,
       sessionId: null,
       sessionCwd: null,
+      sectionId: null,
       createdAt: readAgent(folders, name)?.createdAt || new Date().toISOString(),
     });
   }
@@ -340,26 +462,17 @@ export function loadRoster(folders: FoldersConfig): RosterEntry[] {
       modelId: rec.modelId,
       scopes: rec.scopes,
       privatePath: privateRoot(folders, name),
-      standingInstructions: standingBody(readAgentStanding(folders, name)),
+      standingInstructions: standingBodyOf(readAgentStanding(folders, name)),
       pinned: r.pinned,
       hidden: r.hidden,
       archived: rec.archived,
       unread: r.unread,
+      sectionId: r.sectionId,
       createdAt: rec.createdAt || r.createdAt,
       sessionId: r.sessionId,
     });
   }
   return out.sort((a, b) => a.name.localeCompare(b.name));
-}
-
-/** AGENTS.md is `# Name\n\njob\n\ninstructions…`; the roster wants the instructions part. */
-function standingBody(text: string | null): string {
-  if (!text) return "";
-  const lines = text.split("\n");
-  if (lines[0]?.startsWith("# ")) lines.shift();
-  while (lines.length && !lines[0]!.trim()) lines.shift();
-  if (lines.length && lines[0]!.trim()) lines.shift(); // the job line
-  return lines.join("\n").trim();
 }
 
 /* ---------- chats ---------- */
@@ -496,6 +609,7 @@ export function migrateLegacySnapshot(snapshot: LegacySnapshot, folders: Folders
       unread: typeof b.unread === "number" ? Math.max(0, Math.floor(b.unread)) : 0,
       sessionId: null,
       sessionCwd: null,
+      sectionId: null,
       createdAt: typeof b.createdAt === "string" ? b.createdAt : new Date().toISOString(),
     });
   }
@@ -520,6 +634,7 @@ export function migrateLegacySnapshot(snapshot: LegacySnapshot, folders: Folders
     selectedCatalogId: typeof snapshot.selectedCatalogId === "string" ? snapshot.selectedCatalogId : null,
     migratedFrom: LEGACY_BROWSER_KEY,
     updatedAt: "",
+    sections: [],
     agents: rows,
   });
   return { ok: true, migrated: true, agents: rows.length, chats, index };

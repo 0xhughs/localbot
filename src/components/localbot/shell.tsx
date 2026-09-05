@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { ChatPane } from "./chat";
 import { ComputerPane } from "./computer";
 import { DesktopTitlebar } from "./desktop-titlebar";
+import { EditProfileDialog } from "./edit-profile";
 import { NewAgentDialog } from "./new-agent";
 import { CommandPalette } from "./palette";
 import { SettingsDialog } from "./settings";
@@ -42,7 +43,7 @@ export function AppShell() {
           variant="ghost"
           size="icon-sm"
           aria-label="New agent"
-          onClick={() => setUi({ newAgentOpen: true })}
+          onClick={() => void useLocalBot.getState().startSetupAgent()}
         >
           <Plus className="size-4" />
         </Button>
@@ -96,7 +97,9 @@ export function AppShell() {
         )}
       </div>
       <SettingsDialog />
+      {/* Stage 12: the modal is the Advanced path; + opens a setup chat instead. */}
       <NewAgentDialog />
+      <EditProfileDialog />
       <CommandPalette />
     </div>
   );

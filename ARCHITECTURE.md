@@ -83,8 +83,8 @@ The browser's `localStorage["localbot-state-v3"]` keeps UI chrome only (`setting
 | What | Where | Owner |
 |---|---|---|
 | Folders, active model, `verifiedModels`, `allowHostedDemo`, `useExistingOllama`, `ollamaModel`, `llamaRuntime` | `{dataDir}/localbot-config.json` | `patchConfig` (`src/lib/fs/disk.ts`) |
-| `onboarded`, company / department / employee labels + ids, `selectedCatalogId`, `migratedFrom`, per-agent `{ id, name, pinned, hidden, unread, sessionId, sessionCwd, createdAt }` | `{dataDir}/localbot-agents.json` (v1) | `src/lib/fs/host-index.ts` |
-| `job`, `modelId`, `color`, `mascotId`, `scopes`, `archived` | `{employeeRoot}/agents/{Name}/agent.json` | `src/lib/fs/scopes.ts` (unchanged) |
+| `onboarded`, company / department / employee labels + ids, `selectedCatalogId`, `migratedFrom`, roster `sections[] { id, name, order }` (Stage 12), per-agent `{ id, name, pinned, hidden, unread, sectionId, sessionId, sessionCwd, createdAt }` | `{dataDir}/localbot-agents.json` (v1) | `src/lib/fs/host-index.ts` |
+| `job`, `modelId`, `color`, `mascotId`, `scopes`, `archived`; description = `AGENTS.md` body | `{employeeRoot}/agents/{Name}/agent.json` + `AGENTS.md` | `src/lib/fs/scopes.ts` (`ensureAgent`, Stage 12 `updateAgentProfile` via `agentUpdateProfile`) |
 | Chat transcript + "Allow for this chat" grants | `{dataDir}/chats/{agentId}.json` | `chatSave` (debounced 400 ms in the store, flushed on `pagehide`) |
 | Harness session logs | `{dataDir}/dsh-home/` | dsh |
 

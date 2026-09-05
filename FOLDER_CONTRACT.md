@@ -68,14 +68,15 @@ A bare path like `hello.md` means `private/hello.md`.
   "employee": { "id": "emp_…", "name": "Sam", "createdAt": "…" },
   "selectedCatalogId": "qwen25-05b-q4",
   "migratedFrom": "localbot-state-v3 or null",
+  "sections": [ { "id": "sec_…", "name": "Drafting", "order": 0 } ],
   "agents": [
-    { "id": "bot_…", "name": "Writer", "pinned": true, "hidden": false, "unread": 0,
+    { "id": "bot_…", "name": "Writer", "pinned": true, "hidden": false, "unread": 0, "sectionId": "sec_… or null",
       "sessionId": "ACP session id or null", "sessionCwd": "…/agents/Writer/private or null", "createdAt": "…" }
   ]
 }
 ```
 
-The roster the sidebar shows is `agents/*/agent.json` **joined** to this index by agent name: `agent.json` owns `job`, `modelId`, `color`, `mascotId`, `scopes`, `archived`; the index owns the stable `id` (chats and the session map key on it), `pinned` / `hidden` / `unread`, and the ACP session. A folder under `agents/` with no index row gets a fresh row on the next load (an agent folder copied in by hand appears); a row whose folder is gone leaves the roster but keeps its chat file. Rename keeps the id and clears the session; Delete removes the row and `chats/{id}.json`.
+The roster the sidebar shows is `agents/*/agent.json` **joined** to this index by agent name: `agent.json` owns `job`, `modelId`, `color`, `mascotId`, `scopes`, `archived` (Stage 12: Edit profile rewrites `job` / `color` / `mascotId` here and the description into `AGENTS.md`); the index owns the stable `id` (chats and the session map key on it), `pinned` / `hidden` / `unread`, the roster `sections` and each row's `sectionId` (Stage 12; null = unsorted, a deleted section unsorts its agents), and the ACP session. A folder under `agents/` with no index row gets a fresh row on the next load (an agent folder copied in by hand appears); a row whose folder is gone leaves the roster but keeps its chat file. Rename keeps the id and clears the session; Delete removes the row and `chats/{id}.json`.
 
 Chats are LocalBot metadata, not work product: `chats/` is under the data dir, outside every scope root, so the model's file tools cannot read them. The sidecar refuses to write a chat when the data dir itself sits inside a configured scope folder.
 

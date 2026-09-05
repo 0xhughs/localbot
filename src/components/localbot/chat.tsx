@@ -26,6 +26,7 @@ import { AgentAvatar } from "./avatar";
 import { ChatMarkdown } from "./markdown";
 import { appendTranscript } from "@/lib/audio/voice-text";
 import { COMPOSER_MAX_LINES, composerHeight, isPinnedToBottom } from "@/lib/chat-layout";
+import { parseSetupAnswer, setupPrompt, setupStepForAnswers } from "@/lib/setup-chat";
 import { useVoiceInput } from "./use-voice-input";
 
 type AgentModelStatus = Awaited<ReturnType<typeof modelStatusForAgent>>;
@@ -73,6 +74,14 @@ export function ChatPane() {
   const badge = useLocalBot((s) => s.runtime.badge);
   const setRuntime = useLocalBot((s) => s.setRuntime);
   const settingsOpen = useLocalBot((s) => s.ui.showSettings);
+  // Stage 12: conversational create. While this agent is in setup mode the
+  // composer answers the scripted name / job / description questions and the
+  // answers are written through the sidecar; no Harness turn runs until done.
+  const setupBotId = useLocalBot((s) => s.ui.setupBotId);
+  const updateBotProfile = useLocalBot((s) => s.updateBotProfile);
+  const endSetup = useLocalBot((s) => s.endSetup);
+  const [setupAnswers, setSetupAnswers] = useState<string[]>([]);
+  const [setupBusy, setSetupBusy] = useState(false);
   const snap = useLocalBot.getState();
 
   const [chips, setChips] = useState<ToolChip[]>([]);
@@ -118,10 +127,21 @@ export function ChatPane() {
   useEffect(() => {
     setChips([]);
     setPending(null);
+    setSetupAnswers([]);
     // A different agent: start at the bottom of its transcript.
     setPinned(true);
     scroller.current?.scrollTo({ top: scroller.current.scrollHeight });
   }, [selected]);
+
+  // Stage 12: the setup chat opens with the agent's first question (once per agent).
+  const inSetup = Boolean(selected && setupBotId === selected);
+  useEffect(() => {
+    if (!inSetup || !selected) return;
+    const sess = useLocalBot.getState().sessions[selected];
+    if ((sess?.messages.length ?? 0) === 0) {
+      useLocalBot.getState().appendMessage(selected, { role: "assistant", content: setupPrompt("name", {}) });
+    }
+  }, [inSetup, selected]);
 
   // Stage 11: the composer is a plain <textarea> (native Cmd/Ctrl A X C V Z,
   // nothing intercepted). It grows with its content up to COMPOSER_MAX_LINES
@@ -187,9 +207,58 @@ export function ChatPane() {
   const running = Boolean(session?.running);
   const ctx = resolveBot(snap, bot.id);
 
+  /**
+   * Stage 12: one answer in the setup chat. Name → job → description, each
+   * validated here; the final step writes the profile through the sidecar
+   * (rename agents/New agent/ → agents/{Name}/, agent.json, AGENTS.md) and
+   * ends setup so the next message is a normal Harness turn.
+   */
+  const answerSetup = async (text: string) => {
+    if (setupBusy) return;
+    setUi({ composer: "" });
+    appendMessage(bot.id, { role: "user", content: text });
+    const step = setupStepForAnswers(setupAnswers.length);
+    const parsed = parseSetupAnswer(step, text);
+    if (!parsed.ok) {
+      appendMessage(bot.id, { role: "assistant", content: parsed.error });
+      return;
+    }
+    const answers = [...setupAnswers, parsed.value];
+    const state = { name: answers[0], job: answers[1], description: answers[2] };
+    const next = setupStepForAnswers(answers.length);
+    if (next !== "done") {
+      setSetupAnswers(answers);
+      appendMessage(bot.id, { role: "assistant", content: setupPrompt(next, state) });
+      return;
+    }
+    setSetupBusy(true);
+    const r = await updateBotProfile(bot.id, {
+      name: state.name,
+      job: state.job,
+      description: state.description,
+    });
+    setSetupBusy(false);
+    if (!r.ok) {
+      // Most often the name is taken on disk. Start over at the name question.
+      setSetupAnswers([]);
+      appendMessage(bot.id, { role: "assistant", content: `I couldn't save that — ${r.error} Let's try another name. What should I be called?` });
+      return;
+    }
+    appendMessage(bot.id, {
+      role: "system",
+      content: `Saved agents/${state.name}/agent.json and AGENTS.md (job: ${state.job}${state.description ? ", standing instructions set" : ""}).`,
+    });
+    appendMessage(bot.id, { role: "assistant", content: setupPrompt("done", state) });
+    endSetup(bot.id);
+  };
+
   const send = async (text: string) => {
     const trimmed = text.trim();
     if (!trimmed || running) return;
+    if (inSetup) {
+      await answerSetup(trimmed);
+      return;
+    }
     setUi({ composer: "" });
     appendMessage(bot.id, { role: "user", content: trimmed });
 
@@ -295,13 +364,22 @@ export function ChatPane() {
   const messages = session?.messages ?? [];
 
   return (
-    <section className="flex min-w-0 flex-1 flex-col bg-bg">
-      <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-3">
+    <section className="flex min-w-0 flex-1 flex-col bg-bg" data-testid="chat-pane" data-setup={inSetup ? "true" : "false"}>
+      {/* Stage 12: the header paints with the agent's colour too (same AgentAvatar as the roster row). */}
+      <header
+        className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-3"
+        data-testid="chat-header"
+        data-agent-color={bot.color}
+      >
         <AgentAvatar bot={bot} size="sm" />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h1 className="truncate text-sm font-medium">{bot.name}</h1>
-            {running ? (
+            {inSetup ? (
+              <span data-testid="setup-state" className="shimmer-text font-mono text-[10px] tracking-wider uppercase">
+                {setupBusy ? "Saving profile" : "Setting up"}
+              </span>
+            ) : running ? (
               <span className="shimmer-text font-mono text-[10px] tracking-wider uppercase">
                 {switching ? "Switching model" : "Working"}
               </span>
@@ -357,7 +435,7 @@ export function ChatPane() {
           data-pinned={pinned ? "true" : "false"}
           className="h-full overflow-y-auto px-4 py-4 scrollbar-thin md:px-8"
         >
-          {messages.length === 0 && !running && (
+          {messages.length === 0 && !running && !inSetup && (
             <Empty botName={bot.name} onPick={(t) => void send(t)} />
           )}
           <ol className="mx-auto flex max-w-2xl flex-col gap-4">
@@ -419,7 +497,15 @@ export function ChatPane() {
             rows={1}
             data-testid="composer"
             data-max-lines={COMPOSER_MAX_LINES}
-            placeholder={`Message ${bot.name} — @name to hand off`}
+            placeholder={
+              inSetup
+                ? setupStepForAnswers(setupAnswers.length) === "name"
+                  ? "Type a name for this agent"
+                  : setupStepForAnswers(setupAnswers.length) === "job"
+                    ? "Type its job in a few words"
+                    : "Standing instructions, or “skip”"
+                : `Message ${bot.name} — @name to hand off`
+            }
             className="block w-full resize-none bg-transparent px-2 py-1.5 text-sm leading-5 text-fg placeholder:text-subtle focus-visible:outline-none scrollbar-thin"
           />
           <div className="flex items-center justify-between px-1">
@@ -483,7 +569,7 @@ export function ChatPane() {
             </div>
             <Button
               size="sm"
-              disabled={!composer.trim() || running}
+              disabled={!composer.trim() || running || setupBusy}
               onClick={() => void send(composer)}
             >
               Send

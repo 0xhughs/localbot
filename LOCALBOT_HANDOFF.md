@@ -1,5 +1,36 @@
 # LOCALBOT_HANDOFF.md
 
+## Stage 12 — Agent identity
+Date: 2026-09-05
+Branch: `stage-12-agent-identity` (PR → `main`, off `36863cc` = merge of PR #11)
+
+Agent identity only: Edit profile, colour that paints, roster sections on disk, conversational create. Harness (`runAgentTurn`, dsh `0.1.2-alpha.5`), scopes, watch, host-index chats, Stage 11 chrome and hold-to-talk are unchanged; no second roster. Still UNSIGNED, not notarized, no Windows work. Full detail and the exact pass output: `STAGE_HANDOFF.md`.
+
+### Built
+- **Edit profile: WORKS.** … menu → **Edit profile** (`edit-profile.tsx`): name, job, description (= AGENTS.md body), mascot, colour. Save = `store.updateBotProfile` → sidecar `agentUpdateProfile`: `renameAgent` (if the name changed) → `renameRow` (same id) → `harness.forgetSession` → `updateAgentProfile` (`writeAgentRecord` → agent.json; `writeAgentStanding` → `# Name / job / body`). Nothing store-only; the row is updated from the sidecar's answer. Live: Writer → Author, colour moss, mascot ops, new job + description on disk, `agents/Writer/` gone, row id and chat kept.
+- **Colour paints: WORKS.** `src/lib/agent-color.ts` resolves `Bot.color` → `AGENT_COLORS[id].hex`; `AgentAvatar` paints a ring and hands it to `MascotMark`, whose bodies are `fill={body}` with the old `var(--color-mascot-*)` only as fallback. Roster row and chat header render the same avatar. Live: clay `#c17f59` / pine `#5f8f86` rows, header matches; after Save both repaint moss `#6b8f71`. Negative check: a hard-coded body fill fails the test and `prove:identity`.
+- **Sections: WORKS, on disk.** `HostIndex.sections[] { id, name, order }`, `HostAgentRow.sectionId` (null = unsorted) in `localbot-agents.json`; `createSection / renameSection / deleteSection / reorderSections`, `patchRowById({ sectionId })`; server fns + `statePatchAgent`; `store.loadFromDisk` reads them (never persisted in the browser). Sidebar groups through `groupRoster` (pure) after the search, so search crosses groups; empty sections show while browsing, hide while searching; **New section**, heading … → Rename / Delete, agent … → **Section** → move. Live: `localStorage.clear()` + reload on the same `LOCALBOT_DATA_DIR` keeps "Drafting" with Author under it.
+- **Conversational create: WORKS (scripted).** `+ New agent` → `startSetupAgent` → `createBot` → `agentEnsure` (`agents/New agent/`) → that chat in setup mode: the agent asks name → job → description (`skip` allowed), validated like the sidecar; the last answer goes through `updateBotProfile` (folder renamed to `agents/{Name}/`, agent.json, AGENTS.md), then the chat is a normal chat on that agent. Questions are scripted in `setup-chat.ts` (no model needed, the model never writes the profile). `NewAgentDialog` is unchanged behind the **Advanced** slider button next to `+` (the only `newAgentOpen: true`). Live: "Scout" / "Finds sources" / "Cite everything." → `agents/Scout/agent.json` + `AGENTS.md`, placeholder gone.
+- **Tests:** `npm test` → 203 + **246** pass (new `src/lib/agent-identity.test.ts`, 24: disk + pure + source gates); lint + tsc clean. `npm run prove:identity` → `STAGE12_IDENTITY_PASS`; `npm run prove:chrome` still `STAGE11_CHROME_PASS`.
+
+### Not built
+- Click-to-toggle mic (Stage 13), plugins, routines, channels, Windows NSIS — by rule.
+- Model-generated setup dialogue (scripted on purpose); setup-mode persistence across a reload (a mid-setup reload leaves a normal "New agent" to finish via Edit profile); section drag-and-drop (only `reorderSections` on disk); no `.dmg` rebuilt (packaged app UNVERIFIED for this stage); signing / notarization NOT BUILT.
+
+### Prove it
+```
+npm test && npm run prove:identity
+```
+Pass: `ℹ pass 246` … `STAGE12_IDENTITY_PASS color_row=#c17f59/#5f8f86 header=#6b8f71 profile=agents/Author(agent.json+AGENTS.md,row_id_kept) sections=disk(sec_…) wipe_reload=kept setup_chat=agents/Scout advanced_modal=WORKS data_dir=temp`. Fails if a mascot body ignores the stored colour, sections are not in `localbot-agents.json` / vanish after `localStorage.clear()`, Edit profile skips the sidecar, `+` opens the modal, or `runAgentTurn` / the dsh pin move.
+
+### How I test in the app
+1. Avatars in the roster and the chat header are painted in each agent's colour.
+2. … → Edit profile → change name / job / description / mascot / colour → Save: row + header repaint; `agents/{New}/agent.json` + `AGENTS.md` updated, old folder gone, chat kept.
+3. New section → move an agent under it via … → Section; clear browser storage and relaunch: still filed.
+4. `+ New agent` → answer name, job, instructions in the chat → `agents/{Name}/` written, chat becomes normal.
+5. The slider button next to `+` opens the old New agent form.
+
+
 ## Stage 11 — Desktop chrome + composer
 Date: 2026-09-04
 Branch: `stage-11-chrome-composer` (PR → `main`, off `20fbb58` = merge of PR #10)
