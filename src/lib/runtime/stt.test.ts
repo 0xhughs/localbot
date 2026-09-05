@@ -572,7 +572,10 @@ describe("Stage 9: source invariants", () => {
     assert.equal(hook.includes("appendMessage"), false);
     assert.match(chat, /import \{ runAgentTurn \} from "@\/runtime\/harnessAdapter"/);
     assert.match(chat, /useVoiceInput\(\{/);
-    assert.match(chat, /aria-label="Hold to talk"/);
+    // Stage 13: the control is click-to-toggle (aria-label follows the state); hold is only a fallback.
+    assert.match(chat, /aria-label=\{micAriaLabel\(voice\.state\)\}/);
+    assert.equal(/aria-label="Hold to talk"/.test(chat), false, "the Mic is no longer a hold-only control");
+    assert.match(chat, /data-voice-gesture="toggle"/);
     assert.match(chat, /onPointerDown=/);
     assert.match(chat, /onPointerUp=/);
     assert.match(chat, /appendTranscript\(cur, text\)/);

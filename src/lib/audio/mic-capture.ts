@@ -1,10 +1,14 @@
 /**
- * Stage 9 — hold-to-talk microphone capture in the renderer.
+ * Stage 9 — microphone capture in the renderer (Stage 13: cap callback).
  *
  * getUserMedia (audio only) → AudioContext at 16 kHz → Float32 blocks →
  * PCM16 → RIFF/WAVE bytes, all in this process. No MediaRecorder (it gives
  * Opus/WebM, which whisper-cli would need ffmpeg to read), no ffmpeg, no
  * upload. The bytes go to the sidecar on loopback and nowhere else.
+ *
+ * The clip is capped at STT_MAX_SECONDS. Stage 13: when the cap is reached
+ * `onCap` fires once so the caller can stop and transcribe instead of
+ * silently discarding everything after the 60th second.
  */
 import {
   STT_MAX_SECONDS,
@@ -14,6 +18,7 @@ import {
   floatTo16BitPCM,
   resampleLinear,
 } from "./wav.ts";
+import { takeForCap } from "./voice-toggle.ts";
 
 export type MicClip = { wav: Uint8Array; seconds: number; sampleRate: number };
 
@@ -48,7 +53,7 @@ export function micUnavailableReason(): string | null {
  * Uses a ScriptProcessorNode: deprecated but present in every Chromium
  * LocalBot runs in, and it needs no separate worklet module URL.
  */
-export async function startMicCapture(opts: { maxSeconds?: number } = {}): Promise<MicRecorder> {
+export async function startMicCapture(opts: { maxSeconds?: number; onCap?: () => void } = {}): Promise<MicRecorder> {
   const maxSeconds = opts.maxSeconds ?? STT_MAX_SECONDS;
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
@@ -72,14 +77,20 @@ export async function startMicCapture(opts: { maxSeconds?: number } = {}): Promi
   const cap = Math.ceil(maxSeconds * ctx.sampleRate);
   let live = true;
 
+  let capFired = false;
+
   processor.onaudioprocess = (e) => {
     if (!live) return;
     const input = e.inputBuffer.getChannelData(0);
-    const room = cap - captured;
-    if (room <= 0) return;
-    const take = input.length > room ? input.subarray(0, room) : input;
-    chunks.push(new Float32Array(take));
-    captured += take.length;
+    const r = takeForCap({ captured, incoming: input.length, cap });
+    if (r.take === 0) return;
+    chunks.push(new Float32Array(input.subarray(0, r.take)));
+    captured = r.captured;
+    if (r.reachedCap && !capFired) {
+      // Stage 13: the 60 s cap stops the clip and hands it to the caller (→ stop() → transcribe).
+      capFired = true;
+      opts.onCap?.();
+    }
   };
 
   source.connect(processor);
