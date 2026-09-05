@@ -18,11 +18,17 @@ import {
   sidecarServerEntry,
   unpackAsarPath,
 } from "./packaged.mjs";
+import { mintSidecarToken, SIDECAR_TOKEN_ARG, SIDECAR_TOKEN_ENV } from "./sidecar-token.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
 
 app.setName("LocalBot");
+
+// Stage 17: one fresh token per launch of this process. It goes to the UI
+// server we spawn (env) and to our own window (preload argv) and nowhere else:
+// not to disk, not to localbot-config.json, not to a menu.
+const sidecarToken = mintSidecarToken();
 
 let uiChild = null;
 let sidecarChild = null;
@@ -117,7 +123,12 @@ async function startSidecar() {
     failMissingUi();
     return false;
   }
-  if (await up(SIDECAR_URL, 800)) return true;
+  // Stage 17: a sidecar we did not start holds a token we do not know, so the
+  // window could never call it. Say so instead of opening a dead UI.
+  if (await up(SIDECAR_URL, 800)) {
+    failMissingUi(`LocalBot is already running (${SIDECAR_URL} is taken). Quit the other LocalBot first.`);
+    return false;
+  }
 
   // Stage 8: the Harness runs from the app's own resources — bundled Node
   // (Electron 36's Node 22.14 cannot load dsh), the dsh/ overlay, and the
@@ -140,6 +151,7 @@ async function startSidecar() {
     LOCALBOT_PACKAGED: "1",
     LOCALBOT_DATA_DIR: process.env.LOCALBOT_DATA_DIR,
     LOCALBOT_DOCUMENTS_DIR: process.env.LOCALBOT_DOCUMENTS_DIR,
+    [SIDECAR_TOKEN_ENV]: sidecarToken,
     NITRO_HOST: SIDECAR_HOST,
     HOST: SIDECAR_HOST,
     NITRO_PORT: String(SIDECAR_PORT),
@@ -175,7 +187,10 @@ async function ensureDevUi() {
     sidecarReady: false,
   });
   const url = decided.url || DEV_UI_URL;
-  if (await up(url, 1200)) return url;
+  // A dev server someone else started (npm run dev in another terminal) minted
+  // its own token; the window then reads it from the loopback document, so the
+  // preload must not hand over ours.
+  if (await up(url, 1200)) return { url, tokenForWindow: null };
   startedUi = true;
   uiChild = spawn("npm", ["run", "dev"], {
     cwd: root,
@@ -185,13 +200,14 @@ async function ensureDevUi() {
       LOCALBOT_ELECTRON: "1",
       LOCALBOT_DATA_DIR: process.env.LOCALBOT_DATA_DIR,
       LOCALBOT_DOCUMENTS_DIR: process.env.LOCALBOT_DOCUMENTS_DIR,
+      [SIDECAR_TOKEN_ENV]: sidecarToken,
     },
   });
   const ok = await up(url, 60000);
   if (!ok) {
     throw new Error("LocalBot UI did not start. Try npm run dev, then npm run desktop.");
   }
-  return url;
+  return { url, tokenForWindow: sidecarToken };
 }
 
 function buildMenu(win) {
@@ -246,7 +262,7 @@ function installPermissionHandlers(uiUrl) {
   return allowedOrigins;
 }
 
-async function createWindow(uiUrl) {
+async function createWindow(uiUrl, tokenForWindow) {
   installPermissionHandlers(uiUrl);
   const win = new BrowserWindow({
     width: 1280,
@@ -266,6 +282,10 @@ async function createWindow(uiUrl) {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      // Stage 17: the token reaches the renderer through the preload's argv
+      // only — never through the page, an IPC reply, or the HTML the sidecar
+      // serves. Empty when the UI server is not ours (the document carries it).
+      additionalArguments: tokenForWindow ? [`${SIDECAR_TOKEN_ARG}${tokenForWindow}`] : [],
     },
   });
 
@@ -356,10 +376,10 @@ app.whenReady().then(async () => {
     const ready = await startSidecar();
     if (!ready) return;
     const load = resolveUiLoad({ packaged: true, sidecarReady: true });
-    await createWindow(load.url);
+    await createWindow(load.url, sidecarToken);
   } else {
-    const url = await ensureDevUi();
-    await createWindow(url);
+    const { url, tokenForWindow } = await ensureDevUi();
+    await createWindow(url, tokenForWindow);
   }
 });
 

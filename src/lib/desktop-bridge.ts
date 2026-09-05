@@ -5,6 +5,8 @@
  */
 export type LocalBotDesktopBridge = {
   platform: string;
+  /** Stage 17: per-launch sidecar token from main's argv, or null when main did not start the UI server. */
+  sidecarToken?: string | null;
   setTitle: (title: string) => void;
   minimize: () => void;
   maximize: () => void;

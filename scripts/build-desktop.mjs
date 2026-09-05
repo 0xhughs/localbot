@@ -134,6 +134,7 @@ fs.rmSync(sidecarStage, { recursive: true, force: true });
 fs.mkdirSync(sidecarStage, { recursive: true });
 fs.copyFileSync(path.join(root, "desktop/sidecar.mjs"), path.join(sidecarStage, "sidecar.mjs"));
 fs.copyFileSync(path.join(root, "desktop/packaged.mjs"), path.join(sidecarStage, "packaged.mjs"));
+fs.copyFileSync(path.join(root, "desktop/sidecar-token.mjs"), path.join(sidecarStage, "sidecar-token.mjs"));
 
 // Stage 8: the Harness runtime the installed app carries. Staged one level
 // down (dist/desktop-harness/localbot-harness) and copied to the resources
@@ -178,9 +179,11 @@ function assertLayout(appOutDir) {
   const checks = [
     "resources/localbot-sidecar/sidecar.mjs",
     "resources/localbot-sidecar/packaged.mjs",
+    "resources/localbot-sidecar/sidecar-token.mjs",
     "resources/localbot-server/server/index.mjs",
     "resources/app.asar.unpacked/desktop/main.mjs",
     "resources/app.asar.unpacked/desktop/packaged.mjs",
+    "resources/app.asar.unpacked/desktop/sidecar-token.mjs",
     "resources/app.asar.unpacked/desktop/preload.cjs",
     "resources/localbot-harness/dsh/localbot-acp.cordis.yml",
     "resources/localbot-harness/dsh/localbot-fs.mjs",
