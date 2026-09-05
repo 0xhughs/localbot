@@ -1,9 +1,11 @@
 import type { MascotId } from "./mascots";
 import type { FoldersConfig, ScopeId } from "./fs/scope-model";
 import type { GpuProbe, LlamaRuntimePreference } from "./runtime/llama-platform";
+import type { Channel, ChannelMessage } from "./channels-model";
 
 export type { MascotId };
 export type { FoldersConfig, ScopeId };
+export type { Channel, ChannelMessage };
 
 export type AgentColorId =
   | "sage"
@@ -250,6 +252,25 @@ export type Session = {
   lastReadAt: string;
 };
 
+/**
+ * Stage 16: the browser's view of one channel's shared transcript. The
+ * durable copy is `{dataDir}/channels/{id}.messages.json`; this is loaded
+ * from it when the channel is opened and appended through `channelsAppend`.
+ */
+export type ChannelSession = {
+  channelId: string;
+  messages: ChannelMessage[];
+  /** False until `channelsRead` has answered once for this channel. */
+  loaded: boolean;
+  /** The member whose `runAgentTurn` is in flight (one speaker at a time per channel). */
+  activeSpeakerId: string | null;
+  /** BUSY pages waiting for their member, at most one per member (`enqueuePage`). */
+  queued: string[];
+  /** The permission card for the active speaker's turn (per-agent grants still apply). */
+  pendingPermission: PermissionRequest | null;
+  chips: ToolChip[];
+};
+
 export type RuntimeStatus = {
   engine: string;
   model: string;
@@ -273,6 +294,8 @@ export type Settings = {
 
 export type UiState = {
   selectedBotId: string | null;
+  /** Stage 16: the open channel. Exactly one of selectedBotId / selectedChannelId is set (`selectBot` / `selectChannel`). */
+  selectedChannelId: string | null;
   showComputer: boolean;
   showSettings: boolean;
   settingsTab: "general" | "models" | "folders" | "company" | "runtime" | "safety";

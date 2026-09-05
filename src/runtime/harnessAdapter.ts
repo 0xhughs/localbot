@@ -29,6 +29,12 @@ export type AdapterEvents = {
   onModel?: (info: TurnModelInfo) => void;
   /** Stage 7: how the ACP session for this turn was obtained (`resumed` = session/resume with the persisted id). */
   onSession?: (info: { sessionId: string; origin: "memory" | "resumed" | "new" }) => void;
+  /**
+   * Stage 16: where the assistant text of this turn lands. Absent (1:1 chat,
+   * routines) = appended to the agent's own chat as before. A channel turn
+   * passes a sink that appends it to the shared transcript with the speaker id.
+   */
+  onAssistantText?: (text: string) => void;
 };
 
 export const POLL_MS = 250;
@@ -110,7 +116,8 @@ export async function runAgentTurn(opts: {
 
   const flush = () => {
     if (text.trim()) {
-      useLocalBot.getState().appendMessage(opts.botId, { role: "assistant", content: text.trim() });
+      if (opts.events.onAssistantText) opts.events.onAssistantText(text.trim());
+      else useLocalBot.getState().appendMessage(opts.botId, { role: "assistant", content: text.trim() });
     }
     text = "";
   };
