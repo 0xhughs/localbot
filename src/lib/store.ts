@@ -85,6 +85,8 @@ const DEFAULT_UI: UiState = {
   newAgentOpen: false,
   setupBotId: null,
   editProfileBotId: null,
+  showPlugins: false,
+  pluginsTab: "catalog",
 };
 
 /** Placeholder name for an agent created by the setup chat before it has told us its name. */

@@ -9,6 +9,7 @@ import { DesktopTitlebar } from "./desktop-titlebar";
 import { EditProfileDialog } from "./edit-profile";
 import { NewAgentDialog } from "./new-agent";
 import { CommandPalette } from "./palette";
+import { PluginsDialog } from "./plugins";
 import { SettingsDialog } from "./settings";
 import { Sidebar } from "./sidebar";
 
@@ -97,6 +98,8 @@ export function AppShell() {
         )}
       </div>
       <SettingsDialog />
+      {/* Stage 14: DSH / Cordis plugins for the isolated DSH_HOME — same dialog style as Settings. */}
+      <PluginsDialog />
       {/* Stage 12: the modal is the Advanced path; + opens a setup chat instead. */}
       <NewAgentDialog />
       <EditProfileDialog />

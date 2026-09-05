@@ -9,6 +9,7 @@ import {
   Pencil,
   Pin,
   Plus,
+  Puzzle,
   Search,
   Settings,
   SlidersHorizontal,
@@ -369,8 +370,19 @@ export function Sidebar() {
           </button>
         </div>
       )}
-      {/* Stage 11: Settings lives at the bottom of the roster, away from the title corner. */}
+      {/* Stage 11: Settings lives at the bottom of the roster, away from the title corner.
+          Stage 14: Plugins sits directly above it — DSH / Cordis plugins in the isolated DSH_HOME. */}
       <div data-testid="sidebar-footer" className="border-t border-border p-2">
+        <Button
+          variant="ghost"
+          className="w-full justify-start text-muted hover:text-fg"
+          aria-label="Plugins"
+          data-testid="sidebar-plugins"
+          onClick={() => setUi({ showPlugins: true })}
+        >
+          <Puzzle className="size-4" />
+          Plugins
+        </Button>
         <Button
           variant="ghost"
           className="w-full justify-start text-muted hover:text-fg"
