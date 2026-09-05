@@ -168,6 +168,7 @@
       "target": [
         "dmg"
       ],
+      "icon": "build/icon.png",
       "identity": null,
       "hardenedRuntime": false,
       "gatekeeperAssess": false,
@@ -183,6 +184,7 @@
       "target": [
         "nsis"
       ],
+      "icon": "build/icon.png",
       "signAndEditExecutable": false
     },
     "nsis": {
