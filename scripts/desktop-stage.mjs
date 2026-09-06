@@ -246,7 +246,7 @@ export function pnpmShimSh() {
     "#!/bin/sh",
     "# LocalBot bundled pnpm (Stage 20). dsh forwards `dsh plugin` to `pnpm` on PATH; this is that pnpm.",
     "# Runs the pinned pnpm package on the Node LocalBot ships, never on a node from the employee's PATH.",
-    "# Shell builtins only: PATH may hold nothing but this folder (no dirname, no node).",
+    "# Shell builtins only: PATH may hold nothing but this folder (no external commands, no node).",
     'case "$0" in */*) here=$(cd "${0%/*}" && pwd) ;; *) here=$(pwd) ;; esac',
     'node_bin="${LOCALBOT_DSH_NODE:-$here/../../localbot-node/node}"',
     'exec "$node_bin" "$here/../pnpm.cjs" "$@"',
@@ -415,7 +415,10 @@ export function listInstallers(outDir) {
     .sort();
 }
 
-/** `sha256  filename` lines, the sha256sum -c format. */
+/**
+ * `sha256  filename` lines, the sha256sum -c format.
+ * @param {string[]} files
+ */
 export function checksumLines(files) {
   return files.map((f) => `${sha256File(f)}  ${path.basename(f)}`);
 }
@@ -423,6 +426,8 @@ export function checksumLines(files) {
 /**
  * The electron-builder targets in package.json. Stage 8 refuses a config that
  * only produces `dir` for the OS being built.
+ * @param {{ build?: Record<string, { target?: unknown }> } | null | undefined} pkg
+ * @param {string} os
  */
 export function buildTargetsOf(pkg, os) {
   const t = pkg?.build?.[os]?.target;
@@ -431,6 +436,10 @@ export function buildTargetsOf(pkg, os) {
   return list.map((x) => (typeof x === "string" ? x : x?.target)).filter(Boolean);
 }
 
+/**
+ * @param {{ build?: Record<string, { target?: unknown }> } | null | undefined} pkg
+ * @param {string} os
+ */
 export function hasInstallerTarget(pkg, os) {
   return buildTargetsOf(pkg, os).some((t) => t !== "dir");
 }

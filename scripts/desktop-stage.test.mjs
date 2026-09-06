@@ -4,21 +4,30 @@ import os from "node:os";
 import path from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
+import crypto from "node:crypto";
 import {
   buildTargetsOf,
+  checkBuiltWhisper,
   checksumLines,
   harnessPackageJson,
   hasInstallerTarget,
   listInstallers,
   nodeRuntimeTarget,
+  pnpmPinOf,
+  pnpmShimCmd,
+  pnpmShimSh,
+  pnpmShimVersion,
   readNodeRuntimeCatalog,
   relativeImportsOf,
   sha256File,
+  stagePnpm,
+  stageWhisperBuilt,
   traceRelativeImports,
   versionAtLeast,
 } from "./desktop-stage.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const PNPM_PIN = "10.33.3";
 
 describe("desktop-stage: relative import tracing", () => {
   it("keeps value imports and drops type-only imports (what strip-types does at runtime)", () => {
@@ -69,6 +78,10 @@ describe("desktop-stage: installer targets", () => {
     const from = pkg.build.extraResources.map((r) => r.from);
     assert.ok(from.includes("dist/desktop-harness"));
     assert.ok(from.includes("dist/desktop-node"));
+    // Stage 20
+    assert.ok(from.includes("dist/desktop-pnpm"));
+    assert.ok(from.includes("dist/desktop-whisper"));
+    assert.equal(pnpmPinOf(pkg), PNPM_PIN);
   });
 
   it("lists installers but never unpacked dirs or blockmaps", () => {
@@ -113,5 +126,94 @@ describe("desktop-stage: Node runtime pin", () => {
     const pkg = harnessPackageJson({ dshPin: "0.1.2-alpha.5", fsVersion: "0.1.2-rc.1", fsLocalVersion: "0.1.2-rc.1" });
     assert.equal(pkg.type, "module");
     for (const v of Object.values(pkg.dependencies)) assert.match(v, /^\d/, v);
+  });
+});
+
+describe("desktop-stage: Stage 20 bundled pnpm", () => {
+  it("pnpmPinOf accepts only x.y.z", () => {
+    assert.equal(pnpmPinOf({ devDependencies: { pnpm: "10.33.3" } }), "10.33.3");
+    assert.throws(() => pnpmPinOf({ devDependencies: { pnpm: "^10.33.3" } }), /pin pnpm exactly/);
+    assert.throws(() => pnpmPinOf({ devDependencies: {} }), /pin pnpm exactly/);
+  });
+
+  it("the shims use only shell builtins, LOCALBOT_DSH_NODE or the sibling bundled Node — never node from PATH", () => {
+    const sh = pnpmShimSh();
+    assert.match(sh, /^#!\/bin\/sh\n/);
+    assert.match(sh, /LOCALBOT_DSH_NODE:-\$here\/\.\.\/\.\.\/localbot-node\/node/);
+    assert.equal(/\bdirname\b|\breadlink\b|\brealpath\b/.test(sh), false, "no external commands: PATH may be empty");
+    assert.equal(/exec node\b|exec "node"/.test(sh), false);
+    const cmd = pnpmShimCmd();
+    assert.match(cmd, /^@echo off\r\n/);
+    assert.match(cmd, /LOCALBOT_DSH_NODE/);
+    assert.match(cmd, /localbot-node\\node\.exe/);
+    assert.match(cmd, /exit \/b %ERRORLEVEL%/);
+  });
+
+  it("stagePnpm produces the documented layout and the shim prints the pin on the bundled Node with an EMPTY PATH", { skip: process.platform === "win32" }, () => {
+    const stage = fs.mkdtempSync(path.join(os.tmpdir(), "lb-stage-pnpm-"));
+    const r = stagePnpm({ root, stage, pin: PNPM_PIN, log: () => undefined });
+    for (const rel of ["bin/pnpm", "bin/pnpm.cmd", "pnpm.cjs", "pnpm/bin/pnpm.cjs", "pnpm/dist/pnpm.cjs", "pnpm/package.json", "LICENSE", "pnpm-runtime.json"]) {
+      assert.ok(fs.existsSync(path.join(r.dir, rel)), rel);
+    }
+    assert.equal(fs.statSync(r.shim).mode & 0o111, 0o111, "shim is executable");
+    const manifest = JSON.parse(fs.readFileSync(path.join(r.dir, "pnpm-runtime.json"), "utf8"));
+    assert.equal(manifest.pin, PNPM_PIN);
+    assert.match(manifest.sha256["pnpm/dist/pnpm.cjs"], /^[0-9a-f]{64}$/);
+    assert.equal(fs.existsSync(path.join(r.dir, "pnpm", "README.md")), false);
+    // The whole point: no pnpm, no node on PATH; LOCALBOT_DSH_NODE names the Node.
+    assert.equal(pnpmShimVersion(r.shim, process.execPath), PNPM_PIN);
+    // And the sibling fallback: resources/localbot-node/node next to localbot-pnpm.
+    const nodeDir = path.join(stage, "localbot-node");
+    fs.mkdirSync(nodeDir, { recursive: true });
+    fs.symlinkSync(process.execPath, path.join(nodeDir, "node"));
+    assert.equal(pnpmShimVersion(r.shim, "", { LOCALBOT_DSH_NODE: "" }), PNPM_PIN, "empty LOCALBOT_DSH_NODE falls back to ../../localbot-node/node");
+    assert.throws(() => stagePnpm({ root, stage, pin: "10.0.0", log: () => undefined }), /package\.json pins 10\.0\.0/);
+    fs.rmSync(stage, { recursive: true, force: true });
+  });
+});
+
+describe("desktop-stage: Stage 20 baked darwin-arm64 whisper-cli", () => {
+  it("checkBuiltWhisper / stageWhisperBuilt accept only a build matching the catalog tag + commit + manifest sha256", () => {
+    const catalog = JSON.parse(fs.readFileSync(path.join(root, "catalog/whisper-assets.json"), "utf8"));
+    const from = fs.mkdtempSync(path.join(os.tmpdir(), "lb-whisper-src-"));
+    const body = Buffer.from("#!/bin/sh\necho usage: whisper-cli\n");
+    fs.writeFileSync(path.join(from, "whisper-cli"), body, { mode: 0o755 });
+    const sha = crypto.createHash("sha256").update(body).digest("hex");
+    const row = catalog.targets["darwin-arm64"];
+    const manifest = { release: catalog.release, commit: row.source.commit, target: "darwin-arm64", binary: "whisper-cli", sha256: sha, sizeBytes: body.length, cmake: row.cmake, dylibs: [] };
+    const write = (m) => fs.writeFileSync(path.join(from, "whisper-build.json"), JSON.stringify(m));
+    const check = () => checkBuiltWhisper({ catalog, target: "darwin-arm64", dir: from });
+    assert.match(check().error ?? "", /whisper-build\.json is missing/);
+    write(manifest);
+    const ok = check();
+    assert.equal(ok.ok, true, JSON.stringify(ok));
+    assert.equal(ok.matchesCatalog, false, "a fixture is not the author's binary — allowed, reported");
+    write({ ...manifest, release: "v1.9.3" });
+    assert.match(check().error ?? "", /catalog pins v1\.9\.2/);
+    write({ ...manifest, commit: "0".repeat(40) });
+    assert.match(check().error ?? "", /not the pinned/);
+    write({ ...manifest, target: "darwin-x64" });
+    assert.match(check().error ?? "", /built for darwin-x64/);
+    write({ ...manifest, sha256: "0".repeat(64) });
+    assert.match(check().error ?? "", /sha256 .* ≠ whisper-build\.json/);
+    write({ ...manifest, dylibs: ["libggml.dylib"] });
+    assert.match(check().error ?? "", /lists libggml\.dylib but it is not beside/);
+    assert.match(checkBuiltWhisper({ catalog, target: "darwin-x64", dir: from }).error ?? "", /no built row for darwin-x64/);
+    assert.match(checkBuiltWhisper({ catalog, target: "linux-x64", dir: from }).error ?? "", /no built row for linux-x64/);
+
+    write({ ...manifest, commit: "0".repeat(40) });
+    const stage = fs.mkdtempSync(path.join(os.tmpdir(), "lb-whisper-stage-"));
+    assert.throws(() => stageWhisperBuilt({ root, stage, target: "darwin-arm64", from, log: () => undefined }), /not the pinned/);
+    assert.equal(fs.existsSync(path.join(stage, "localbot-whisper")), false, "nothing staged on a mismatch");
+    write(manifest);
+    const staged = stageWhisperBuilt({ root, stage, target: "darwin-arm64", from, log: () => undefined });
+    assert.equal(staged.dir, path.join(stage, "localbot-whisper/darwin-arm64/whisper"));
+    assert.ok(fs.existsSync(path.join(staged.dir, "whisper-cli")));
+    assert.equal(fs.statSync(path.join(staged.dir, "whisper-cli")).mode & 0o111, 0o111);
+    assert.ok(fs.existsSync(path.join(staged.dir, "whisper-build.json")));
+    assert.equal(staged.sha256, sha);
+    assert.equal(checkBuiltWhisper({ catalog, target: "darwin-arm64", dir: staged.dir }).ok, true);
+    fs.rmSync(from, { recursive: true, force: true });
+    fs.rmSync(stage, { recursive: true, force: true });
   });
 });
