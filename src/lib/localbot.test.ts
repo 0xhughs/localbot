@@ -22,7 +22,6 @@ import { scanHardware } from "./hardware.ts";
 import { scanServerHardwareFrom } from "./hardware-server.ts";
 import { classifyToolCall, pathAllowed } from "./permissions.ts";
 import { mascotIdForTemplate } from "./mascots.ts";
-import { executeTurn } from "./runtime/execute-turn.ts";
 import { defaultRuntimeFor, llamaAssetFor, llamaAssetMap, llamaTarget } from "./runtime/llama-platform.ts";
 import {
   DEV_UI_URL,
@@ -240,15 +239,22 @@ describe("workspace grants", () => {
 });
 
 describe("local model policy", () => {
-  it("turn.ts default path does not call api.x.ai", () => {
+  it("Stage 19: the hosted-demo chain is gone and turn.ts has no hosted path", () => {
     const src = fs.readFileSync(path.join(process.cwd(), "src/lib/runtime/turn.ts"), "utf8");
-    assert.equal(src.includes("api.x.ai"), false);
-    assert.equal(src.includes("execute-turn"), true);
-    const hosted = fs.readFileSync(
-      path.join(process.cwd(), "src/lib/runtime/hosted-turn.ts"),
+    assert.equal(src.includes("api.x.ai"), false, "turn.ts must not call api.x.ai");
+    assert.equal(src.includes("XAI_API_KEY"), false, "turn.ts must not read XAI_API_KEY");
+    assert.equal(src.includes("execute-turn"), false, "turn.ts must not import execute-turn");
+    assert.equal(src.includes("runSingleCompletion"), false, "runSingleCompletion was removed");
+    assert.match(src, /export const getAiStatus = createServerFn/);
+    assert.match(src, /allowHostedDemo/, "the Safety switch is still reported");
+    for (const gone of ["src/lib/runtime/hosted-turn.ts", "src/lib/runtime/execute-turn.ts"]) {
+      assert.equal(fs.existsSync(path.join(process.cwd(), gone)), false, `${gone} must not exist`);
+    }
+    const launch = fs.readFileSync(
+      path.join(process.cwd(), "src/lib/runtime/harness-launch.ts"),
       "utf8",
     );
-    assert.equal(hosted.includes("api.x.ai"), true);
+    assert.match(launch, /if \(cfg\.allowHostedDemo\) throw new Error\(HOSTED_DEMO_REFUSAL\);/);
   });
 
   it("runLocalTurn does not require XAI_API_KEY", async () => {
@@ -521,7 +527,7 @@ describe("checksum honesty", () => {
   });
 });
 
-describe("executeTurn default", () => {
+describe("runLocalTurn is the only raw completion path", () => {
   it("does not require XAI_API_KEY", { timeout: 15000 }, async () => {
     const prev = process.env.XAI_API_KEY;
     const prevDir = process.env.LOCALBOT_DATA_DIR;
@@ -529,7 +535,7 @@ describe("executeTurn default", () => {
     delete process.env.XAI_API_KEY;
     process.env.LOCALBOT_DATA_DIR = tmp;
     try {
-      const out = await executeTurn({
+      const out = await runLocalTurn({
         allowNetwork: false,
         messages: [
           { role: "system", content: "Reply with the single word hello." },

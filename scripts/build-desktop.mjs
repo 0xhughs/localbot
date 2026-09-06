@@ -97,7 +97,7 @@ if (!dshPin || !/^\d/.test(dshPin)) {
 }
 
 console.log("[desktop] building Nitro node-server UI…");
-await run("node", ["scripts/with-app-env.mjs", "vite", "build"], {
+await run(process.execPath, [path.join(root, "node_modules/vite/bin/vite.js"), "build"], {
   LOCALBOT_DESKTOP_BUILD: "1",
 });
 
