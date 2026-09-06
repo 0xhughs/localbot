@@ -27,10 +27,18 @@
  *      `@seven_of_nine`, the raw id and any case → that id; `@Zed` → unknown (system
  *      line); no @ → first member; Run all → every id — and every @ hit is one of
  *      Run all's ids.
+ *   5. PACKED (only when dist/desktop/<platform>-unpacked exists from `npm run
+ *      build:desktop`): the PACKED sidecar.mjs on the PACKED Node, cwd elsewhere,
+ *      LOCALBOT_SERVER_DIR = resources/localbot-server (what desktop/main.mjs does),
+ *      answers the real `pluginsCatalog` server function over loopback with the launch
+ *      token: ok:true, file = resources/localbot-server/catalog/dsh-plugins.json, the
+ *      repo's entries. The same tree with catalog/ removed → ok:false naming ENOENT.
+ *      Skipped with a line when no packed tree is present.
  *
  * Usage:
  *   npm run prove:packaged-catalog
  *   npm run prove:packaged-catalog -- --static     # source gates only
+ *   npm run prove:packaged-catalog -- --no-packed  # skip section 5 even if a packed tree exists
  *   npm run prove:packaged-catalog -- --keep       # leave the temp dirs behind
  */
 import { spawnSync } from "node:child_process";
@@ -179,4 +187,112 @@ try {
   fail(`live: ${err?.stack ?? err}`);
 }
 
-finish("static+live layout/sidecar-path/dev-path/mentions");
+/* ---------------- 5. PACKED (only when npm run build:desktop has run on this box) ---------------- */
+
+const packedRoots = ["linux-unpacked", "win-unpacked", "mac/LocalBot.app/Contents", "mac-arm64/LocalBot.app/Contents", "mac-x64/LocalBot.app/Contents"].map((p) => path.join(root, "dist/desktop", p, "resources"));
+const packed = packedRoots.find((p) => fs.existsSync(path.join(p, "localbot-server/server/index.mjs")) && fs.existsSync(path.join(p, "localbot-sidecar/sidecar.mjs")));
+let packedTag = flag("--no-packed") ? "packed=skipped(--no-packed)" : "packed=skipped(no dist/desktop tree; run npm run build:desktop first)";
+if (packed && !flag("--no-packed")) {
+  packedTag = "packed=live";
+  try {
+    packedTag = await provePackedTree(packed);
+  } catch (err) {
+    fail(`packed: ${err?.stack ?? err}`);
+  }
+} else {
+  log(packedTag);
+}
+
+/**
+ * Start the PACKED sidecar (packed sidecar.mjs on the packed Node, cwd elsewhere,
+ * LOCALBOT_SERVER_DIR = resources/localbot-server — exactly what desktop/main.mjs does)
+ * and call the real `pluginsCatalog` server function over loopback with the launch
+ * token. Then the same tree with `catalog/` removed → ok:false naming ENOENT.
+ */
+async function provePackedTree(resources) {
+  const { spawn } = await import("node:child_process");
+  const { createRequire } = await import("node:module");
+  const T = await import(pathToFileURL(path.join(resources, "localbot-sidecar/sidecar-token.mjs")).href);
+  const seroval = createRequire(path.join(root, "package.json"))("seroval");
+  const nodeBin = path.join(resources, "localbot-node", process.platform === "win32" ? "node.exe" : "node");
+  const SIDECAR_URL = "http://127.0.0.1:18790/";
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const answering = async (ms) => {
+    const start = Date.now();
+    while (Date.now() - start < ms) {
+      try {
+        if ((await fetch(SIDECAR_URL, { signal: AbortSignal.timeout(1000) })).ok) return true;
+      } catch {
+        /* retry */
+      }
+      await sleep(300);
+    }
+    return false;
+  };
+  const closed = async (ms) => {
+    const start = Date.now();
+    while (Date.now() - start < ms) {
+      try {
+        await fetch(SIDECAR_URL, { signal: AbortSignal.timeout(500) });
+      } catch {
+        return true;
+      }
+      await sleep(200);
+    }
+    return false;
+  };
+  if (await answering(500)) throw new Error(`${SIDECAR_URL} already answering — quit the other LocalBot first`);
+  gate(fs.existsSync(path.join(resources, CATALOG_RESOURCE_PATH.replace(/^resources\//, ""))), `packed tree has ${CATALOG_RESOURCE_PATH}`);
+  gate(sha256File(path.join(resources, "localbot-server/catalog/dsh-plugins.json")) === sha256File(path.join(root, "catalog/dsh-plugins.json")), "packed dsh-plugins.json is byte-identical to the repo's");
+
+  const callOnce = async (serverDir, label) => {
+    const ssrDir = path.join(serverDir, "server/_ssr");
+    const manifest = fs.readdirSync(ssrDir).map((n) => fs.readFileSync(path.join(ssrDir, n), "utf8")).join("\n");
+    const id = /"([0-9a-f]{64})":\s*\{\s*functionName:\s*"pluginsCatalog_createServerFn_handler"/.exec(manifest)?.[1];
+    if (!id) throw new Error(`${label}: pluginsCatalog id not found in the packed manifest`);
+    const token = T.mintSidecarToken();
+    const dataDir = tmp("lb21-packed-data-");
+    const env = { ...process.env, LOCALBOT_DATA_DIR: dataDir, LOCALBOT_SERVER_DIR: serverDir, [T.SIDECAR_TOKEN_ENV]: token, LOCALBOT_PACKAGED: "1" };
+    delete env.ELECTRON_RUN_AS_NODE;
+    let err = "";
+    const child = spawn(nodeBin, [path.join(resources, "localbot-sidecar/sidecar.mjs")], { cwd: os.tmpdir(), env, stdio: ["ignore", "pipe", "pipe"] });
+    child.stderr.on("data", (d) => (err += String(d)));
+    child.stdout.on("data", (d) => (err += String(d)));
+    try {
+      if (!(await answering(60000))) throw new Error(`${label}: packed sidecar never answered: ${err.slice(-1500)}`);
+      log(`${label}: packed sidecar up (pid ${child.pid}) on ${nodeBin}, cwd elsewhere, LOCALBOT_SERVER_DIR=${serverDir}`);
+      const res = await fetch(`${SIDECAR_URL}_serverFn/${id}?createServerFn`, {
+        method: "POST",
+        headers: { Origin: SIDECAR_URL.replace(/\/$/, ""), "x-tsr-serverFn": "true", accept: "application/json", "content-type": "application/json", [T.SIDECAR_TOKEN_HEADER]: token },
+        body: JSON.stringify(await seroval.toJSONAsync({ data: undefined })),
+        signal: AbortSignal.timeout(15000),
+      });
+      const text = await res.text();
+      // The wire format is seroval JSON ({"k":[keys],"v":[values]} objects, booleans as {"t":2,"s":2|3}); read it as text.
+      const strings = [...text.matchAll(/"s":"((?:[^"\\]|\\.)*)"/g)].map((m) => JSON.parse(`"${m[1]}"`));
+      const okShape = /"k":\["ok","file","entries"\]/.test(text) ? true : /"k":\["ok","error"\]/.test(text) ? false : null;
+      return { status: res.status, ok: okShape, strings, text };
+    } finally {
+      child.kill("SIGTERM");
+      await closed(10000);
+    }
+  };
+
+  const withCatalog = await callOnce(path.join(resources, "localbot-server"), "PACKED");
+  gate(withCatalog.status === 200 && withCatalog.ok === true, `PACKED: pluginsCatalog over loopback with the launch token → HTTP ${withCatalog.status}, ok:${String(withCatalog.ok)}`);
+  const packedFile = path.join(resources, "localbot-server/catalog/dsh-plugins.json");
+  gate(withCatalog.strings.includes(packedFile), `PACKED: the file it opened is resources/localbot-server/catalog/dsh-plugins.json (${packedFile})`);
+  const wantIds = JSON.parse(fs.readFileSync(path.join(root, "catalog/dsh-plugins.json"), "utf8")).plugins.map((p) => p.id);
+  const gotIds = wantIds.filter((id) => withCatalog.strings.includes(id));
+  gate(gotIds.length === wantIds.length, `PACKED: every catalog entry came back: ${gotIds.join(", ")}`);
+
+  const hole = tmp("lb21-packed-hole-");
+  fs.cpSync(path.join(resources, "localbot-server"), path.join(hole, "localbot-server"), { recursive: true });
+  fs.rmSync(path.join(hole, "localbot-server/catalog"), { recursive: true });
+  const without = await callOnce(path.join(hole, "localbot-server"), "PACKED-WITHOUT-catalog");
+  const holeError = without.strings.find((s) => /ENOENT/.test(s)) ?? "";
+  gate(without.ok === false && holeError.includes(path.join(hole, "localbot-server/catalog/dsh-plugins.json")) && /rebuild with npm run build:desktop/.test(holeError), `PACKED-WITHOUT-catalog: ok:false — ${holeError || without.text.slice(0, 300)}`);
+  return "packed=live(sidecar on the packed Node answered pluginsCatalog from resources/localbot-server/catalog)";
+}
+
+finish(`static+live layout/sidecar-path/dev-path/mentions ${packedTag}`);
