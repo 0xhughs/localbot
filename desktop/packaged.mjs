@@ -122,15 +122,29 @@ export function unpackAsarPath(filePath) {
  *   resources/localbot-harness/src/…            the TS the fs plugin imports (traced at build)
  *   resources/localbot-harness/node_modules/    @deepseek-ai/dsh tree (npm install at build, exact pins)
  *
- * @param {{ resourcesPath: string, platform?: string }} opts
+ * Stage 20 adds the tools the Harness and the Mic need at runtime:
+ *   resources/localbot-pnpm/bin/pnpm[.cmd]      the pnpm `dsh plugin` forwards to (runs on the bundled Node)
+ *   resources/localbot-whisper/{target}/whisper/ whisper-cli + whisper-build.json baked at build (darwin-arm64)
+ *
+ * @param {{ resourcesPath: string, platform?: string, arch?: string }} opts
  */
-export function harnessResourcePaths({ resourcesPath, platform = process.platform }) {
+export function harnessResourcePaths({ resourcesPath, platform = process.platform, arch = process.arch }) {
   const res = String(resourcesPath).replace(/[/\\]+$/, "");
   return {
     nodeBin: `${res}/localbot-node/${platform === "win32" ? "node.exe" : "node"}`,
     dshDir: `${res}/localbot-harness/dsh`,
     modulesDir: `${res}/localbot-harness/node_modules`,
+    pnpmDir: `${res}/localbot-pnpm/bin`,
+    whisperDir: `${res}/localbot-whisper/${platform}-${arch}/whisper`,
   };
+}
+
+/**
+ * The shim file `pnpmDir` must hold for this platform (what dsh's `spawnSync("pnpm")` resolves).
+ * @param {string} [platform]
+ */
+export function pnpmShimName(platform = process.platform) {
+  return platform === "win32" ? "pnpm.cmd" : "pnpm";
 }
 
 /**
@@ -138,17 +152,23 @@ export function harnessResourcePaths({ resourcesPath, platform = process.platfor
  * Harness runs from the app's own resources. Only paths that exist are set:
  * a missing bundled Node leaves LOCALBOT_DSH_NODE unset and the sidecar's
  * findHarnessNode refuses with the exact reason instead of hunting on PATH.
+ * Likewise a missing bundled pnpm leaves LOCALBOT_PNPM_DIR unset and
+ * `pluginsAdd` refuses with NO_PNPM instead of trying pnpm from PATH; a
+ * missing baked whisper-cli leaves LOCALBOT_WHISPER_DIR unset and the Mic
+ * stays NOT BUILT on darwin-arm64 (linux / win download theirs on first use).
  *
- * @param {{ resourcesPath: string, platform?: string, exists?: (p: string) => boolean }} opts
+ * @param {{ resourcesPath: string, platform?: string, arch?: string, exists?: (p: string) => boolean }} opts
  */
-export function packagedHarnessEnv({ resourcesPath, platform = process.platform, exists }) {
-  const p = harnessResourcePaths({ resourcesPath, platform });
+export function packagedHarnessEnv({ resourcesPath, platform = process.platform, arch = process.arch, exists }) {
+  const p = harnessResourcePaths({ resourcesPath, platform, arch });
   const has = exists ?? (() => true);
   /** @type {Record<string, string>} */
   const env = {};
   if (has(p.nodeBin)) env.LOCALBOT_DSH_NODE = p.nodeBin;
   if (has(p.dshDir)) env.LOCALBOT_DSH_DIR = p.dshDir;
   if (has(p.modulesDir)) env.LOCALBOT_DSH_MODULES = p.modulesDir;
+  if (has(`${p.pnpmDir}/${pnpmShimName(platform)}`)) env.LOCALBOT_PNPM_DIR = p.pnpmDir;
+  if (has(`${p.whisperDir}/${platform === "win32" ? "whisper-cli.exe" : "whisper-cli"}`) && has(`${p.whisperDir}/whisper-build.json`)) env.LOCALBOT_WHISPER_DIR = p.whisperDir;
   return env;
 }
 

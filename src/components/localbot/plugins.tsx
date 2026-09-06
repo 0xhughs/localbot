@@ -5,7 +5,9 @@
  * `profiles/acp/package.json` + the profile user layer + a real
  * `dsh --dump-config` say. Add / Remove / Enable / Disable go through the
  * `plugins*` server functions, which spawn the pinned dsh; their exit code
- * and stderr are shown verbatim (including dsh's own "pnpm not found").
+ * and stderr are shown verbatim. Stage 20: the packaged app carries its own
+ * pnpm (`resources/localbot-pnpm`), so the red pnpm banner appears only when
+ * the report really found none — bundled or (dev mode) on PATH.
  */
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { AlertTriangle, Puzzle, RefreshCw, Search, ShieldAlert, ShieldCheck, X } from "lucide-react";
@@ -186,8 +188,15 @@ export function PluginsDialog() {
         <div className="min-h-0 flex-1 overflow-y-auto p-5 scrollbar-thin">
           {report && !report.pnpm.found && (
             <p className="mb-4 rounded-md bg-danger/10 p-3 text-xs leading-relaxed text-danger shadow-[0_0_0_1px_color-mix(in_oklab,var(--color-danger)_40%,transparent)]" data-testid="plugins-pnpm-missing">
-              pnpm is not on PATH. dsh manages profile plugins by forwarding to pnpm, so Add and Remove will exit 127 with dsh's own
-              "pnpm not found on PATH" until pnpm is installed. This packaged LocalBot does not bundle pnpm. Enable / Disable and this list still work.
+              {report.pnpm.source === "path"
+                ? "pnpm was not found on PATH (dev mode). dsh manages profile plugins by forwarding to pnpm, so Add and Remove will exit 127 until pnpm is installed."
+                : "This LocalBot has no usable pnpm: the bundled resources/localbot-pnpm is missing or does not run, so Add and Remove are refused (NO_PNPM). Rebuild with npm run build:desktop."}
+              {report.pnpm.error ? ` ${report.pnpm.error}` : ""} Enable / Disable and this list still work.
+            </p>
+          )}
+          {report && report.pnpm.found && (
+            <p className="mb-3 text-[11px] text-subtle" data-testid="plugins-pnpm-source">
+              pnpm {report.pnpm.version} · {report.pnpm.source === "bundled" ? `bundled with LocalBot (${report.pnpm.dir})` : "from PATH (dev mode)"}
             </p>
           )}
           {tab === "catalog" && (

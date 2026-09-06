@@ -142,6 +142,12 @@ async function startSidecar() {
   for (const k of ["LOCALBOT_DSH_NODE", "LOCALBOT_DSH_DIR", "LOCALBOT_DSH_MODULES"]) {
     if (!harness[k]) console.error(`[desktop] packaged Harness resource missing: ${k} (dsh will refuse to start)`);
   }
+  // Stage 20: bundled pnpm (every OS) and the baked whisper-cli (darwin-arm64 only;
+  // linux / win download theirs on first use, darwin-x64 is NOT BUILT).
+  if (!harness.LOCALBOT_PNPM_DIR) console.error("[desktop] packaged resource missing: LOCALBOT_PNPM_DIR (Plugins → Add / Remove will refuse with NO_PNPM)");
+  if (process.platform === "darwin" && process.arch === "arm64" && !harness.LOCALBOT_WHISPER_DIR) {
+    console.error("[desktop] packaged resource missing: LOCALBOT_WHISPER_DIR (Mic stays NOT BUILT until whisper-cli is in AppData)");
+  }
 
   const env = {
     ...process.env,

@@ -323,6 +323,60 @@ export function verifyBuiltWhisper(exe: string, asset: WhisperRuntimeAsset): Ver
   return { ok: true, path: exe, sha256, size, manifest, matchesCatalog: sha256 === asset.sha256 };
 }
 
+// ── Stage 20: seed a built row from the app's own resources ──────────────────
+
+/**
+ * Where the packaged app carries a pre-built whisper-cli for this host
+ * (`resources/localbot-whisper/{target}/whisper`, set by Electron main as
+ * `LOCALBOT_WHISPER_DIR` only when the files exist). Null in dev mode and on
+ * hosts whose installer bakes none (linux / win download theirs; darwin-x64
+ * is NOT BUILT).
+ */
+export function whisperResourceDir(env: NodeJS.ProcessEnv = process.env): string | null {
+  const v = env.LOCALBOT_WHISPER_DIR?.trim();
+  return v ? path.resolve(v) : null;
+}
+
+export type SeedResult =
+  | { seeded: true; from: string; to: string; sha256: string }
+  | { seeded: false; reason: "not-built-row" | "already-valid" | "no-resource" | "resource-invalid" | "copy-failed"; error: string | null };
+
+/**
+ * Copy the baked `whisper-cli` + `whisper-build.json` (+ listed dylibs) from
+ * the app's resources into `{binRoot}/{target}/whisper/` — the folder every
+ * other whisper path in this file already uses — when the AppData copy is
+ * missing or fails `verifyBuiltWhisper`. The resource copy must itself pass
+ * `verifyBuiltWhisper` (same tag, same commit, hashes to its manifest) or
+ * nothing is copied. A valid AppData copy is never overwritten. No cmake, no
+ * git, no network: this is a file copy inside the employee's own machine.
+ */
+export function seedWhisperFromResources(input: { target: WhisperTarget; asset: WhisperRuntimeAsset; from: string | null; to: string; platform?: string }): SeedResult {
+  const { target, asset, from, to } = input;
+  if (asset.kind !== "built" || asset.target !== target) return { seeded: false, reason: "not-built-row", error: null };
+  const cli = whisperCliName(input.platform);
+  const exe = path.join(to, cli);
+  const have = verifyBuiltWhisper(exe, asset);
+  if (have.ok) return { seeded: false, reason: "already-valid", error: null };
+  if (!from) return { seeded: false, reason: "no-resource", error: null };
+  const src = path.join(from, cli);
+  const check = verifyBuiltWhisper(src, asset);
+  if (!check.ok) return { seeded: false, reason: "resource-invalid", error: `${from}: ${check.error}` };
+  try {
+    fs.mkdirSync(to, { recursive: true });
+    for (const name of [cli, WHISPER_BUILD_MANIFEST, ...(check.manifest?.dylibs ?? [])]) {
+      const tmp = path.join(to, `.${name}.seed-${process.pid}`);
+      fs.copyFileSync(path.join(from, name), tmp);
+      fs.renameSync(tmp, path.join(to, name));
+    }
+    fs.chmodSync(exe, 0o755);
+  } catch (err) {
+    return { seeded: false, reason: "copy-failed", error: `${from} → ${to}: ${err instanceof Error ? err.message : String(err)}` };
+  }
+  const after = verifyBuiltWhisper(exe, asset);
+  if (!after.ok) return { seeded: false, reason: "copy-failed", error: `${to}: ${after.error}` };
+  return { seeded: true, from, to, sha256: after.sha256 };
+}
+
 export function verifyWhisperArchive(file: string, asset: WhisperRuntimeAsset): VerifyResult {
   if (asset.kind === "built") return { ok: false, error: `${asset.target} is a built row; there is no archive to verify.` };
   const want = expectSha(asset);
@@ -424,8 +478,9 @@ export type EnsureRuntime =
 
 /**
  * whisper-cli for this host: downloaded and sha256-verified on first use for
- * archive rows; for built rows (darwin) only found — never downloaded — and
- * checked against the manifest its build wrote.
+ * archive rows; for built rows (darwin) never downloaded — seeded from the
+ * packaged app's own resources when present (Stage 20), otherwise only found
+ * — and checked against the manifest its build wrote.
  */
 export async function ensureWhisperRuntime(): Promise<EnsureRuntime> {
   const target = whisperTarget();
@@ -434,8 +489,12 @@ export async function ensureWhisperRuntime(): Promise<EnsureRuntime> {
   const dir = whisperDir(target);
   const exe = path.join(dir, whisperCliName());
   if (asset.kind === "built") {
+    const seed = seedWhisperFromResources({ target, asset, from: whisperResourceDir(), to: dir });
     const v = verifyBuiltWhisper(exe, asset);
-    if (!v.ok) return { ok: false, error: v.error, code: fs.existsSync(exe) ? undefined : "NOT_BUILT" };
+    if (!v.ok) {
+      const why = seed.seeded === false && seed.error ? ` ${seed.error}` : seed.seeded === false && seed.reason === "no-resource" ? " This LocalBot carries no baked whisper-cli for this host (LOCALBOT_WHISPER_DIR unset)." : "";
+      return { ok: false, error: `${v.error}${why}`, code: fs.existsSync(exe) ? undefined : "NOT_BUILT" };
+    }
     assertWhisperExe(exe);
     return { ok: true, exe, dir, target, built: true };
   }
@@ -520,6 +579,8 @@ export type SttStatus = {
   modelReady: boolean;
   busy: boolean;
   language: typeof STT_LANGUAGE;
+  /** Stage 20: the packaged resource folder a built row is seeded from, or null (dev / no bake). */
+  resourceDir: string | null;
 };
 
 /** Pure: the (supported, reason) pair for a host. `exeVerified` is the built-row check result. */
@@ -545,6 +606,9 @@ export function sttStatus(): SttStatus {
   const modelPath = whisperModelPath();
   const dir = whisperDir(target ?? undefined);
   const exe = path.join(dir, whisperCliName());
+  const resourceDir = whisperResourceDir();
+  // A fresh AppData on a packaged darwin-arm64 must report supported without a first Mic press.
+  if (target && asset?.kind === "built") seedWhisperFromResources({ target, asset, from: resourceDir, to: dir });
   const built = asset?.kind === "built" ? verifyBuiltWhisper(exe, asset) : null;
   const { supported, reason } = sttSupport({ target, asset, dir, builtOk: Boolean(built?.ok), builtError: built && !built.ok ? built.error : null });
   return {
@@ -558,6 +622,7 @@ export function sttStatus(): SttStatus {
     modelReady: Boolean(modelPath && fs.existsSync(modelPath)),
     busy: g().busy,
     language: STT_LANGUAGE,
+    resourceDir,
   };
 }
 

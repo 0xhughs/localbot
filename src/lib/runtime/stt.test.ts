@@ -227,7 +227,8 @@ describe("Stage 9: catalog/whisper-assets.json", () => {
     assert.match((verifyWhisperArchive(path.join(tmp, "x.tar.gz"), asset) as { error: string }).error, /built row/);
     // The download path in stt.ts is never reached for built rows.
     const src = read("src/lib/runtime/stt.ts");
-    assert.match(src, /if \(asset\.kind === "built"\) \{\s*const v = verifyBuiltWhisper\(exe, asset\);/);
+    // Stage 20: the built branch seeds from the app's resources first, then verifies — still never downloads.
+    assert.match(src, /if \(asset\.kind === "built"\) \{\s*const seed = seedWhisperFromResources\(\{ target, asset, from: whisperResourceDir\(\), to: dir \}\);\s*const v = verifyBuiltWhisper\(exe, asset\);/);
     assert.equal(sttSupport({ target: null, asset: null, dir, builtOk: false, builtError: null, platform: "darwin", arch: "x64" }).supported, false);
     fs.rmSync(tmp, { recursive: true, force: true });
   });

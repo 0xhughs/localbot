@@ -8,7 +8,7 @@
  * sidecar, the DeepSeek Harness tree, and an official Node >= 22.15 for dsh
  * (Electron 36's embedded Node 22.14 cannot load it).
  */
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
@@ -19,14 +19,25 @@ import {
   listInstallers,
   nodeBinaryVersion,
   nodeRuntimeTarget,
+  pnpmPinOf,
+  pnpmShimVersion,
   stageHarness,
   stageNodeRuntime,
+  stagePnpm,
+  stageWhisperBuilt,
   versionAtLeast,
 } from "./desktop-stage.mjs";
+import { defaultMacBinRoot, macWhisperTarget } from "./build-whisper-mac.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const staged = path.join(root, "dist/desktop-src");
 const outDir = path.join(root, "dist/desktop");
+const argv = process.argv.slice(2);
+/** @param {string} n */
+const opt = (n) => {
+  const i = argv.indexOf(n);
+  return i >= 0 ? argv[i + 1] : undefined;
+};
 
 function run(cmd, args, env = {}) {
   return new Promise((resolve, reject) => {
@@ -95,6 +106,13 @@ if (!dshPin || !/^\d/.test(dshPin)) {
   console.error("[desktop] @deepseek-ai/dsh must be an exact pin in package.json, got", dshPin);
   process.exit(1);
 }
+let pnpmPin;
+try {
+  pnpmPin = pnpmPinOf(pkg);
+} catch (err) {
+  console.error("[desktop]", err instanceof Error ? err.message : String(err));
+  process.exit(1);
+}
 
 console.log("[desktop] building Nitro node-server UI…");
 await run(process.execPath, [path.join(root, "node_modules/vite/bin/vite.js"), "build"], {
@@ -159,6 +177,49 @@ if (!stagedNodeVersion || !versionAtLeast(stagedNodeVersion, nodeStage.minimum))
 }
 console.log(`[desktop] bundled Node ${stagedNodeVersion} (pin ${nodeStage.pin}, minimum ${nodeStage.minimum})`);
 
+// Stage 20: the pnpm that `dsh plugin` forwards to. Staged one level down
+// (dist/desktop-pnpm/localbot-pnpm) like the Harness so its nested
+// node_modules survive electron-builder's extraResources filter. Checked here
+// the way the installed app runs it: bundled Node, nothing on PATH.
+console.log("[desktop] staging pnpm", pnpmPin, "…");
+const pnpmStageRoot = path.join(root, "dist/desktop-pnpm");
+fs.rmSync(pnpmStageRoot, { recursive: true, force: true });
+const pnpmStage = stagePnpm({ root, stage: pnpmStageRoot, pin: pnpmPin });
+const stagedPnpmVersion = pnpmShimVersion(process.platform === "win32" ? pnpmStage.cmd : pnpmStage.shim, nodeStage.bin);
+if (stagedPnpmVersion !== pnpmPin) {
+  console.error(`[desktop] staged pnpm shim reports ${stagedPnpmVersion ?? "nothing"} on the bundled Node with an empty PATH; pin is ${pnpmPin}`);
+  process.exit(1);
+}
+console.log(`[desktop] bundled pnpm ${stagedPnpmVersion} runs on the bundled Node with an empty PATH`);
+
+// Stage 20: darwin-arm64 ships the Stage 10 whisper-cli build so the Mic works
+// on a fresh AppData without cmake. Source, in order: --whisper-dir, the Stage
+// 10 install under ~/Library/Application Support/LocalBot/bin, else build it
+// now (cmake on this build Mac only). Other hosts stage an empty folder: their
+// whisper rows are first-use downloads (linux/win) or NOT BUILT (darwin-x64).
+const whisperStageRoot = path.join(root, "dist/desktop-whisper");
+fs.rmSync(whisperStageRoot, { recursive: true, force: true });
+fs.mkdirSync(whisperStageRoot, { recursive: true });
+const whisperTarget = process.platform === "darwin" ? macWhisperTarget() : null;
+let whisperStaged = null;
+if (whisperTarget === "darwin-arm64") {
+  const appData = path.join(defaultMacBinRoot(), whisperTarget, "whisper");
+  const explicit = opt("--whisper-dir");
+  let from = explicit ? path.resolve(explicit) : fs.existsSync(path.join(appData, "whisper-cli")) ? appData : null;
+  if (!from) {
+    const binRoot = path.join(root, "dist/whisper-stage");
+    console.log(`[desktop] no whisper-cli under ${appData}; running npm run build:whisper-mac -- --bin-root ${binRoot} (cmake needed on this build Mac only)`);
+    await run(process.execPath, [path.join(root, "scripts/build-whisper-mac.mjs"), "--bin-root", binRoot]);
+    from = path.join(binRoot, whisperTarget, "whisper");
+  }
+  console.log(`[desktop] staging whisper-cli for ${whisperTarget} from ${from} …`);
+  whisperStaged = stageWhisperBuilt({ root, stage: whisperStageRoot, target: whisperTarget, from });
+} else if (whisperTarget === "darwin-x64") {
+  console.log("[desktop] darwin-x64: whisper-cli stays NOT BUILT (no catalog row); nothing staged.");
+} else {
+  console.log(`[desktop] ${nodeTarget}: whisper-cli is a first-use download from catalog/whisper-assets.json; nothing staged.`);
+}
+
 const require = createRequire(import.meta.url);
 let builderBin;
 try {
@@ -193,6 +254,14 @@ function assertLayout(appOutDir) {
     "resources/localbot-harness/node_modules/@deepseek-ai/dsh-fs-local/package.json",
     `resources/localbot-node/${process.platform === "win32" ? "node.exe" : "node"}`,
     "resources/localbot-node/LICENSE.node",
+    "resources/localbot-pnpm/bin/pnpm",
+    "resources/localbot-pnpm/bin/pnpm.cmd",
+    "resources/localbot-pnpm/pnpm.cjs",
+    "resources/localbot-pnpm/pnpm/bin/pnpm.cjs",
+    "resources/localbot-pnpm/pnpm/dist/pnpm.cjs",
+    "resources/localbot-pnpm/LICENSE",
+    "resources/localbot-pnpm/pnpm-runtime.json",
+    ...(whisperStaged ? ["resources/localbot-whisper/darwin-arm64/whisper/whisper-cli", "resources/localbot-whisper/darwin-arm64/whisper/whisper-build.json"] : []),
   ].map((p) => path.join(appOutDir, p));
   const missing = checks.filter((p) => !fs.existsSync(p));
   if (missing.length) {
@@ -206,6 +275,22 @@ function assertLayout(appOutDir) {
     process.exit(1);
   }
   console.log("[desktop] packed layout ok;", packedNode, "is", v);
+  const packedShim = path.join(appOutDir, `resources/localbot-pnpm/bin/${process.platform === "win32" ? "pnpm.cmd" : "pnpm"}`);
+  const pv = pnpmShimVersion(packedShim, packedNode);
+  if (pv !== pnpmPin) {
+    console.error(`[desktop] packed pnpm shim at ${packedShim} reports ${pv ?? "nothing"} on the packed Node with an empty PATH; pin is ${pnpmPin}`);
+    process.exit(1);
+  }
+  console.log("[desktop] packed pnpm", pv, "runs on the packed Node with an empty PATH");
+  if (whisperStaged) {
+    const packedWhisper = path.join(appOutDir, "resources/localbot-whisper/darwin-arm64/whisper/whisper-cli");
+    const help = spawnSync(packedWhisper, ["--help"], { encoding: "utf8", timeout: 20000 });
+    if (!/usage:/i.test(`${help.stdout}\n${help.stderr}`)) {
+      console.error(`[desktop] packed whisper-cli at ${packedWhisper} did not print usage (exit ${help.status})`);
+      process.exit(1);
+    }
+    console.log("[desktop] packed whisper-cli answers --help (sha256", whisperStaged.sha256.slice(0, 12) + "…)");
+  }
 }
 const layoutRoots = [
   path.join(outDir, "linux-unpacked"),
@@ -231,4 +316,6 @@ fs.writeFileSync(path.join(outDir, "SHA256SUMS.txt"), sums.join("\n") + "\n");
 console.log("[desktop] UNSIGNED installers:");
 for (const line of sums) console.log("  " + line);
 console.log("[desktop] checksums:", path.join(outDir, "SHA256SUMS.txt"));
-console.log("[desktop] not signed, not notarized, not a store build. Node/npm are not needed to run the installed app.");
+console.log(
+  `[desktop] not signed, not notarized, not a store build. Node/npm/pnpm are not needed to run the installed app (bundled Node ${stagedNodeVersion}, bundled pnpm ${pnpmPin}${whisperStaged ? ", baked whisper-cli for darwin-arm64" : ""}).`,
+);
