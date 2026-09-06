@@ -74,32 +74,55 @@ if (failures.length) {
 /* ---------------- live: build + sidecar boot ---------------- */
 
 const T = await import(pathToFileURL(path.join(root, "desktop/sidecar-token.mjs")).href);
-const { SIDECAR_URL, SIDECAR_PORT } = await import(pathToFileURL(path.join(root, "desktop/packaged.mjs")).href);
+const { SIDECAR_URL, SIDECAR_PORT } = await import(
+  pathToFileURL(path.join(root, "desktop/packaged.mjs")).href
+);
 
 const serverDir = path.join(root, ".output");
 const serverEntry = path.join(serverDir, "server/index.mjs");
 const ssrDir = path.join(serverDir, "server/_ssr");
 if (flag("--build") || !fs.existsSync(serverEntry)) {
-  log(fs.existsSync(serverEntry) ? "rebuilding .output" : "no .output — running vite build (LOCALBOT_DESKTOP_BUILD=1)");
-  const r = spawnSync(process.execPath, [path.join(root, "node_modules/vite/bin/vite.js"), "build"], {
-    cwd: root,
-    stdio: "inherit",
-    env: { ...process.env, LOCALBOT_DESKTOP_BUILD: "1" },
-  });
+  log(
+    fs.existsSync(serverEntry)
+      ? "rebuilding .output"
+      : "no .output — running vite build (LOCALBOT_DESKTOP_BUILD=1)",
+  );
+  const r = spawnSync(
+    process.execPath,
+    [path.join(root, "node_modules/vite/bin/vite.js"), "build"],
+    {
+      cwd: root,
+      stdio: "inherit",
+      env: { ...process.env, LOCALBOT_DESKTOP_BUILD: "1" },
+    },
+  );
   if (r.status !== 0) {
     fail(`vite build exited ${r.status}`);
     finish("static");
   }
 }
-gate(fs.existsSync(serverEntry), "vite build produced .output/server/index.mjs (no db:migrate step ran)");
+gate(
+  fs.existsSync(serverEntry),
+  "vite build produced .output/server/index.mjs (no db:migrate step ran)",
+);
 
 {
   const bundle = walkFiles(path.join(serverDir, "server"))
     .filter((f) => /\.m?js$/.test(f))
     .map((f) => fs.readFileSync(f, "utf8"))
     .join("\n");
-  const bad = ["better-auth", "@electric-sql/pglite", "api.x.ai", "virtual:grok-og-identity", "/__grok/manifest.webmanifest", "renderInstallPageHtml"].filter((s) => bundle.includes(s));
-  gate(bad.length === 0, `the built server bundle carries no template strings${bad.length ? ` — found ${bad.join(", ")}` : ""}`);
+  const bad = [
+    "better-auth",
+    "@electric-sql/pglite",
+    "api.x.ai",
+    "virtual:grok-og-identity",
+    "/__grok/manifest.webmanifest",
+    "renderInstallPageHtml",
+  ].filter((s) => bundle.includes(s));
+  gate(
+    bad.length === 0,
+    `the built server bundle carries no template strings${bad.length ? ` — found ${bad.join(", ")}` : ""}`,
+  );
 }
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "lb-prove-excise-"));
@@ -165,7 +188,12 @@ async function callFn(base, id, data, token) {
     "content-type": "application/json",
   };
   if (token !== undefined) headers[T.SIDECAR_TOKEN_HEADER] = token;
-  const res = await fetch(`${base}_serverFn/${id}?createServerFn`, { method: "POST", headers, body: await payload(data), signal: AbortSignal.timeout(10000) });
+  const res = await fetch(`${base}_serverFn/${id}?createServerFn`, {
+    method: "POST",
+    headers,
+    body: await payload(data),
+    signal: AbortSignal.timeout(10000),
+  });
   const text = await res.text();
   return { status: res.status, text, code: codeOf(text) };
 }
@@ -182,7 +210,12 @@ let sidecarOut = "";
 const sidecar = spawn(process.execPath, [path.join(root, "desktop/sidecar.mjs")], {
   cwd: root,
   stdio: ["ignore", "pipe", "pipe"],
-  env: { ...process.env, LOCALBOT_DATA_DIR: dataDir, LOCALBOT_SERVER_DIR: serverDir, [T.SIDECAR_TOKEN_ENV]: token },
+  env: {
+    ...process.env,
+    LOCALBOT_DATA_DIR: dataDir,
+    LOCALBOT_SERVER_DIR: serverDir,
+    [T.SIDECAR_TOKEN_ENV]: token,
+  },
 });
 children.push(sidecar);
 sidecar.stderr.on("data", (d) => (sidecarOut += String(d)));
@@ -196,18 +229,37 @@ log("sidecar up on", SIDECAR_URL, "(pid", sidecar.pid + ")");
 {
   const html = await (await fetch(SIDECAR_URL, { headers: { accept: "text/html" } })).text();
   gate(html.includes("<title>LocalBot</title>"), "GET / serves the LocalBot document");
-  gate(!/__grok\/manifest\.webmanifest|apple-touch-icon|__grok\/icon-180/.test(html), "the document links no /__grok manifest or icon");
-  const install = await fetch(`${SIDECAR_URL}?install=1&platform=ios`, { headers: { accept: "text/html" } });
+  gate(
+    !/__grok\/manifest\.webmanifest|apple-touch-icon|__grok\/icon-180/.test(html),
+    "the document links no /__grok manifest or icon",
+  );
+  const install = await fetch(`${SIDECAR_URL}?install=1&platform=ios`, {
+    headers: { accept: "text/html" },
+  });
   const installHtml = await install.text();
-  gate(install.status === 200 && installHtml.includes("<title>LocalBot</title>") && !/Add to Home Screen|homescreen|install\/styles\.css/i.test(installHtml), "/?install=1 is the app, not the template's install tutorial");
+  gate(
+    install.status === 200 &&
+      installHtml.includes("<title>LocalBot</title>") &&
+      !/Add to Home Screen|homescreen|install\/styles\.css/i.test(installHtml),
+    "/?install=1 is the app, not the template's install tutorial",
+  );
   const manifest = await fetch(`${SIDECAR_URL}__grok/manifest.webmanifest`);
   const manifestType = manifest.headers.get("content-type") ?? "";
-  gate(!/manifest\+json/.test(manifestType), `/__grok/manifest.webmanifest is not served as a web manifest (got ${manifest.status} ${manifestType || "no content-type"})`);
+  gate(
+    !/manifest\+json/.test(manifestType),
+    `/__grok/manifest.webmanifest is not served as a web manifest (got ${manifest.status} ${manifestType || "no content-type"})`,
+  );
 }
 
 {
-  const manifest = fs.readdirSync(ssrDir).map((n) => fs.readFileSync(path.join(ssrDir, n), "utf8")).join("\n");
-  const fnId = (name) => new RegExp(`"([0-9a-f]{64})":\\s*\\{\\s*functionName:\\s*"${name}_createServerFn_handler"`).exec(manifest)?.[1] ?? null;
+  const manifest = fs
+    .readdirSync(ssrDir)
+    .map((n) => fs.readFileSync(path.join(ssrDir, n), "utf8"))
+    .join("\n");
+  const fnId = (name) =>
+    new RegExp(
+      `"([0-9a-f]{64})":\\s*\\{\\s*functionName:\\s*"${name}_createServerFn_handler"`,
+    ).exec(manifest)?.[1] ?? null;
   const foldersGetId = fnId("foldersGet");
   const getAiStatusId = fnId("getAiStatus");
   gate(Boolean(foldersGetId), "server-fn table loaded: foldersGet is in the build manifest");
@@ -215,15 +267,29 @@ log("sidecar up on", SIDECAR_URL, "(pid", sidecar.pid + ")");
   gate(fnId("runSingleCompletion") === null, "runSingleCompletion is not in the build manifest");
   if (foldersGetId) {
     const none = await callFn(SIDECAR_URL, foldersGetId, {}, undefined);
-    gate(none.status === 401 && none.code === "NO_TOKEN", `foldersGet without the token → 401 NO_TOKEN (got ${none.status} ${none.code})`);
+    gate(
+      none.status === 401 && none.code === "NO_TOKEN",
+      `foldersGet without the token → 401 NO_TOKEN (got ${none.status} ${none.code})`,
+    );
     const good = await callFn(SIDECAR_URL, foldersGetId, {}, token);
-    gate(good.status === 200 && /"folders"/.test(good.text) && !good.code, `foldersGet with the launch token → 200 with folders (got ${good.status})`);
+    gate(
+      good.status === 200 && /"folders"/.test(good.text) && !good.code,
+      `foldersGet with the launch token → 200 with folders (got ${good.status})`,
+    );
   }
   if (getAiStatusId) {
     const none = await callFn(SIDECAR_URL, getAiStatusId, {}, undefined);
-    gate(none.status === 401 && none.code === "NO_TOKEN", `getAiStatus without the token → 401 NO_TOKEN (got ${none.status} ${none.code})`);
+    gate(
+      none.status === 401 && none.code === "NO_TOKEN",
+      `getAiStatus without the token → 401 NO_TOKEN (got ${none.status} ${none.code})`,
+    );
     const good = await callFn(SIDECAR_URL, getAiStatusId, {}, token);
-    gate(good.status === 200 && /"allowHostedDemo"/.test(good.text) && !/grok-4\.5|Hosted grok/.test(good.text), `getAiStatus with the token → 200, reports the Safety switch, names no hosted engine (got ${good.status})`);
+    gate(
+      good.status === 200 &&
+        /"allowHostedDemo"/.test(good.text) &&
+        !/grok-4\.5|Hosted grok/.test(good.text),
+      `getAiStatus with the token → 200, reports the Safety switch, names no hosted engine (got ${good.status})`,
+    );
   }
 }
 
