@@ -14,6 +14,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import {
+  catalogLayoutChecks,
   checksumLines,
   hasInstallerTarget,
   listInstallers,
@@ -21,6 +22,7 @@ import {
   nodeRuntimeTarget,
   pnpmPinOf,
   pnpmShimVersion,
+  stageCatalog,
   stageHarness,
   stageNodeRuntime,
   stagePnpm,
@@ -125,6 +127,12 @@ if (!fs.existsSync(server)) {
   process.exit(1);
 }
 injectSsrCss(path.join(root, ".output"));
+
+// Stage 21: the sidecar reads catalog/dsh-plugins.json with fs from
+// `<LOCALBOT_SERVER_DIR>/catalog/` (= resources/localbot-server/catalog in the
+// app). extraResources copies .output → localbot-server, so the catalog has to
+// be inside .output before electron-builder runs. No npm, no network: a copy.
+const catalogStage = stageCatalog({ root, into: path.join(root, ".output") });
 
 fs.rmSync(staged, { recursive: true, force: true });
 fs.mkdirSync(path.join(staged, "desktop"), { recursive: true });
@@ -242,6 +250,7 @@ function assertLayout(appOutDir) {
     "resources/localbot-sidecar/packaged.mjs",
     "resources/localbot-sidecar/sidecar-token.mjs",
     "resources/localbot-server/server/index.mjs",
+    ...catalogLayoutChecks(catalogStage.names),
     "resources/app.asar.unpacked/desktop/main.mjs",
     "resources/app.asar.unpacked/desktop/packaged.mjs",
     "resources/app.asar.unpacked/desktop/sidecar-token.mjs",
@@ -275,6 +284,7 @@ function assertLayout(appOutDir) {
     process.exit(1);
   }
   console.log("[desktop] packed layout ok;", packedNode, "is", v);
+  console.log(`[desktop] packed catalog (${catalogStage.names.length}) at resources/localbot-server/catalog/: ${catalogStage.names.join(", ")}`);
   const packedShim = path.join(appOutDir, `resources/localbot-pnpm/bin/${process.platform === "win32" ? "pnpm.cmd" : "pnpm"}`);
   const pv = pnpmShimVersion(packedShim, packedNode);
   if (pv !== pnpmPin) {

@@ -785,7 +785,20 @@ export async function pluginsSetEnabled(o: PluginEnv, mgr: HarnessManager | null
 
 export const CATALOG_FILE = "catalog/dsh-plugins.json";
 
-export function catalogPath(root: string = process.cwd()): string {
+/**
+ * Stage 21: where `catalog/` lives for this process — ONE rule for dev and
+ * packaged. The packaged sidecar is started with `LOCALBOT_SERVER_DIR` =
+ * `resources/localbot-server` (and chdirs there); `npm run build:desktop`
+ * stages every repo `catalog/*.json` into `.output/catalog/`, so the file is
+ * at `<LOCALBOT_SERVER_DIR>/catalog/dsh-plugins.json`. In dev nothing sets
+ * the variable and the cwd is the repo root, which holds `catalog/` itself.
+ */
+export function catalogRoot(env: NodeJS.ProcessEnv = process.env): string {
+  const dir = env.LOCALBOT_SERVER_DIR?.trim();
+  return dir ? path.resolve(dir) : process.cwd();
+}
+
+export function catalogPath(root: string = catalogRoot()): string {
   return path.join(root, CATALOG_FILE);
 }
 
@@ -793,7 +806,17 @@ const RISKS: readonly CatalogRisk[] = CATALOG_RISKS;
 
 /** Read + validate the checked-in catalog. Throws on a missing or malformed file — never substitutes a built-in list. */
 export function readPluginCatalog(file: string = catalogPath()): PluginCatalog {
-  const raw = JSON.parse(fs.readFileSync(file, "utf8")) as Partial<PluginCatalog>;
+  let text: string;
+  try {
+    text = fs.readFileSync(file, "utf8");
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException)?.code;
+    if (code === "ENOENT") {
+      throw new Error(`${file}: the plugin catalog is missing (ENOENT). ${process.env.LOCALBOT_PACKAGED === "1" ? "This packaged LocalBot was built without catalog/ next to the sidecar — rebuild with npm run build:desktop." : "Run from the repo root, or set LOCALBOT_SERVER_DIR to a folder that holds catalog/."}`);
+    }
+    throw err;
+  }
+  const raw = JSON.parse(text) as Partial<PluginCatalog>;
   if (raw.version !== 1 || raw.profile !== PLUGIN_PROFILE || !Array.isArray(raw.plugins)) {
     throw new Error(`${file}: expected { version: 1, profile: "acp", plugins: [] }`);
   }

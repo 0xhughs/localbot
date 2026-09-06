@@ -52,10 +52,12 @@ import {
   cleanChannelName,
   cleanMemberIds,
   enqueuePage,
+  mentionForms,
   normalizeChannelMessage,
   parseMentions,
   planSpeakers,
   renderChannelPrompt,
+  resolveMentions,
   type Channel,
   type ChannelMessage,
 } from "./channels-model.ts";
@@ -234,6 +236,49 @@ describe("Stage 16: turn rules (pure)", () => {
     assert.deepEqual(planSpeakers("everyone, all of you, @all", members).speakers, [], "'@all' is just an unknown name");
     assert.deepEqual(planSpeakers("", members, { all: true }), { speakers: ["bot_a", "bot_b", "bot_c"], unknown: [], reason: "all" });
     assert.deepEqual(planSpeakers("x", []), { speakers: [], unknown: [], reason: "nobody" });
+  });
+
+  describe("Stage 21: @ resolves against the same member list Run all once pages", () => {
+    const seven = { id: "bot_seven", name: "Seven" };
+    const son = { id: "bot_son", name: "Seven of Nine" };
+    const room = [son, seven, ...members];
+    const runAll = planSpeakers("", room, { all: true }).speakers;
+
+    it("@Seven with Seven's id in memberIds pages Seven — not 'not a member'", () => {
+      assert.deepEqual(planSpeakers("@Seven status?", room), { speakers: ["bot_seven"], unknown: [], reason: "mentions" });
+    });
+
+    it("@Seven of Nine (the picker inserts `@${b.name} `) pages Seven of Nine — multi-word, longest match wins", () => {
+      assert.deepEqual(planSpeakers("@Seven of Nine status?", room), { speakers: ["bot_son"], unknown: [], reason: "mentions" });
+      assert.deepEqual(planSpeakers("@Seven of Nine ", room).speakers, ["bot_son"]);
+      assert.deepEqual(resolveMentions("@Seven of Nine then @Seven", room).speakers, ["bot_son", "bot_seven"]);
+    });
+
+    it("id, roster name (any case, any whitespace run) and slugs all hit", () => {
+      assert.deepEqual(mentionForms(son), ["bot_son", "seven of nine", "seven-of-nine", "seven_of_nine"]);
+      for (const t of ["@bot_son go", "@SEVEN OF NINE go", "@seven-of-nine go", "@Seven_of_Nine go", "@seven  of nine go"]) {
+        assert.deepEqual(planSpeakers(t, room).speakers, ["bot_son"], t);
+      }
+    });
+
+    it("every @ hit is an id Run all once would page; a miss is still the system line; no @ still means the first member", () => {
+      const p = planSpeakers("@alice, @Seven of Nine, @bob", room);
+      assert.deepEqual(p.speakers, ["bot_a", "bot_son", "bot_b"]);
+      for (const id of p.speakers) assert.ok(runAll.includes(id));
+      assert.deepEqual(planSpeakers("@Seven of Nine hi", members), { speakers: [], unknown: ["Seven"], reason: "mentions" }, "not in memberIds → unknown");
+      assert.deepEqual(planSpeakers("@Bobby", room).unknown, ["Bobby"]);
+      assert.deepEqual(planSpeakers("hello all", room), { speakers: ["bot_son"], unknown: [], reason: "default-first" });
+    });
+
+    it("the runner still hands membersOf(channel) — memberIds ∩ roster — to planSpeakers for both @ and Run all", () => {
+      const runner = read("src/runtime/channelRunner.ts");
+      assert.match(runner, /const members = membersOf\(channel\);\s*const plan = planSpeakers\(trimmed, members, \{ all: opts\.all \}\);/);
+      assert.match(runner, /for \(const id of channel\.memberIds\) \{\s*const b = bots\.find\(\(x\) => x\.id === id\);\s*if \(b\) out\.push\(\{ id: b\.id, name: b\.name \}\);/);
+      const pane = read("src/components/localbot/channel.tsx");
+      assert.match(pane, /composer\.slice\(0, at\) \+ `@\$\{b\.name\} `/, "the @ picker inserts the full roster name");
+      const model = read("src/lib/channels-model.ts");
+      assert.doesNotMatch(model, /from "node:/, "channels-model.ts stays browser-safe");
+    });
   });
 
   it("BUSY queue keeps at most one page per member", () => {
