@@ -52,7 +52,12 @@ export type InstalledReport = {
   dump: { ok: boolean; error: string | null; layers: string[]; command: string | null };
   /** Whether hosted / telemetry / web rows are still disabled in the composed tree (null = no dump). */
   guardsHold: boolean | null;
-  pnpm: { found: boolean; version: string | null };
+  /**
+   * The pnpm `dsh plugin` will spawn. `bundled` = LocalBot's own
+   * (`resources/localbot-pnpm`, Stage 20); `path` = dev mode, whatever PATH has;
+   * `null` with `found: false` = packaged app without the bundle → Add / Remove refuse (NO_PNPM).
+   */
+  pnpm: { found: boolean; version: string | null; source: "bundled" | "path" | null; dir: string | null; error: string | null };
   userPatchFile: string;
 };
 

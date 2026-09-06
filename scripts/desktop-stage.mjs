@@ -8,9 +8,16 @@
  *   localbot-harness/dsh/        the Cordis overlay + ctx.fs plugin
  *   localbot-harness/src/…       every relative import the plugin needs (traced)
  *   localbot-harness/node_modules  @deepseek-ai/dsh tree, exact pins, npm install at build
+ *
+ * Stage 20 adds, next to them:
+ *   localbot-pnpm/bin/pnpm[.cmd]   shims that run the pinned pnpm on the bundled Node
+ *   localbot-pnpm/pnpm.cjs         entry → localbot-pnpm/pnpm/ (the exact-pinned npm package)
+ *   localbot-whisper/darwin-arm64/whisper/{whisper-cli,whisper-build.json}
+ *                                  the Stage 10 build, copied in (darwin-arm64 build hosts only)
  */
 import { createHash } from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
@@ -214,6 +221,180 @@ export async function stageNodeRuntime({ root, stage, cache, target = nodeRuntim
   return { bin, pin: cat.pin, minimum: cat.minimum, target };
 }
 
+/* ---------- Stage 20: bundled pnpm ---------- */
+
+export const PNPM_RESOURCE_DIR = "localbot-pnpm";
+export const PNPM_RUNTIME_MANIFEST = "pnpm-runtime.json";
+
+/** The exact `pnpm` pin in package.json devDependencies; throws when it floats or is missing. */
+export function pnpmPinOf(pkg) {
+  const pin = pkg?.devDependencies?.pnpm ?? pkg?.dependencies?.pnpm;
+  if (!pin || !/^\d+\.\d+\.\d+$/.test(String(pin))) {
+    throw new Error(`package.json must pin pnpm exactly (devDependencies.pnpm = "x.y.z"), got ${JSON.stringify(pin)}`);
+  }
+  return String(pin);
+}
+
+/**
+ * POSIX shim dsh's `spawnSync("pnpm")` finds first on PATH. Runs the bundled
+ * pnpm on the bundled Node named by `LOCALBOT_DSH_NODE` (Electron main sets
+ * it), falling back to the sibling `localbot-node/node` in the same
+ * resources folder. Never `node` from PATH.
+ */
+export function pnpmShimSh() {
+  return [
+    "#!/bin/sh",
+    "# LocalBot bundled pnpm (Stage 20). dsh forwards `dsh plugin` to `pnpm` on PATH; this is that pnpm.",
+    "# Runs the pinned pnpm package on the Node LocalBot ships, never on a node from the employee's PATH.",
+    "# Shell builtins only: PATH may hold nothing but this folder (no external commands, no node).",
+    'case "$0" in */*) here=$(cd "${0%/*}" && pwd) ;; *) here=$(pwd) ;; esac',
+    'node_bin="${LOCALBOT_DSH_NODE:-$here/../../localbot-node/node}"',
+    'exec "$node_bin" "$here/../pnpm.cjs" "$@"',
+    "",
+  ].join("\n");
+}
+
+/** Windows twin: dsh spawns pnpm with `shell: true` there, so cmd.exe resolves `pnpm.cmd` via PATH + PATHEXT. */
+export function pnpmShimCmd() {
+  return [
+    "@echo off",
+    "rem LocalBot bundled pnpm (Stage 20). Runs the pinned pnpm package on the Node LocalBot ships.",
+    "setlocal",
+    'set "HERE=%~dp0"',
+    'if defined LOCALBOT_DSH_NODE (set "NODE_BIN=%LOCALBOT_DSH_NODE%") else (set "NODE_BIN=%HERE%..\\..\\localbot-node\\node.exe")',
+    '"%NODE_BIN%" "%HERE%..\\pnpm.cjs" %*',
+    "endlocal & exit /b %ERRORLEVEL%",
+    "",
+  ].join("\r\n");
+}
+
+/** CJS entry at the resource root; keeps the shims one directory away from the package tree. */
+export function pnpmEntryCjs() {
+  return ['#!/usr/bin/env node\n"use strict";', "// LocalBot bundled pnpm (Stage 20): the exact-pinned npm package lives in ./pnpm.", 'require("./pnpm/bin/pnpm.cjs");', ""].join("\n");
+}
+
+/**
+ * Build `{stage}/localbot-pnpm`: the pinned `pnpm` package copied from the
+ * build host's node_modules (version checked against the pin), a CJS entry,
+ * the two shims, pnpm's MIT LICENSE, and pnpm-runtime.json. Throws when the
+ * installed pnpm is not the pinned version or the package is incomplete.
+ */
+export function stagePnpm({ root, stage, pin, log = console.log }) {
+  const src = path.join(root, "node_modules", "pnpm");
+  const pkgFile = path.join(src, "package.json");
+  if (!fs.existsSync(pkgFile)) throw new Error(`node_modules/pnpm is not installed; run npm ci (pnpm ${pin} is a pinned devDependency)`);
+  const installed = JSON.parse(fs.readFileSync(pkgFile, "utf8"));
+  if (installed.version !== pin) throw new Error(`node_modules/pnpm is ${installed.version}, package.json pins ${pin}`);
+  for (const rel of ["bin/pnpm.cjs", "dist/pnpm.cjs", "LICENSE"]) {
+    if (!fs.existsSync(path.join(src, rel))) throw new Error(`node_modules/pnpm/${rel} is missing; the pnpm package is incomplete`);
+  }
+  const out = path.join(stage, PNPM_RESOURCE_DIR);
+  fs.rmSync(out, { recursive: true, force: true });
+  fs.mkdirSync(path.join(out, "bin"), { recursive: true });
+  fs.cpSync(src, path.join(out, "pnpm"), { recursive: true, dereference: true, filter: (p) => !/(^|[\\/])README\.md$/.test(p) });
+  fs.writeFileSync(path.join(out, "pnpm.cjs"), pnpmEntryCjs());
+  const sh = path.join(out, "bin", "pnpm");
+  fs.writeFileSync(sh, pnpmShimSh());
+  fs.chmodSync(sh, 0o755);
+  fs.writeFileSync(path.join(out, "bin", "pnpm.cmd"), pnpmShimCmd());
+  fs.copyFileSync(path.join(src, "LICENSE"), path.join(out, "LICENSE"));
+  const manifest = {
+    pin,
+    package: "pnpm",
+    license: installed.license ?? "MIT",
+    sha256: { "pnpm/dist/pnpm.cjs": sha256File(path.join(src, "dist/pnpm.cjs")), "pnpm/bin/pnpm.cjs": sha256File(path.join(src, "bin/pnpm.cjs")) },
+    node: "resources/localbot-node (LOCALBOT_DSH_NODE); never node from PATH",
+    why: "dsh plugin forwards to `pnpm` on PATH; LocalBot prepends this bin/ so the employee needs no pnpm.",
+  };
+  fs.writeFileSync(path.join(out, PNPM_RUNTIME_MANIFEST), JSON.stringify(manifest, null, 2) + "\n");
+  log(`[desktop] bundled pnpm ${pin} → ${out}`);
+  return { dir: out, binDir: path.join(out, "bin"), shim: sh, cmd: path.join(out, "bin", "pnpm.cmd"), entry: path.join(out, "pnpm.cjs"), manifest };
+}
+
+/**
+ * Run a staged shim's `--version` on a given Node with an otherwise empty
+ * PATH — the exact situation an installed app is in. Returns the printed
+ * version or null.
+ */
+export function pnpmShimVersion(shim, nodeBin, extraEnv = {}) {
+  const emptyPath = fs.mkdtempSync(path.join(os.tmpdir(), "lb-empty-path-"));
+  try {
+    const isCmd = shim.endsWith(".cmd");
+    const r = spawnSync(isCmd ? "cmd.exe" : shim, isCmd ? ["/d", "/s", "/c", `"${shim}" --version`] : ["--version"], {
+      encoding: "utf8",
+      timeout: 60000,
+      env: { HOME: os.homedir(), USERPROFILE: os.homedir(), TMPDIR: os.tmpdir(), TEMP: os.tmpdir(), TMP: os.tmpdir(), PATH: emptyPath, Path: emptyPath, LOCALBOT_DSH_NODE: nodeBin, ...extraEnv },
+      windowsHide: true,
+    });
+    if (r.status !== 0) return null;
+    return r.stdout.trim().split(/\r?\n/).pop() ?? null;
+  } finally {
+    fs.rmSync(emptyPath, { recursive: true, force: true });
+  }
+}
+
+/* ---------- Stage 20: baked darwin-arm64 whisper-cli ---------- */
+
+export const WHISPER_RESOURCE_DIR = "localbot-whisper";
+export const WHISPER_ASSETS_CATALOG = "catalog/whisper-assets.json";
+
+export function readWhisperCatalog(root) {
+  return JSON.parse(fs.readFileSync(path.join(root, WHISPER_ASSETS_CATALOG), "utf8"));
+}
+
+/**
+ * Check a Stage 10 build folder (`whisper-cli` + `whisper-build.json`) against
+ * the catalog's built row for `target`: same release tag, same source commit,
+ * same target, binary hashes to the manifest's sha256. The catalog's own
+ * sha256 is the author's build and is reported, not enforced. Pure.
+ */
+export function checkBuiltWhisper({ catalog, target, dir }) {
+  const row = catalog?.targets?.[target];
+  if (!row || row.kind !== "built") return { ok: false, error: `catalog/whisper-assets.json has no built row for ${target}` };
+  const exe = path.join(dir, row.binary);
+  const manifestPath = path.join(dir, "whisper-build.json");
+  if (!fs.existsSync(exe)) return { ok: false, error: `${exe} does not exist (run ${row.build} on this Mac first, or pass --whisper-dir)` };
+  if (!fs.existsSync(manifestPath)) return { ok: false, error: `${manifestPath} is missing beside ${row.binary}` };
+  let manifest;
+  try {
+    manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  } catch (err) {
+    return { ok: false, error: `${manifestPath} is not JSON: ${err instanceof Error ? err.message : String(err)}` };
+  }
+  if (manifest.release !== catalog.release) return { ok: false, error: `${manifestPath} says whisper.cpp ${manifest.release}; the catalog pins ${catalog.release}` };
+  if (manifest.target !== target) return { ok: false, error: `${manifestPath} was built for ${manifest.target}, not ${target}` };
+  if (row.source?.commit && manifest.commit !== row.source.commit) return { ok: false, error: `${manifestPath} was built from ${manifest.commit}, not the pinned ${row.source.commit}` };
+  const sha256 = sha256File(exe);
+  if (sha256 !== manifest.sha256) return { ok: false, error: `${exe}: sha256 ${sha256} ≠ whisper-build.json ${manifest.sha256}` };
+  const dylibs = Array.isArray(manifest.dylibs) ? manifest.dylibs : [];
+  const missingDylib = dylibs.find((n) => !fs.existsSync(path.join(dir, n)));
+  if (missingDylib) return { ok: false, error: `${manifestPath} lists ${missingDylib} but it is not beside ${row.binary}` };
+  return { ok: true, exe, manifestPath, manifest, sha256, dylibs, matchesCatalog: sha256 === row.sha256 };
+}
+
+/**
+ * Copy a verified Stage 10 build into `{stage}/localbot-whisper/{target}/whisper/`.
+ * Throws on any catalog mismatch — the installer never carries a whisper-cli
+ * the sidecar would then refuse.
+ */
+export function stageWhisperBuilt({ root, stage, target, from, log = console.log }) {
+  const catalog = readWhisperCatalog(root);
+  const check = checkBuiltWhisper({ catalog, target, dir: from });
+  if (!check.ok) throw new Error(`whisper-cli for ${target} not staged: ${check.error}`);
+  const out = path.join(stage, WHISPER_RESOURCE_DIR, target, "whisper");
+  fs.rmSync(path.join(stage, WHISPER_RESOURCE_DIR, target), { recursive: true, force: true });
+  fs.mkdirSync(out, { recursive: true });
+  const exe = path.join(out, path.basename(check.exe));
+  fs.copyFileSync(check.exe, exe);
+  fs.chmodSync(exe, 0o755);
+  fs.copyFileSync(check.manifestPath, path.join(out, "whisper-build.json"));
+  for (const n of check.dylibs) fs.copyFileSync(path.join(from, n), path.join(out, n));
+  const again = checkBuiltWhisper({ catalog, target, dir: out });
+  if (!again.ok) throw new Error(`staged whisper-cli failed its own check: ${again.error}`);
+  log(`[desktop] baked whisper-cli ${catalog.release} for ${target} (sha256 ${check.sha256.slice(0, 12)}…${check.matchesCatalog ? ", matches catalog" : ", this host's build"}) → ${out}`);
+  return { dir: out, exe, sha256: check.sha256, matchesCatalog: check.matchesCatalog, dylibs: check.dylibs };
+}
+
 /** Run a Node binary's `--version` (build-time check of the staged runtime). */
 export function nodeBinaryVersion(bin) {
   const r = spawnSync(bin, ["--version"], { encoding: "utf8", timeout: 10000 });
@@ -234,7 +415,10 @@ export function listInstallers(outDir) {
     .sort();
 }
 
-/** `sha256  filename` lines, the sha256sum -c format. */
+/**
+ * `sha256  filename` lines, the sha256sum -c format.
+ * @param {string[]} files
+ */
 export function checksumLines(files) {
   return files.map((f) => `${sha256File(f)}  ${path.basename(f)}`);
 }
@@ -242,6 +426,8 @@ export function checksumLines(files) {
 /**
  * The electron-builder targets in package.json. Stage 8 refuses a config that
  * only produces `dir` for the OS being built.
+ * @param {{ build?: Record<string, { target?: unknown }> } | null | undefined} pkg
+ * @param {string} os
  */
 export function buildTargetsOf(pkg, os) {
   const t = pkg?.build?.[os]?.target;
@@ -250,6 +436,10 @@ export function buildTargetsOf(pkg, os) {
   return list.map((x) => (typeof x === "string" ? x : x?.target)).filter(Boolean);
 }
 
+/**
+ * @param {{ build?: Record<string, { target?: unknown }> } | null | undefined} pkg
+ * @param {string} os
+ */
 export function hasInstallerTarget(pkg, os) {
   return buildTargetsOf(pkg, os).some((t) => t !== "dir");
 }

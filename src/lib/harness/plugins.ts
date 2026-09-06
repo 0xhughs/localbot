@@ -8,7 +8,12 @@
  *     first use, runs **pnpm** with cwd = `{DSH_HOME}/profiles/acp`, then
  *     reconciles `package.json` → `dsh.profile.bundles`: a dependency whose
  *     manifest declares `dsh.bundle.patch` joins the layer list; a removed one
- *     leaves it. pnpm must be on PATH (exit 127 otherwise).
+ *     leaves it. dsh spawns the bare name `pnpm` (exit 127 when PATH has none).
+ *     Stage 20: the packaged app ships its own pnpm at
+ *     `resources/localbot-pnpm/bin` (Electron main → `LOCALBOT_PNPM_DIR`);
+ *     `resolved()` puts that folder first on the child's PATH so the unmodified
+ *     dsh finds LocalBot's pnpm, and with `LOCALBOT_PACKAGED=1` refuses
+ *     (NO_PNPM) when it is missing instead of hoping the employee has one.
  *   - The composed tree is bundles (in `dsh.profile.bundles` order) → the
  *     profile's `cordis.patch.yml` (user layer) → `$DSH_HOME/cordis.patch.yml`
  *     → `--patch` overlays. LocalBot's overlays are `--patch`, so they compose
@@ -55,7 +60,7 @@ const MANAGED_END = "# <<< localbot-plugins <<<";
 export const DSH_PLUGIN_TIMEOUT_MS = 180_000;
 export const DUMP_TIMEOUT_MS = 60_000;
 
-export type PluginErrorCode = "BAD_SPEC" | "NOT_FOUND" | "BUILT_IN" | "NO_ROWS" | "BUSY" | "NO_NODE" | "DSH_FAILED";
+export type PluginErrorCode = "BAD_SPEC" | "NOT_FOUND" | "BUILT_IN" | "NO_ROWS" | "BUSY" | "NO_NODE" | "NO_PNPM" | "DSH_FAILED";
 
 export class PluginError extends Error {
   code: PluginErrorCode;
@@ -349,20 +354,91 @@ export type PluginEnv = {
   run?: Runner;
 };
 
-function resolved(o: PluginEnv) {
+/* ---------- Stage 20: which pnpm does dsh get? ---------- */
+
+/** The file dsh's `spawnSync("pnpm")` resolves on this platform. */
+export function pnpmShimName(platform: string = process.platform): string {
+  return platform === "win32" ? "pnpm.cmd" : "pnpm";
+}
+
+/** Name of the PATH variable in `env` (Windows may spell it `Path`). */
+export function pathKeyOf(env: NodeJS.ProcessEnv): string {
+  return Object.keys(env).find((k) => k.toLowerCase() === "path") ?? "PATH";
+}
+
+export type PnpmLookup =
+  | { kind: "bundled"; dir: string; bin: string }
+  | { kind: "path"; bin: string }
+  | { kind: "missing"; error: string };
+
+/**
+ * Pure. `LOCALBOT_PNPM_DIR` (Electron main points it at
+ * `resources/localbot-pnpm/bin`) wins when its shim exists. Without it, dev
+ * mode lets dsh find whatever `pnpm` PATH has; packaged mode refuses — an
+ * installed LocalBot never depends on a pnpm the employee may have.
+ */
+export function pnpmLookup(env: NodeJS.ProcessEnv = process.env, platform: string = process.platform, exists: (p: string) => boolean = fs.existsSync): PnpmLookup {
+  const packaged = env.LOCALBOT_PACKAGED === "1";
+  const dir = env.LOCALBOT_PNPM_DIR?.trim();
+  const shim = pnpmShimName(platform);
+  if (dir) {
+    const bin = path.join(path.resolve(dir), shim);
+    if (exists(bin)) return { kind: "bundled", dir: path.resolve(dir), bin };
+    return { kind: "missing", error: `LOCALBOT_PNPM_DIR=${dir} has no ${shim}. Rebuild with npm run build:desktop so resources/localbot-pnpm is present.` };
+  }
+  if (packaged) {
+    return {
+      kind: "missing",
+      error:
+        "This packaged LocalBot has no bundled pnpm (LOCALBOT_PNPM_DIR is unset). dsh plugin forwards to pnpm; packaged mode never uses pnpm from PATH. " +
+        "Rebuild with npm run build:desktop so resources/localbot-pnpm is present.",
+    };
+  }
+  return { kind: "path", bin: shim };
+}
+
+/**
+ * The env the dsh child (and through it pnpm) runs with. The bundled pnpm's
+ * folder goes first on PATH so dsh's bare `pnpm` resolves to it; pnpm's
+ * content-addressable store lives under `DSH_HOME` — LocalBot's AppData,
+ * never `~/.local/share/pnpm`.
+ */
+export function pnpmChildEnv(base: NodeJS.ProcessEnv, dshHome: string, lookup: PnpmLookup, delimiter: string = path.delimiter): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...base };
+  if (lookup.kind === "bundled") {
+    const key = pathKeyOf(env);
+    const current = env[key] ?? "";
+    env[key] = current ? `${lookup.dir}${delimiter}${current}` : lookup.dir;
+  }
+  env.npm_config_store_dir = path.join(dshHome, "pnpm-store");
+  return env;
+}
+
+/**
+ * `needsPnpm` is true for `dsh plugin …` (add / remove), which forwards to
+ * pnpm — with no acceptable pnpm the call is refused (NO_PNPM) before dsh is
+ * spawned. `--dump-config` never touches pnpm, so a missing bundle must not
+ * hide the Installed list.
+ */
+function resolved(o: PluginEnv, { needsPnpm = false } = {}) {
   const dshHome = o.dshHome ?? dshHomeFor(o.dataDir);
   const dshDir = o.dshDir ?? defaultDshDir();
+  const base = o.env ?? process.env;
   let nodeBin = o.nodeBin;
   if (!nodeBin) {
-    const found = findHarnessNode({ env: o.env ?? process.env });
+    const found = findHarnessNode({ env: base });
     if (!found.ok) throw new PluginError("NO_NODE", found.error);
     nodeBin = found.bin;
   }
-  const env: NodeJS.ProcessEnv = { ...(o.env ?? process.env) };
+  const pnpm = pnpmLookup(base);
+  if (needsPnpm && pnpm.kind === "missing") throw new PluginError("NO_PNPM", pnpm.error);
+  const env = pnpmChildEnv(base, dshHome, pnpm);
   delete env.ELECTRON_RUN_AS_NODE;
   env.DSH_HOME = dshHome;
   env.DSH_TELEMETRY_MODE = "off";
-  return { dshHome, dshDir, nodeBin, env, run: o.run ?? spawnRunner };
+  // The bundled shim runs pnpm on the Harness Node, never on a node from PATH.
+  if (pnpm.kind === "bundled" && !env.LOCALBOT_DSH_NODE) env.LOCALBOT_DSH_NODE = nodeBin;
+  return { dshHome, dshDir, nodeBin, env, pnpm, run: o.run ?? spawnRunner };
 }
 
 /** `dsh plugin --profile acp <pnpm args>` argv (after the Node binary). */
@@ -387,7 +463,7 @@ export function dshDumpArgs(dshDir: string, pluginOverlay: string): string[] {
 }
 
 export async function runDshPlugin(o: PluginEnv, pnpmArgs: string[]): Promise<RunResult> {
-  const r = resolved(o);
+  const r = resolved(o, { needsPnpm: true });
   fs.mkdirSync(r.dshHome, { recursive: true });
   return r.run(r.nodeBin, dshPluginArgs(pnpmArgs), { cwd: r.dshHome, env: r.env, timeoutMs: DSH_PLUGIN_TIMEOUT_MS });
 }
@@ -456,10 +532,27 @@ export function guardsHold(rows: DumpRow[]): boolean {
   return guardOffenders(rows).length === 0;
 }
 
-export async function pnpmStatus(env: NodeJS.ProcessEnv = process.env, run: Runner = spawnRunner): Promise<{ found: boolean; version: string | null }> {
-  const res = await run(process.platform === "win32" ? "pnpm.cmd" : "pnpm", ["--version"], { cwd: process.cwd(), env, timeoutMs: 15_000 });
-  if (res.code === 0) return { found: true, version: res.stdout.trim().split(/\r?\n/)[0] ?? null };
-  return { found: false, version: null };
+export type PnpmStatus = { found: boolean; version: string | null; source: "bundled" | "path" | null; dir: string | null; error: string | null };
+
+/**
+ * Which pnpm `dsh plugin` will get. The bundled shim (absolute path, run on
+ * the Harness Node) is preferred; dev mode without one probes PATH the way
+ * dsh does; packaged mode without one reports not found — it never probes
+ * PATH, because `pluginsAdd` would refuse anyway.
+ */
+export async function pnpmStatus(env: NodeJS.ProcessEnv = process.env, run: Runner = spawnRunner, platform: string = process.platform): Promise<PnpmStatus> {
+  const lookup = pnpmLookup(env, platform);
+  if (lookup.kind === "missing") return { found: false, version: null, source: null, dir: null, error: lookup.error };
+  const probeEnv: NodeJS.ProcessEnv = { ...env };
+  if (lookup.kind === "bundled" && !probeEnv.LOCALBOT_DSH_NODE) {
+    const node = findHarnessNode({ env });
+    if (node.ok) probeEnv.LOCALBOT_DSH_NODE = node.bin;
+  }
+  const res = await run(lookup.bin, ["--version"], { cwd: process.cwd(), env: probeEnv, timeoutMs: 15_000 });
+  const source = lookup.kind;
+  const dir = lookup.kind === "bundled" ? lookup.dir : null;
+  if (res.code === 0) return { found: true, version: res.stdout.trim().split(/\r?\n/).pop() ?? null, source, dir, error: null };
+  return { found: false, version: null, source, dir, error: `${res.command} exited ${res.code ?? res.signal}${res.stderr.trim() ? `: ${res.stderr.trim().split(/\r?\n/)[0]}` : ""}` };
 }
 
 export async function pluginsInstalled(o: PluginEnv, opts: { dump?: boolean } = {}): Promise<InstalledReport> {
@@ -550,7 +643,9 @@ function cleanPnpm(s: string): string {
  * `dsh plugin --profile acp add <spec>`. Success is what the profile manifest
  * says afterwards: the resolved package name appears in `dependencies`, and
  * — for a bundle — in `dsh.profile.bundles`. A non-zero exit (including
- * dsh's own "pnpm not found on PATH", 127) is returned verbatim.
+ * dsh's own "pnpm not found on PATH", 127, in dev mode) is returned verbatim.
+ * Packaged mode never gets that far without a bundled pnpm: `runDshPlugin`
+ * throws NO_PNPM first.
  */
 export async function pluginsAdd(o: PluginEnv, mgr: HarnessManager | null, rawSpec: string): Promise<MutationResult> {
   const spec = parsePluginSpec(rawSpec);

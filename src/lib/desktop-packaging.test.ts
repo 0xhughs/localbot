@@ -125,11 +125,14 @@ describe("Stage 8: packaged Harness runtime", () => {
     assert.equal(p.modulesDir, "/app/resources/localbot-harness/node_modules");
     assert.equal(harnessResourcePaths({ resourcesPath: "C:\\App\\resources", platform: "win32" }).nodeBin, "C:\\App\\resources/localbot-node/node.exe");
 
-    const all = packagedHarnessEnv({ resourcesPath: "/app/resources", platform: "linux", exists: () => true });
+    const all = packagedHarnessEnv({ resourcesPath: "/app/resources", platform: "linux", arch: "x64", exists: () => true });
     assert.deepEqual(all, {
       LOCALBOT_DSH_NODE: "/app/resources/localbot-node/node",
       LOCALBOT_DSH_DIR: "/app/resources/localbot-harness/dsh",
       LOCALBOT_DSH_MODULES: "/app/resources/localbot-harness/node_modules",
+      // Stage 20
+      LOCALBOT_PNPM_DIR: "/app/resources/localbot-pnpm/bin",
+      LOCALBOT_WHISPER_DIR: "/app/resources/localbot-whisper/linux-x64/whisper",
     });
     const noNode = packagedHarnessEnv({ resourcesPath: "/app/resources", platform: "linux", exists: (f) => !f.includes("localbot-node") });
     assert.equal(noNode.LOCALBOT_DSH_NODE, undefined, "a missing bundled Node must not be papered over");

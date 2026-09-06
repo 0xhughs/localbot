@@ -17,8 +17,9 @@
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "node --test scripts/desktop-stage.test.mjs && node --experimental-strip-types --test src/lib/localbot.test.ts src/lib/fs/scopes.test.ts src/lib/fs/watch.test.ts src/lib/fs/agents.test.ts src/lib/fs/host-index.test.ts src/lib/runtime/model-platform.test.ts src/lib/desktop-packaging.test.ts src/lib/desktop-chrome.test.ts src/lib/agent-identity.test.ts src/lib/harness/harness.test.ts src/lib/runtime/stt.test.ts src/lib/audio/voice-toggle.test.ts src/lib/harness/plugins.test.ts src/lib/routines.test.ts src/lib/channels.test.ts src/lib/sidecar-token.test.ts src/lib/quit-flush.test.ts src/lib/excision.test.ts",
+    "test": "node --test scripts/desktop-stage.test.mjs && node --experimental-strip-types --test src/lib/localbot.test.ts src/lib/fs/scopes.test.ts src/lib/fs/watch.test.ts src/lib/fs/agents.test.ts src/lib/fs/host-index.test.ts src/lib/runtime/model-platform.test.ts src/lib/desktop-packaging.test.ts src/lib/desktop-chrome.test.ts src/lib/agent-identity.test.ts src/lib/harness/harness.test.ts src/lib/runtime/stt.test.ts src/lib/audio/voice-toggle.test.ts src/lib/harness/plugins.test.ts src/lib/routines.test.ts src/lib/channels.test.ts src/lib/sidecar-token.test.ts src/lib/quit-flush.test.ts src/lib/excision.test.ts src/lib/packaged-tools.test.ts",
     "prove:excise": "node scripts/prove-excise.mjs",
+    "prove:packaged-tools": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/prove-packaged-tools.mjs",
     "prove:stt": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/prove-stt.mjs",
     "build:whisper-mac": "node scripts/build-whisper-mac.mjs",
     "prove:packaged": "node --experimental-strip-types --disable-warning=ExperimentalWarning scripts/prove-packaged.mjs",
@@ -105,6 +106,7 @@
     "lightningcss": "^1.28.0",
     "nitro": "3.0.260610-beta",
     "playwright": "^1.62.0",
+    "pnpm": "10.33.3",
     "prettier": "^3.4.0",
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.56.1",
@@ -143,6 +145,20 @@
       {
         "from": "dist/desktop-node",
         "to": "localbot-node"
+      },
+      {
+        "from": "dist/desktop-pnpm",
+        "to": ".",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "dist/desktop-whisper",
+        "to": ".",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "asar": true,
