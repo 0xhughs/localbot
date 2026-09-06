@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { Menu, Monitor, Plus, Settings as SettingsIcon } from "lucide-react";
+import { installQuitFlush } from "@/lib/quit-flush";
 import { useLocalBot } from "@/lib/store";
 import { isActiveBot } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -28,6 +29,10 @@ export function AppShell() {
   // Stage 15: while this window is open, ask the sidecar for due routines on
   // open and every 30 s; due ones run through runAgentTurn like a typed message.
   useRoutineTicker(diskLoaded);
+  // Stage 18: main asks this window to flush before it stops the sidecar;
+  // installQuitFlush answers with flushDone once chats / routines / channels /
+  // host-index writes have landed (or the cap hits). No-op outside Electron.
+  useEffect(() => installQuitFlush(), []);
 
   useEffect(() => {
     if (!selected && !selectedChannel) {

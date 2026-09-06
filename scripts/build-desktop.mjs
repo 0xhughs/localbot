@@ -184,6 +184,7 @@ function assertLayout(appOutDir) {
     "resources/app.asar.unpacked/desktop/main.mjs",
     "resources/app.asar.unpacked/desktop/packaged.mjs",
     "resources/app.asar.unpacked/desktop/sidecar-token.mjs",
+    "resources/app.asar.unpacked/desktop/quit-flush.mjs",
     "resources/app.asar.unpacked/desktop/preload.cjs",
     "resources/localbot-harness/dsh/localbot-acp.cordis.yml",
     "resources/localbot-harness/dsh/localbot-fs.mjs",

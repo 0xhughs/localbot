@@ -15,6 +15,7 @@
  */
 import { harnessCancel, harnessDecide, harnessPoll, harnessPrompt } from "@/lib/runtime/harness";
 import type { TurnEvent } from "@/lib/harness/turns";
+import { registerTurn } from "@/lib/pending-writes";
 import { resolveBot, useLocalBot } from "@/lib/store";
 import type { PermissionDecision, PermissionRequest, ToolChip, ToolKind } from "@/lib/types";
 import { uid } from "@/lib/utils";
@@ -109,6 +110,9 @@ export async function runAgentTurn(opts: {
   };
   if (opts.abort.aborted) onAbort();
   else opts.abort.addEventListener("abort", onAbort, { once: true });
+  // Stage 18: a quit cancels every turn in flight (chat, channel or routine —
+  // they all come through here) with the same session/cancel Stop uses.
+  const forgetTurn = registerTurn({ turnId, botId: opts.botId, cancel: onAbort });
 
   let after = 0;
   let text = "";
@@ -202,6 +206,7 @@ export async function runAgentTurn(opts: {
       await sleep(POLL_MS);
     }
   } finally {
+    forgetTurn();
     opts.abort.removeEventListener("abort", onAbort);
   }
 }
