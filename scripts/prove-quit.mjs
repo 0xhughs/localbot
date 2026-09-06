@@ -310,7 +310,7 @@ async function up(url, ms) {
   return false;
 }
 
-/** Pids (not ours) whose environment carries this LOCALBOT_DATA_DIR — the npm → with-app-env → vite tree main spawned. */
+/** Pids (not ours) whose environment carries this LOCALBOT_DATA_DIR — the npm → vite tree main spawned. */
 function pidsForDataDir(dataDir) {
   const out = [];
   for (const d of fs.readdirSync("/proc")) {

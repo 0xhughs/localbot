@@ -241,7 +241,7 @@ describe("Stage 17: dev-server plugin (scripts/sidecar-token-plugin.mjs)", () =>
     assert.match(plugin, /configureServer\(server\)/);
     assert.doesNotMatch(plugin, /configurePreviewServer/, "preview (the Nitro build) never carries the token in HTML");
     assert.doesNotMatch(read("desktop/sidecar.mjs"), /injectSidecarTokenMeta|SIDECAR_TOKEN_META/);
-    for (const f of ["src/routes/__root.tsx", "src/routes/index.tsx", "server/middleware/grok-pwa.ts"]) {
+    for (const f of ["src/routes/__root.tsx", "src/routes/index.tsx"]) {
       assert.doesNotMatch(read(f), /sidecar-token|localbot-sidecar-token|LOCALBOT_SIDECAR_TOKEN/, `${f} must not serve the token`);
     }
     const vite = read("vite.config.ts");

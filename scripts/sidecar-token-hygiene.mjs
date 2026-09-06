@@ -30,7 +30,7 @@ export const PROVE_SKIP_PATTERNS = [
 ];
 
 /** Shipped source roots to scan (relative to the repo root). */
-export const SHIPPED_ROOTS = ["src", "desktop", "scripts", "server", "dsh"];
+export const SHIPPED_ROOTS = ["src", "desktop", "scripts", "dsh"];
 export const SHIPPED_FILES = ["vite.config.ts", "package.json", "eslint.config.mjs"];
 
 /** @param {string} root repo root */

@@ -135,7 +135,7 @@ const ssrDir = path.join(serverDir, "server/_ssr");
 const buildHasToken = () => fs.existsSync(ssrDir) && fs.readdirSync(ssrDir).some((n) => n.endsWith(".mjs") && fs.readFileSync(path.join(ssrDir, n), "utf8").includes("SidecarAuthError"));
 if (flag("--build") || !fs.existsSync(serverEntry) || !buildHasToken()) {
   log(fs.existsSync(serverEntry) ? ".output predates the token gate — rebuilding" : "no .output — building the Nitro node-server bundle");
-  const r = spawnSync(process.execPath, [path.join(root, "scripts/with-app-env.mjs"), "vite", "build"], {
+  const r = spawnSync(process.execPath, [path.join(root, "node_modules/vite/bin/vite.js"), "build"], {
     cwd: root,
     stdio: "inherit",
     env: { ...process.env, LOCALBOT_DESKTOP_BUILD: "1", PATH: `${path.join(root, "node_modules/.bin")}${path.delimiter}${process.env.PATH ?? ""}` },
@@ -308,7 +308,7 @@ if (!flag("--no-dev")) {
   let devOut = "";
   const devEnv = { ...process.env, LOCALBOT_DATA_DIR: devData, BROWSER: "none", PATH: `${path.join(root, "node_modules/.bin")}${path.delimiter}${process.env.PATH ?? ""}` };
   delete devEnv[T.SIDECAR_TOKEN_ENV];
-  const dev = spawn(process.execPath, [path.join(root, "scripts/with-app-env.mjs"), "vite", "dev", "--host", "127.0.0.1", "--port", String(port), "--strictPort"], {
+  const dev = spawn(process.execPath, [path.join(root, "node_modules/vite/bin/vite.js"), "dev", "--host", "127.0.0.1", "--port", String(port), "--strictPort"], {
     cwd: root,
     stdio: ["ignore", "pipe", "pipe"],
     env: devEnv,
