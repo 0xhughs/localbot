@@ -44,19 +44,21 @@ export const FLUSH_DONE_CHANNEL = "localbot:flushDone";
  *   timeoutMs?: number;
  *   log?: (line: string) => void;
  *   now?: () => number;
- *   setTimer?: typeof setTimeout;
- *   clearTimer?: typeof clearTimeout;
+ *   setTimer?: (fn: () => void, ms: number) => unknown;
+ *   clearTimer?: (t: unknown) => void;
  * }} deps
  */
 export function createQuitCoordinator(deps) {
   if (!deps || typeof deps.requestFlush !== "function") throw new TypeError("createQuitCoordinator: requestFlush is required");
   if (typeof deps.stopChildren !== "function") throw new TypeError("createQuitCoordinator: stopChildren is required");
   if (typeof deps.quit !== "function") throw new TypeError("createQuitCoordinator: quit is required");
-  const timeoutMs = Number.isFinite(deps.timeoutMs) && deps.timeoutMs >= 0 ? deps.timeoutMs : QUIT_FLUSH_TIMEOUT_MS;
+  const timeoutMs = typeof deps.timeoutMs === "number" && Number.isFinite(deps.timeoutMs) && deps.timeoutMs >= 0 ? deps.timeoutMs : QUIT_FLUSH_TIMEOUT_MS;
   const log = deps.log ?? (() => {});
   const now = deps.now ?? (() => Date.now());
+  /** @type {(fn: () => void, ms: number) => unknown} */
   const setTimer = deps.setTimer ?? ((fn, ms) => setTimeout(fn, ms));
-  const clearTimer = deps.clearTimer ?? ((t) => clearTimeout(t));
+  /** @type {(t: unknown) => void} */
+  const clearTimer = deps.clearTimer ?? ((t) => clearTimeout(/** @type {ReturnType<typeof setTimeout>} */ (t)));
 
   /** @type {"idle" | "flushing" | "stopping" | "done"} */
   let phase = "idle";
@@ -67,6 +69,7 @@ export function createQuitCoordinator(deps) {
   /** Late acks (after the timeout) are counted so a proof can see them. */
   let lateAcks = 0;
 
+  /** The renderer's ack. True when it was the one the pending quit was waiting for. @param {unknown} summary */
   function flushDone(summary) {
     if (resolveAck) {
       const r = resolveAck;
