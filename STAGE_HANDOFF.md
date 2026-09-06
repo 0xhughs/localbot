@@ -1,126 +1,142 @@
-## Stage 19 — Template excision
+## Stage 20 — Packaged tools: bundled pnpm + baked darwin-arm64 whisper-cli
 
 Date: 2026-09-06
-Branch: `stage-19-template-excision` (PR #20 → `main`, off `58acd81` = merge of PR #19)
-Host: Linux 6.12 (cloud VM, x64) · Node v22.14.0 · no GGUF staged · no Electron launched · no `.dmg` / NSIS built (by rule)
+Branch: `stage-20-packaged-tools` (PR → `main`, off `36e9e1d` = merge of PR #20)
+Host: Linux 6.12 (cloud VM, x64) · Node v22.14.0 (repo) / v22.22.2 (Harness, nvm) · Linux AppImage + `.deb` rebuilt here (UNSIGNED) · no Mac · no `.dmg` built · no GGUF staged
 
-Status words: WORKS / STUB / NOT BUILT / UNVERIFIED. This stage is **deletion only**: the app-builder template's auth / database / PWA / live-preview / hosted-demo leftovers are out of the tree, `npm test` runs LocalBot suites only, and a gate set fails the build if any of it comes back. No new architecture. `runAgentTurn`, `chat.tsx`, `desktop/`, `dsh/localbot-fs.mjs` (sha256 `0bb5593a…2b0a6`), dsh `0.1.2-alpha.5`, ACP `1.4.0`, the Stage 17 token gate, the Stage 18 quit coordinator, the four scopes, plugins, routines, channels, mic, chrome — untouched.
+Status words: WORKS / STUB / NOT BUILT / UNVERIFIED. This stage closes two "the employee still needs something on PATH" holes in the packaged app. (1) `dsh plugin add / remove` forwards to a bare `pnpm`; the installer now carries its own exact-pinned pnpm and the sidecar puts it first on the dsh child's PATH — packaged mode never uses a pnpm from the employee's machine, and refuses (`NO_PNPM`) when the bundle is missing instead of exiting 127. (2) On Apple Silicon the Mic's `whisper-cli` was NOT BUILT until someone ran cmake on that Mac; the `.dmg` build now bakes the Stage 10 build into `resources/localbot-whisper/darwin-arm64/whisper/` and the sidecar copies it into AppData on first use after re-verifying it against the catalog. No GGUF, no llama.cpp runtime in `extraResources` (gated). `runAgentTurn`, the Stage 17 token gate, the Stage 18 quit coordinator, dsh `0.1.2-alpha.5`, ACP `1.4.0`, `dsh/localbot-fs.mjs` (sha256 `0bb5593a…2b0a6`), `mac.identity: null` — untouched and gated.
 
 ### Built
 
-- **Leftovers deleted: WORKS.** 159 files, 24 551 lines removed. `src/lib/auth/` (15 files: Better Auth client/server, gates, isolation, popup, PGLite dialect, identity JWT), `src/lib/db.ts` (Neon / PGLite `getSql`), `src/lib/app-data/` (per-user app data over auth), `migrations/auth/0001_auth.sql`, `server/` (Nitro PWA middleware + `virtual:grok-og-identity`), `src/components/preview-host-bridge.tsx` + `src/lib/preview-host-bridge.ts` + `src/lib/preview-embedder-origin.ts` (Grok preview iframe bridge), `src/lib/og/site.json`, `public/__grok/**` + `public/og.jpg`, `.grok/` (90 files: skills, references, `app-env.json`, `preview.log`, `status`), `startup.sh` (Grok sandbox revive), `src/lib/runtime/execute-turn.ts` + `hosted-turn.ts` (the `api.x.ai` / `XAI_API_KEY` hosted-demo chain — its only caller was `runSingleCompletion`, which nothing called), and 24 template scripts: `grok-pwa-plugin`, `grok-pwa-shared(.d)`, `app-env-plugin`, `with-app-env`, `migration-plan`, `migrate`, `check-auth-invariant`, `sign-out-plan`, `brand-check`, `browser-smoke`, `browser-smoke-verdict`, `browser-guard`, `preview`, `preview-thumbnail`, `write-atomic`, `install-page.html` and their 10 `*.test.mjs` suites. `scripts/desktop-stage.mjs` (+ its test) kept — it is LocalBot's.
-- **`src/routes/__root.tsx`: WORKS.** Plain `<Outlet />` then `<Scripts />`. No `AuthProvider`, no `PreviewHostBridge`, no `/__grok/manifest.webmanifest` or `apple-touch-icon` links. Head keeps the LocalBot title / description / theme-color / favicon / stylesheet / fonts.
-- **`vite.config.ts`: WORKS.** Plugins are now exactly `sidecarTokenPlugin(), tailwindcss(), tanstackStart(), nitro({ preset })` (build / preview only) `, viteReact()`. `pgliteBootstrapPlugin`, `authPopupPlugin`, `appEnvPlugin`, `grokPwaPlugin` and `serverDir: "./server"` are gone. `sidecarTokenPlugin()` still precedes `tanstackStart()` so it wraps the response (the Stage 17 test asserts this; the new gates assert it too). Host / port contract (`0.0.0.0:8080`) unchanged.
-- **`src/lib/runtime/turn.ts`: WORKS.** `runSingleCompletion` removed. `getAiStatus` still returns `allowHostedDemo` for the Safety switch, and when the switch is on it reports `available: false` with the badge `Hosted demo is on — chat refused until Settings → Safety turns it off`; it reads no `XAI_API_KEY` and names no hosted engine. `harness-launch.ts` still throws `HOSTED_DEMO_REFUSAL` when the switch is on (gated). `runLocalTurn` (`local-engine.ts`) is the only raw completion path left; `turn-types.ts` stays for it.
-- **`package.json`: WORKS.** Dropped `better-auth`, `kysely`, `pg`, `@types/pg`, `@electric-sql/pglite`, `jose` (no importer left). Dropped `db:migrate`, `check:auth`, `preview:restart`, `preview:stop`. `build` = `vite build`, `dev` = `vite dev --host 0.0.0.0 --port 8080`, `preview` = `vite preview` (no `with-app-env.mjs`). `test` = `scripts/desktop-stage.test.mjs` + the LocalBot TS suites (`localbot`, `scopes`, `watch`, `agents`, `host-index`, `model-platform`, `desktop-packaging`, `desktop-chrome`, `agent-identity`, `harness`, `stt`, `voice-toggle`, `plugins`, `routines`, `channels`, `sidecar-token`, `quit-flush`, **`excision`**). New `prove:excise`. `overrides.nf3` kept — Nitro needs it. `package-lock.json` refreshed with `npm install` (−486 lines). Two of the removed names remain in the lockfile **transitively**, not as our deps: `jose` (via `@modelcontextprotocol/sdk` under dsh) and `@electric-sql/pglite` (an optional peer of Nitro's `db0`, `dev: true, optional: true, peer: true`). Neither is imported by LocalBot code; the gates scan source imports and direct deps, not the lockfile.
-- **`scripts/build-desktop.mjs`, `scripts/prove-token.mjs`: WORKS.** Both spawned `vite` through `with-app-env.mjs`; they now call `node_modules/vite/bin/vite.js` directly. `scripts/sidecar-token-hygiene.mjs` drops `server` from `SHIPPED_ROOTS`. `src/lib/sidecar-token.test.ts` drops `server/middleware/grok-pwa.ts` from its "must not serve the token" list. `tsconfig.json` drops `server` from `include`.
-- **`src/lib/localbot.test.ts` inverted, not deleted: WORKS.** "turn.ts default path does not call api.x.ai" (which *asserted* `hosted-turn.ts` contains `api.x.ai`) is now "Stage 19: the hosted-demo chain is gone and turn.ts has no hosted path": `hosted-turn.ts` / `execute-turn.ts` must not exist, `turn.ts` has no `api.x.ai` / `XAI_API_KEY` / `execute-turn` / `runSingleCompletion`, keeps `getAiStatus` + `allowHostedDemo`, and `harness-launch.ts` keeps the refusal. "executeTurn default does not require XAI_API_KEY" now runs `runLocalTurn` with the same assertion.
-- **Gates: WORKS.** `scripts/excise-gates.mjs` is one pure function `excisionGates(root)` → 103 `{ ok, label }` results, consumed by both `src/lib/excision.test.ts` (each gate is a test, plus 14 mutation tests on a scratch copy of the tree and 2 on the matcher constants — 121 tests) and `scripts/prove-excise.mjs`. It fails if: any of the 33 deleted paths is back; `src/components` / `src/routes` / `src/lib/fs` / `src/lib/runtime` / `src/lib/harness` import `lib/auth`, `auth/*`, `db`, `app-data`, the preview bridge, the hosted chain or a template script (static `from`, dynamic `import()`, `require()`); `better-auth` / `kysely` / `pg` / `@electric-sql/pglite` / `jose` appear as import specifiers, or `api.x.ai` / `XAI_API_KEY` as text, anywhere under `src/`, `scripts/`, `desktop/`, `vite.config.ts` (one allowed occurrence: `harness/process.ts` **deleting** `XAI_API_KEY` from the dsh env, matched by its exact shape); any of the six packages is in `package.json` deps; `build` is not `vite build` or any script mentions `db:migrate` / `migrate.mjs` / `with-app-env`; `db:migrate` / `check:auth` / `preview:*` scripts exist; `npm test` runs `scripts/**/*.test.mjs`, `app-data.test.ts`, `gate-identity.test.ts` or any of the 10 template suites, or drops any LocalBot suite; `__root.tsx` mounts `AuthProvider` / `PreviewHostBridge`, links `/__grok/*`, or is not `<Outlet /><Scripts />`; `vite.config.ts` names any template plugin / `ssrLoadModule` / `serverDir`, drops the `sidecarTokenPlugin` import, or places it after `tanstackStart()`; `turn.ts` drops `getAiStatus` / `allowHostedDemo` or regains `runSingleCompletion` / the hosted chain; `harness-launch.ts` drops the refusal; `chat.tsx` drops `runAgentTurn`; `start.ts` drops `functionMiddleware: [sidecarTokenMiddleware]` or CSRF; `main.mjs` drops `createQuitCoordinator(` / `requestQuit(` or `quit-flush.mjs` is missing; the renderer quit-flush modules or the token middleware modules are missing; dsh / ACP pins float; `dsh/localbot-fs.mjs` sha256 changes; `scripts/desktop-stage.mjs` or the core fs / harness modules are missing. Mutation-checked in the suite: auth dir back, component importing `@/lib/auth`, runtime importing `../db` + `@/lib/app-data`, `better-auth` back in deps, `api.x.ai` + `from "pg"` in shipped source, `build` running `db:migrate`, `scripts/**/*.test.mjs` back in `test`, `chat.tsx` losing `runAgentTurn`, `functionMiddleware: [ ]`, `main.mjs` losing the coordinator, floating pins + edited `localbot-fs.mjs` + `serverDir` back, `AuthProvider` + manifest back in `__root.tsx`, `sidecarTokenPlugin()` after `tanstackStart()`, `turn.ts` reading `XAI_API_KEY` — each flips the named gate.
-- **Live, this box.** `npm run prove:excise -- --build`: `rm -rf .output`, `vite build` with `LOCALBOT_DESKTOP_BUILD=1` (Nitro `node-server`, the bundle the packaged app ships) — no `db:migrate` step exists to run; the built server bundle contains none of `better-auth`, `@electric-sql/pglite`, `api.x.ai`, `virtual:grok-og-identity`, `/__grok/manifest.webmanifest`, `renderInstallPageHtml`; the real `desktop/sidecar.mjs` boots on `:18790` with a fresh token: `GET /` is `<title>LocalBot</title>` with no `/__grok` link, `/?install=1&platform=ios` is the app (not the install tutorial), `/__grok/manifest.webmanifest` → `404 text/html`; the build manifest lists `foldersGet` and `getAiStatus` and not `runSingleCompletion`; `foldersGet` and `getAiStatus` without the header → **`401 NO_TOKEN`** (table loaded, Stage 17 gate on), with the launch token → `200` (`folders` / `allowHostedDemo`, no `grok-4.5`); SIGTERM → port closed. `npm run build` (default `vercel` preset) also exits 0 with no migrate step. `npm run dev` serves `<title>LocalBot</title>` on `:8080` within 1 s.
-- **Tests + proofs.** `npm test` → **8** (scripts, was 203 — the 195 template tests are gone with their suites) + **497** (TS, was 408: −32 `app-data` / `gate-identity`, +121 `excision`) pass; `npm run typecheck` + `npm run lint` clean. Re-run on this branch: `prove:token` **full live** (`STAGE17_TOKEN_PASS static+live … dev-401/dev-200` — its dev gate now spawns `vite` directly), `prove:quit --static`, `prove:routines`, `prove:channels`, `prove:plugins` (live), `prove:chrome --static`, `prove:identity --static`, `prove:mic --static` — all pass.
+- **pnpm pinned + staged: WORKS.** `package.json` `devDependencies.pnpm = "10.33.3"` (exact; `pnpmPinOf` refuses `^`/`~`). `stagePnpm()` (`scripts/desktop-stage.mjs`) copies `node_modules/pnpm` (version checked against the pin) to `dist/desktop-pnpm/localbot-pnpm/pnpm/`, writes `pnpm.cjs` (entry → `./pnpm/bin/pnpm.cjs`), `bin/pnpm` (POSIX shim: shell builtins only, `exec "${LOCALBOT_DSH_NODE:-$here/../../localbot-node/node}" "$here/../pnpm.cjs" "$@"`), `bin/pnpm.cmd` (same for cmd.exe, `LOCALBOT_DSH_NODE` else `..\..\localbot-node\node.exe`), pnpm's MIT `LICENSE`, and `pnpm-runtime.json` (pin, sha256 of `pnpm/dist/pnpm.cjs` + `pnpm/bin/pnpm.cjs`). 22 MB. `extraResources` row `{ from: "dist/desktop-pnpm", to: ".", filter: ["**/*"] }` — one level down like the Harness so pnpm's nested `dist/node_modules` survives electron-builder's filter. `build-desktop.mjs` stages it, then runs the shim on the **bundled** Node with an **empty PATH** (`pnpmShimVersion`) and exits 1 unless it prints the pin; `assertLayout` requires `resources/localbot-pnpm/{bin/pnpm,bin/pnpm.cmd,pnpm.cjs,pnpm/bin/pnpm.cjs,pnpm/dist/pnpm.cjs,LICENSE,pnpm-runtime.json}` and re-runs the **packed** shim on the **packed** Node with an empty PATH.
+- **Electron main → sidecar: WORKS.** `desktop/packaged.mjs` `harnessResourcePaths` adds `pnpmDir = resources/localbot-pnpm/bin` and `whisperDir = resources/localbot-whisper/{platform}-{arch}/whisper`; `packagedHarnessEnv` sets `LOCALBOT_PNPM_DIR` only when the platform's shim exists, and `LOCALBOT_WHISPER_DIR` only when `whisper-cli` **and** `whisper-build.json` exist. `main.mjs` logs `packaged resource missing: LOCALBOT_PNPM_DIR` (every OS) / `LOCALBOT_WHISPER_DIR` (darwin-arm64 only — linux / win download theirs, darwin-x64 is NOT BUILT).
+- **`src/lib/harness/plugins.ts`: WORKS.** `pnpmLookup(env, platform)` (pure): `LOCALBOT_PNPM_DIR` with its shim → `bundled`; set but no shim → `missing`; unset + `LOCALBOT_PACKAGED=1` → `missing` ("packaged mode never uses pnpm from PATH … rebuild with npm run build:desktop"); unset in dev → `path` (dsh finds whatever PATH has, as in Stage 14). `pnpmChildEnv` prepends the bundle dir to the child's `PATH` (or `Path` — whichever key the env has, no duplicate key), sets `npm_config_store_dir = {DSH_HOME}/pnpm-store` (pnpm's store lives in LocalBot's AppData, never `~/.local/share/pnpm`), and hands the shim `LOCALBOT_DSH_NODE` = the Harness Node. `resolved(o, { needsPnpm })`: `runDshPlugin` (add / remove) passes `needsPnpm: true` and throws `PluginError("NO_PNPM")` **before dsh is spawned**; `--dump-config` (Installed list) never needs pnpm and keeps working without the bundle. `pnpmStatus` probes the bundled shim by absolute path first; in dev without a bundle it probes PATH as before; packaged without a bundle reports `found: false, source: null` **without probing PATH**. `InstalledReport.pnpm` now carries `source: "bundled" | "path" | null`, `dir`, `error` (`src/lib/plugins-model.ts`). `PluginErrorCode` gains `NO_PNPM`; the server functions already forward `code` to the UI.
+- **Plugins screen: WORKS.** Red banner (`data-testid="plugins-pnpm-missing"`) only when `!report.pnpm.found`; text distinguishes dev ("pnpm was not found on PATH (dev mode)…") from packaged ("This LocalBot has no usable pnpm… refused (NO_PNPM). Rebuild with npm run build:desktop."). The sentence "does not bundle pnpm" is gone (gated). When found, a one-line note (`data-testid="plugins-pnpm-source"`) says `pnpm 10.33.3 · bundled with LocalBot (<dir>)` or `from PATH (dev mode)`.
+- **darwin-arm64 whisper-cli bake (build side): WORKS on this box with fixtures; UNVERIFIED on a Mac.** `checkBuiltWhisper({ catalog, target, dir })` (pure) accepts a Stage 10 folder only if `whisper-build.json` says `release === catalog.release` (`v1.9.2`), `target === darwin-arm64`, `commit === catalog…source.commit`, the binary hashes to `manifest.sha256`, and every listed dylib is beside it (the catalog's own sha256 is reported as `matchesCatalog`, not enforced — a rebuild on another Mac is valid). `stageWhisperBuilt` copies `whisper-cli` + `whisper-build.json` (+ dylibs) to `dist/desktop-whisper/localbot-whisper/darwin-arm64/whisper/`, chmod 755, re-checks the copy, **throws** on any mismatch (nothing staged). `build-desktop.mjs` on a darwin-arm64 host picks the source in order: `--whisper-dir <dir>` → `~/Library/Application Support/LocalBot/bin/darwin-arm64/whisper/` (Stage 10 output) → `node scripts/build-whisper-mac.mjs --bin-root dist/whisper-stage` (cmake on the **build Mac only**). Other hosts stage an empty `dist/desktop-whisper/` (linux / win rows unchanged: first-use download; darwin-x64: NOT BUILT, no row). `extraResources` row `{ from: "dist/desktop-whisper", to: ".", filter: ["**/*"] }`. `assertLayout` on a mac-arm64 build requires the packed `whisper-cli` + manifest and runs `whisper-cli --help`.
+- **darwin-arm64 whisper-cli seed (runtime side): WORKS on fixtures.** `src/lib/runtime/stt.ts` `whisperResourceDir()` reads `LOCALBOT_WHISPER_DIR`; `seedWhisperFromResources({ target, asset, from, to })`: not a built row → `not-built-row`; AppData copy passes `verifyBuiltWhisper` → `already-valid` (**never overwritten**, even by a different valid resource); no resource → `no-resource`; resource fails `verifyBuiltWhisper` → `resource-invalid` (nothing copied); else copy `whisper-cli` + `whisper-build.json` + dylibs via temp-file + rename, chmod 755, re-verify → `seeded`. A tampered AppData copy **is** replaced. `ensureWhisperRuntime` calls the seed before the verify that decides `NOT_BUILT`, and its error names the reason (`…This LocalBot carries no baked whisper-cli for this host (LOCALBOT_WHISPER_DIR unset).`). `sttStatus` seeds too, so a fresh AppData on a packaged Apple-Silicon build reports `supported: true` before the first Mic press; `SttStatus.resourceDir` shows where it came from. No cmake / git / network on the employee's Mac: it is a file copy inside `resources/` → AppData (gated: `stt.ts` spawns no cmake / git / clang / make and still has no darwin download URL).
+- **Gates: WORKS.** `scripts/packaged-tools-gates.mjs` → `packagedToolsGates(root)` → **77** `{ ok, label }` results, consumed by `src/lib/packaged-tools.test.ts` (each gate a test + 10 mutation tests on a scratch tree + behaviour tests — 102 tests) and `scripts/prove-packaged-tools.mjs`. Fails if: pnpm pin floats / `node_modules/pnpm` is not the pin; either new `extraResources` row is gone, or a row / staged file names GGUF / llama / models / runtimes / `.gguf` / `llama-server` / `ggml-*.bin`; `mac.identity !== null` or notarize / afterSign appear; `stagePnpm` / shims / `pnpmShimVersion` / `stageWhisperBuilt` / `checkBuiltWhisper` gone, a shim calls a bare `node`, the tag / commit check gone; `build-desktop.mjs` stops staging pnpm, checking the shim with an empty PATH, staging whisper on darwin-arm64, or asserting the packed files; `packaged.mjs` stops setting the two env vars conditionally; `plugins.ts` loses the PATH prepend, the `Path` key handling, `npm_config_store_dir`, `NO_PNPM` in `resolved`, `needsPnpm` on add / remove, bundled-first `pnpmStatus`, or spawns a bare pnpm again; `stt.ts` loses `whisperResourceDir` / `seedWhisperFromResources` / the `already-valid` guard / the resource verify / the seed-before-verify in `ensureWhisperRuntime` and `sttStatus`, or spawns cmake; the catalog's darwin-arm64 row stops being `built`-with-no-URL, darwin-x64 gains a row, linux / win rows change kind; `plugins.tsx` says "does not bundle pnpm" or shows the banner unconditionally; `chat.tsx` drops `runAgentTurn`; `start.ts` drops the token gate; `main.mjs` drops the quit coordinator; dsh / ACP pins float in `package.json` or `process.ts`; `dsh/localbot-fs.mjs` sha256 changes; `findHarnessNode` stops refusing PATH / nvm in packaged mode. On `main` (`36e9e1d`) 44 of the 77 fail; the other 33 are the carried invariants.
+- **Live, this box (dev checkout).** `npm run prove:packaged-tools`: `stagePnpm` → temp; shim on the Harness Node (v22.22.2) with **`PATH=<empty dir>`** prints `10.33.3`; `pluginsAdd(<fixture>)` with `PATH=<empty dir>`, `LOCALBOT_PACKAGED=1`, `LOCALBOT_PNPM_DIR=<staged bin>` → real `dsh plugin --profile acp add …` **exit 0**, `profiles/acp/package.json` `dsh.profile.bundles = [@deepseek-ai/dsh-base, @deepseek-ai/dsh-acp-app, localbot-plugin-hello]`, the dsh child's PATH was `<bundle>:<empty dir>` and nothing else, `npm_config_store_dir` under `DSH_HOME` (store created), `--dump-config` composes `# == localbot-plugin-hello`, guards hold, `pnpmStatus` = `bundled 10.33.3`, `dsh plugin remove` exit 0. Same call **without** `LOCALBOT_PNPM_DIR` → `PluginError NO_PNPM` ("…packaged mode never uses pnpm from PATH…"), **dsh never spawned**, fresh `DSH_HOME` has no profile — not exit 127. `pluginsInstalled` (dump) still works without a pnpm.
+- **Live, this box (packed Linux app).** `npm run build:desktop` ran end to end on this branch: `vite build` → Harness stage → Node v22.23.2 stage → `bundled pnpm 10.33.3 runs on the bundled Node with an empty PATH` → `linux-x64: whisper-cli is a first-use download … nothing staged` → electron-builder AppImage + `.deb` → `packed layout ok` → **`packed pnpm 10.33.3 runs on the packed Node with an empty PATH`**. Outputs (UNSIGNED, not committed): `LocalBot-0.1.0-linux-x86_64.AppImage` sha256 `8ef2d331…1cc814`, `LocalBot-0.1.0-linux-amd64.deb` sha256 `4c970f96…930717`. `resources/localbot-pnpm/` is 22 MB with the layout above; `env -i PATH=<empty> resources/localbot-pnpm/bin/pnpm --version` → `10.33.3` both with `LOCALBOT_DSH_NODE` and via the sibling `localbot-node/node` fallback. Then, everything from the packed resources — packed Node, packed `@deepseek-ai/dsh`, packed pnpm, `PATH=<empty dir>`, `LOCALBOT_PACKAGED=1`, env exactly `packagedHarnessEnv(resources)` → `dsh plugin --profile acp add <fixture>` **exit 0**, bundles gain `localbot-plugin-hello`, `pnpm: { found: true, version: "10.33.3", source: "bundled" }`, dump ok, guards hold; drop `LOCALBOT_PNPM_DIR` → `NO_PNPM`.
+- **Tests + proofs.** `npm test` → **12** (scripts, +4: pnpm pin / shims / `stagePnpm` with empty PATH / whisper bake check) + **599** (TS, +102 `packaged-tools`; `desktop-packaging` and `stt` updated for the new env keys and the seed step) pass; `npm run typecheck` + `npm run lint` clean. `prove:excise -- --static` (103 gates), `prove:plugins` (full live, dev mode — pnpm from PATH, as in Stage 14), `prove:quit -- --static`, `prove:token` (full live) — all pass on this branch.
 
 ### Not built
 
-- **Nothing new was built** — this stage only removes. NSIS, `.dmg`, pnpm plugin bundle, UI chrome, `desktop/` behaviour, `dsh/` — untouched, by rule.
-- **Packaged `.app` / AppImage on this tree — UNVERIFIED.** No installer was rebuilt. `build-desktop.mjs` was edited (direct `vite` call) but not run; the same `vite build` it performs was run by `prove:excise` / `prove:token` and the resulting `.output` booted as the sidecar. Electron was not launched here (no `prove:quit` live gate, `--static` only).
-- **`jose` / `@electric-sql/pglite` in `package-lock.json`** stay as transitive / optional-peer entries of dsh's MCP SDK and Nitro's `db0`. Removing them is not in LocalBot's hands; they are not direct deps and nothing imports them (gated).
-- **`src/lib/error-component.tsx`** (router `defaultErrorComponent`) and `src/components/ui/{button,input}.tsx` came from the template but are imported by LocalBot (`router.tsx`, the localbot components). Kept — they are in use, not leftovers.
-- **Docs** (`README.md`, `ARCHITECTURE.md`, `FOLDER_CONTRACT.md`, `CATALOG.md`) mention none of the removed pieces; nothing to edit there.
+- **Real `.dmg` with the baked whisper-cli — UNVERIFIED.** No Mac here. `build-desktop.mjs`'s darwin-arm64 branch, `stageWhisperBuilt` on a real Stage 10 build, electron-builder copying `resources/localbot-whisper/…`, the packed `whisper-cli --help` check, `packagedHarnessEnv` setting `LOCALBOT_WHISPER_DIR` in the real app, and the seed into a fresh `~/Library/Application Support/LocalBot/bin/darwin-arm64/whisper/` were exercised only with fixtures (unit tests) and by static gates. The "Mac commands" below are what proves it.
+- **`pnpm.cmd` on Windows — UNVERIFIED.** The cmd shim is written and gated, never executed (no Windows host). NSIS proof out of scope.
+- **darwin-x64 — NOT BUILT**, unchanged: no catalog row, nothing staged, Mic reports NOT BUILT with the Stage 10 reason.
+- **linux / win whisper-cli** — unchanged first-use downloads (`catalog/whisper-assets.json` rows gated to stay `tar.gz` / `zip`). Not baked, by design.
+- **Signing / notarization** — none; `mac.identity: null` gated. GGUF / llama.cpp runtimes — not in `extraResources`, gated.
+- **Store cache / state dirs of pnpm** — only `npm_config_store_dir` is redirected under `DSH_HOME`; pnpm's small cache / state folders still default to the user's XDG dirs.
 
 ### Files changed
 
-- Deleted (159): see "Leftovers deleted" above; full list in `git diff --diff-filter=D --name-only 58acd81..HEAD`.
-- `src/routes/__root.tsx` · `vite.config.ts` · `src/lib/runtime/turn.ts` · `tsconfig.json` · `package.json` · `package-lock.json`
-- `scripts/build-desktop.mjs` · `scripts/prove-token.mjs` · `scripts/prove-quit.mjs` (comment) · `scripts/sidecar-token-hygiene.mjs` · `src/lib/sidecar-token.test.ts` · `src/lib/localbot.test.ts`
-- New: `scripts/excise-gates.mjs` · `scripts/prove-excise.mjs` · `src/lib/excision.test.ts`
-- **Not touched:** `src/components/localbot/chat.tsx`, `src/runtime/*`, `src/start.ts`, `src/lib/runtime/sidecar-token*`, `src/lib/quit-flush*`, `src/lib/pending-writes.ts`, `desktop/*`, `dsh/*`, every `src/lib/fs/*`, `src/lib/harness/*`, every other `scripts/prove-*.mjs`.
+- `package.json` (pnpm `10.33.3` devDependency; two `extraResources` rows; `prove:packaged-tools`; `test` + `src/lib/packaged-tools.test.ts`) · `package-lock.json`
+- `scripts/desktop-stage.mjs` (`pnpmPinOf`, `pnpmShimSh`, `pnpmShimCmd`, `pnpmEntryCjs`, `stagePnpm`, `pnpmShimVersion`, `readWhisperCatalog`, `checkBuiltWhisper`, `stageWhisperBuilt`; JSDoc on older helpers tsc now sees) · `scripts/build-desktop.mjs` · `scripts/desktop-stage.test.mjs`
+- `desktop/packaged.mjs` · `desktop/main.mjs`
+- `src/lib/harness/plugins.ts` · `src/lib/plugins-model.ts` · `src/components/localbot/plugins.tsx`
+- `src/lib/runtime/stt.ts` · `src/lib/runtime/stt.test.ts` · `src/lib/desktop-packaging.test.ts`
+- New: `scripts/packaged-tools-gates.mjs` · `scripts/prove-packaged-tools.mjs` · `src/lib/packaged-tools.test.ts`
+- **Not touched:** `dsh/localbot-fs.mjs`, `src/components/localbot/chat.tsx`, `src/start.ts`, `src/lib/runtime/sidecar-token*`, `desktop/quit-flush.mjs`, `src/lib/harness/process.ts` (pins), `catalog/whisper-assets.json`, `catalog/node-runtime.json`, `scripts/build-whisper-mac.mjs`, every other `scripts/prove-*.mjs`.
 
 ### Prove it
 
-Command:
+Command (this box or any Linux / Mac dev checkout):
 
 ```
-npm ci && npm test && npm run typecheck && npm run lint && npm run prove:excise
+npm ci && npm test && npm run typecheck && npm run lint && npm run prove:packaged-tools
 ```
 
 Pass looks like:
 
 ```
-# tests 8
-# pass 8
+# tests 12
+# pass 12
 …
-# tests 497
-# pass 497
+# tests 599
+# pass 599
 # fail 0
-[prove-excise] ok: gone: src/lib/auth
-[prove-excise] ok: gone: src/lib/db.ts
-[prove-excise] ok: gone: src/lib/app-data
+[prove-packaged-tools] ok: pnpm pin is exact 10.33.3 (got "10.33.3")
+[prove-packaged-tools] ok: extraResources has { from: "dist/desktop-pnpm", to: ".", filter: ["**/*"] }
+[prove-packaged-tools] ok: extraResources has { from: "dist/desktop-whisper", to: ".", filter: ["**/*"] }
+[prove-packaged-tools] ok: extraResources carries no GGUF / llama.cpp / models / runtimes row
+[prove-packaged-tools] ok: build.mac.identity is null (got null)
 …
-[prove-excise] ok: src/components: no import of lib/auth, lib/db, app-data or the hosted chain
-[prove-excise] ok: src/ scripts/ desktop/ vite.config.ts: no better-auth / kysely / pg / pglite / jose / api.x.ai / XAI_API_KEY
-[prove-excise] ok: package.json deps: no better-auth / kysely / pg / @types/pg / pglite / jose
-[prove-excise] ok: build is "vite build" (got "vite build")
-[prove-excise] ok: npm test no longer runs scripts/**/*.test.mjs
-…
-[prove-excise] ok: __root.tsx: plain <Outlet /> then <Scripts />
-[prove-excise] ok: vite.config.ts: sidecarTokenPlugin() before tanstackStart()
-[prove-excise] ok: turn.ts: no hosted chain, no API key
-[prove-excise] ok: chat.tsx keeps runAgentTurn
-[prove-excise] ok: src/start.ts keeps the Stage 17 token gate (and CSRF)
-[prove-excise] ok: desktop/main.mjs keeps the Stage 18 quit coordinator
-[prove-excise] ok: dsh pin is exact 0.1.2-alpha.5 (got 0.1.2-alpha.5)
-[prove-excise] ok: dsh/localbot-fs.mjs unchanged (sha256 pin)
-[prove-excise] 103 static gates, 0 failing
-[prove-excise] ok: vite build produced .output/server/index.mjs (no db:migrate step ran)
-[prove-excise] ok: the built server bundle carries no template strings
-[prove-excise] sidecar up on http://127.0.0.1:18790/ (pid …)
-[prove-excise] ok: GET / serves the LocalBot document
-[prove-excise] ok: /?install=1 is the app, not the template's install tutorial
-[prove-excise] ok: server-fn table loaded: foldersGet is in the build manifest
-[prove-excise] ok: runSingleCompletion is not in the build manifest
-[prove-excise] ok: foldersGet without the token → 401 NO_TOKEN (got 401 NO_TOKEN)
-[prove-excise] ok: foldersGet with the launch token → 200 with folders (got 200)
-[prove-excise] ok: getAiStatus with the token → 200, reports the Safety switch, names no hosted engine (got 200)
-[prove-excise] ok: sidecar stopped; :18790 closed
-STAGE19_EXCISE_PASS static+live build=vite-build sidecar=401-NO_TOKEN
+[prove-packaged-tools] ok: plugins.ts: the bundled bin dir is prepended to the child's PATH
+[prove-packaged-tools] ok: plugins.ts: packaged mode with no bundle refuses NO_PNPM (never pnpm from PATH)
+[prove-packaged-tools] ok: ensureWhisperRuntime seeds before it can say NOT_BUILT
+[prove-packaged-tools] ok: plugins.tsx no longer says "does not bundle pnpm"
+[prove-packaged-tools] ok: chat.tsx keeps runAgentTurn
+[prove-packaged-tools] 77 static gates, 0 failing
+[prove-packaged-tools] ok: staged shim on the Harness Node with an EMPTY PATH prints 10.33.3 (got 10.33.3)
+[prove-packaged-tools] $ …/node …/@deepseek-ai/dsh/lib/bin.js plugin --profile acp add …/dsh/plugins/localbot-plugin-hello
+  exit 0
+[prove-packaged-tools] ok: PATH empty + LOCALBOT_PNPM_DIR: dsh plugin --profile acp add <fixture> exited 0
+[prove-packaged-tools] ok: profiles/acp/package.json dsh.profile.bundles = [@deepseek-ai/dsh-base, @deepseek-ai/dsh-acp-app, localbot-plugin-hello]
+[prove-packaged-tools] ok: …and holds nothing else but the empty folder (no host pnpm anywhere on it)
+[prove-packaged-tools] ok: PATH empty, LOCALBOT_PACKAGED=1, no LOCALBOT_PNPM_DIR → PluginError NO_PNPM (got NO_PNPM)
+[prove-packaged-tools] ok: dsh was never spawned (no exit 127, no profile init)
+STAGE20_PACKAGED_TOOLS_PASS static+live pnpm=bundled/10.33.3 node=v22.22.2 whisper=seed-unit-only
 ```
 
-Then, to show Stages 17 / 18 are still green on this tree:
+`prove:packaged-tools` exits 1 on any of the 77 static gates or when: the staged shim does not print the pin on the Harness Node with an empty PATH; `dsh plugin add` through the bundle exits non-zero or leaves the manifest without `localbot-plugin-hello`; the dsh child's PATH does not start with the bundle or holds anything besides it and the empty folder; the store dir is not under `DSH_HOME`; the packaged-without-bundle call does not throw `NO_PNPM`, or spawns dsh, or `pnpmStatus` probes PATH.
+
+To rebuild and check the packed Linux app the way the installed app runs (this box did):
 
 ```
-npm run prove:quit -- --static && npm run prove:token
+npm run build:desktop
 ```
 
-→ `STAGE18_QUIT_PASS static` and `STAGE17_TOKEN_PASS static+live …/401-NO_TOKEN/…/dev-401/dev-200`.
+→ `[desktop] bundled pnpm 10.33.3 runs on the bundled Node with an empty PATH` … `[desktop] packed pnpm 10.33.3 runs on the packed Node with an empty PATH` … `[desktop] UNSIGNED installers:` + two sha256 lines.
 
-`prove:excise` exits 1 on any of the 103 static gates (listed under "Gates" above) or when: `vite build` fails; the built bundle contains a template string; the sidecar does not answer within 60 s; `GET /` is not the LocalBot document or links `/__grok`; `/?install=1` renders the install tutorial; `/__grok/manifest.webmanifest` is served as `application/manifest+json`; `foldersGet` / `getAiStatus` are missing from the manifest or `runSingleCompletion` is present; a call without the token is not `401 NO_TOKEN`; a call with it is not `200`; the port does not close. Flags: `--static` (source gates only, ~1 s), `--build` (rebuild `.output` first). ~5 s with an existing `.output`, ~10 s with the build.
+**Mac commands (Apple Silicon; the part that stays UNVERIFIED until run):**
+
+```
+# 1. build (cmake only here, on the build Mac; picks ~/Library/Application Support/LocalBot/bin/darwin-arm64/whisper if Stage 10 already built it)
+npm ci && npm run build:desktop
+#    expect: "[desktop] baked whisper-cli v1.9.2 for darwin-arm64 (sha256 …) → …/dist/desktop-whisper/localbot-whisper/darwin-arm64/whisper"
+#            "[desktop] packed pnpm 10.33.3 runs on the packed Node with an empty PATH"
+#            "[desktop] packed whisper-cli answers --help (sha256 …)"
+#    then: ls "dist/desktop/mac-arm64/LocalBot.app/Contents/Resources/localbot-whisper/darwin-arm64/whisper"  → whisper-cli  whisper-build.json
+
+# 2. the employee's machine: nothing on PATH but the system, fresh AppData
+mv ~/Library/Application\ Support/LocalBot ~/Library/Application\ Support/LocalBot.bak
+open dist/desktop/LocalBot-0.1.0-arm64.dmg   # drag to /Applications
+env -i HOME="$HOME" PATH=/usr/bin:/bin /Applications/LocalBot.app/Contents/MacOS/LocalBot
+#    Plugins → Add "LocalBot hello (fixture)" → exit 0, Installed lists localbot-plugin-hello, footer says "pnpm 10.33.3 · bundled with LocalBot (…/Resources/localbot-pnpm/bin)", no red banner
+#    Settings → Mic: "supported: true" on the fresh AppData; ls ~/Library/Application\ Support/LocalBot/bin/darwin-arm64/whisper → whisper-cli whisper-build.json (seeded, no cmake ran)
+#    which cmake pnpm node → nothing needed; the app's stderr shows no "packaged resource missing" line
+```
 
 ### How I test in the app
 
-1. `npm run dev` → `http://127.0.0.1:8080/` renders LocalBot; the page has no PWA manifest link and no sign-in anywhere (there never was one wired up — the template's auth was never mounted; it just sat in the tree).
-2. `npm run desktop` — unchanged behaviour: main mints the token, spawns `npm run dev` (which no longer routes through `with-app-env.mjs`), the window loads, chat goes through `runAgentTurn`. UNVERIFIED on this box (no Electron launch this stage); `prove:token`'s dev gate exercised the new `dev` invocation.
-3. Settings → Safety → turn "Allow hosted demo" on: the header badge now reads `Hosted demo is on — chat refused until Settings → Safety turns it off` and a turn is refused by `harness-launch.ts` exactly as in Stage 4. Nothing ever calls `api.x.ai` — the code is gone, not switched off.
+1. `npm run dev` → Plugins: footer reads `pnpm 10.33.3 · from PATH (dev mode)` (this box has pnpm on PATH); Add / Remove of the fixture work as in Stage 14. Remove pnpm from PATH → red banner "pnpm was not found on PATH (dev mode)…", Add exits 127 with dsh's message (unchanged dev behaviour).
+2. Packaged (Linux AppImage from this branch): Plugins footer reads `pnpm 10.33.3 · bundled with LocalBot (…/resources/localbot-pnpm/bin)`; Add works with no pnpm / node on the machine. Delete `resources/localbot-pnpm/` → `main.mjs` logs `packaged resource missing: LOCALBOT_PNPM_DIR`, the banner says "no usable pnpm … refused (NO_PNPM)", Add → "Refused — nothing changed", Installed list still loads. UI walk UNVERIFIED here (no display); the same server functions were run live against the packed resources (see above).
+3. Mac: see "Mac commands".
 
 ### Ready for
 
 Nothing scheduled. Next only after I say GO.
 
+## Stage 19 — Template excision (previous stage; still true)
+
+Full text in `LOCALBOT_HANDOFF.md` → "Stage 19". `npm run prove:excise -- --static` (103 gates) passes on this branch. Stage 20 adds files under `scripts/` and `src/lib/` and one devDependency (`pnpm`); none of the excision gates moved — `chat.tsx`, `start.ts`, `__root.tsx`, `vite.config.ts`, `turn.ts` untouched.
+
 ## Stage 18 — Quit flush (previous stage; still true)
 
-Full text in `LOCALBOT_HANDOFF.md` → "Stage 18". Invariants still checked by `src/lib/quit-flush.test.ts` and `npm run prove:quit` (`--static` passes on this branch): only the coordinator calls `stopChildren()`, `before-quit` holds the quit, `flushChatSaves(): Promise<void>`, tracked writes, `chat.tsx` keeps `runAgentTurn`, token gate, dsh / ACP pins, `localbot-fs.mjs` sha256. Stage 19 touched none of `desktop/`; the `prove-quit.mjs` edit is a comment.
+Full text in `LOCALBOT_HANDOFF.md` → "Stage 18". Invariants still checked by `src/lib/quit-flush.test.ts` and `npm run prove:quit` (`--static` passes on this branch). Stage 20's `desktop/main.mjs` edit is two log lines after `packagedHarnessEnv`; the coordinator is untouched (gated twice now).
 
 ## Stage 17 — Sidecar token (previous stage; still true)
 
-Full text in `LOCALBOT_HANDOFF.md` → "Stage 17". Invariants still checked by `src/lib/sidecar-token.test.ts` and `npm run prove:token` (full live pass on this branch): one token per launch, env + preload-argv hand-offs only, `401 NO_TOKEN` / `BAD_TOKEN`, `503 SERVER_NO_TOKEN`, CSRF kept, no dev / packaged branch, hygiene over every shipped file (now `src`, `desktop`, `scripts`, `dsh` — `server/` no longer exists). Stage 19 removed `server/middleware/grok-pwa.ts` from the "must not serve the token" list because the file is gone; `__root.tsx` and `index.tsx` are still checked.
+Full text in `LOCALBOT_HANDOFF.md` → "Stage 17". `npm run prove:token` (full live) passes on this branch; `src/start.ts` and the token modules are untouched (gated twice now).
 
 ## Stage 16 — Channels · Stage 15 — Routines · Stage 14 — Plugins · Stage 13 — Mic · Stage 12 — Identity · Stage 11 — Chrome (previous stages; still true)
 
-Full text in `LOCALBOT_HANDOFF.md`. `prove:channels`, `prove:routines`, `prove:plugins` (live) and `prove:chrome` / `prove:identity` / `prove:mic` (`--static`) all pass on this branch; none of their files changed in Stage 19.
+Full text in `LOCALBOT_HANDOFF.md`. `prove:plugins` (live, dev mode — pnpm from PATH) passes on this branch; Stage 20 changes what pnpm the **packaged** app uses, not the Stage 14 flow. `prove:mic --static` still passes: the Mic's linux / win download rows and the Stage 13 UI are unchanged; only the darwin-arm64 built row gained the resource seed.
 
 ## Stage 10 — Mac unsigned package (previous stage; still true)
 
-Full text in `LOCALBOT_HANDOFF.md` → "Stage 10". `build.mac.identity` is `null`: every installer is **UNSIGNED**, nothing notarized. Latest `.dmg` remains the **Stage 13 rebuild**, sha256 `e843f469c7762f4f6a7fe404c053057384185f7dc4b9121f4218c8cb9fdd5061` — built *before* Stages 14–19; a packaged app on this tree is UNVERIFIED. **No `.dmg` was rebuilt in Stage 19**, by rule.
+Full text in `LOCALBOT_HANDOFF.md` → "Stage 10". `build.mac.identity` is `null`: every installer is **UNSIGNED**, nothing notarized. Latest `.dmg` remains the **Stage 13 rebuild**, sha256 `e843f469c7762f4f6a7fe404c053057384185f7dc4b9121f4218c8cb9fdd5061` — built *before* Stages 14–20 and **without** the bundled pnpm or the baked whisper-cli. **No `.dmg` was built in Stage 20** (no Mac here); the "Mac commands" above are how the next `.dmg` gets checked.
 
 ## Stage 8 — Installers + two-process share (previous stage; still true)
 
-Full text in `LOCALBOT_HANDOFF.md` → "Update after Stage 8". Invariants still checked by `src/lib/desktop-packaging.test.ts`: every installer is **UNSIGNED** — `mac.identity` is `null`, no certificate, nothing notarized, and no handoff line may claim otherwise. The Linux AppImage / `.deb` were last built in Stage 8 on a Linux host; not rebuilt here. Stage 19 changed `scripts/build-desktop.mjs` in one line (it calls `vite` directly instead of through the deleted `with-app-env.mjs`); it was not run.
+Full text in `LOCALBOT_HANDOFF.md` → "Update after Stage 8". Invariants still checked by `src/lib/desktop-packaging.test.ts`. The Linux AppImage / `.deb` **were rebuilt in Stage 20 on this Linux host** (UNSIGNED, not committed): `scripts/build-desktop.mjs` ran end to end with the two new `extraResources` rows and the packed pnpm shim ran on the packed Node with an empty PATH.

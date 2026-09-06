@@ -87,7 +87,10 @@ log(`Harness Node ${node.version} at ${node.bin}`);
 const stage = tmp("lb20-pnpm-stage-");
 const pnpm = stagePnpm({ root, stage, pin: PNPM_PIN, log });
 const shimVersion = pnpmShimVersion(pnpm.shim, node.bin);
-gate(shimVersion === PNPM_PIN, `staged shim on the Harness Node with an EMPTY PATH prints ${PNPM_PIN} (got ${shimVersion ?? "nothing"})`);
+gate(
+  shimVersion === PNPM_PIN,
+  `staged shim on the Harness Node with an EMPTY PATH prints ${PNPM_PIN} (got ${shimVersion ?? "nothing"})`,
+);
 if (shimVersion !== PNPM_PIN) finish();
 
 // The employee's machine: no pnpm, no node on PATH.
@@ -116,11 +119,19 @@ const dshDir = path.join(root, "dsh");
     return P.spawnRunner(bin, a, opts);
   };
   const status = await P.pnpmStatus(env, P.spawnRunner);
-  gate(status.found && status.source === "bundled" && status.version === PNPM_PIN, `pnpmStatus → bundled ${status.version ?? "?"} at ${status.dir ?? "?"} (found=${status.found}, source=${status.source})`);
+  gate(
+    status.found && status.source === "bundled" && status.version === PNPM_PIN,
+    `pnpmStatus → bundled ${status.version ?? "?"} at ${status.dir ?? "?"} (found=${status.found}, source=${status.source})`,
+  );
 
   const add = await P.pluginsAdd({ dataDir, dshHome, dshDir, env, run: spy }, null, FIXTURE);
-  log(`$ ${add.command}\n  exit ${add.code}${add.stderr ? `\n  ${add.stderr.split("\n").join("\n  ")}` : ""}`);
-  gate(add.ok && add.code === 0, "PATH empty + LOCALBOT_PNPM_DIR: dsh plugin --profile acp add <fixture> exited 0");
+  log(
+    `$ ${add.command}\n  exit ${add.code}${add.stderr ? `\n  ${add.stderr.split("\n").join("\n  ")}` : ""}`,
+  );
+  gate(
+    add.ok && add.code === 0,
+    "PATH empty + LOCALBOT_PNPM_DIR: dsh plugin --profile acp add <fixture> exited 0",
+  );
   let manifest = null;
   try {
     manifest = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
@@ -128,22 +139,60 @@ const dshDir = path.join(root, "dsh");
     manifest = null;
   }
   const bundles = manifest?.dsh?.profile?.bundles ?? [];
-  gate(bundles.includes("localbot-plugin-hello"), `profiles/acp/package.json dsh.profile.bundles = [${bundles.join(", ")}]`);
-  gate("localbot-plugin-hello" in (manifest?.dependencies ?? {}), `profiles/acp/package.json dependencies has localbot-plugin-hello (${manifest?.dependencies?.["localbot-plugin-hello"] ?? "missing"})`);
-  gate(childEnv && String(childEnv.PATH).startsWith(pnpm.binDir + path.delimiter), `dsh child PATH starts with the bundle: ${childEnv ? String(childEnv.PATH).split(path.delimiter)[0] : "?"}`);
-  gate(childEnv && childEnv.PATH.split(path.delimiter).length === 2 && childEnv.PATH.split(path.delimiter)[1] === emptyPath, "…and holds nothing else but the empty folder (no host pnpm anywhere on it)");
-  gate(childEnv?.npm_config_store_dir === path.join(dshHome, "pnpm-store"), `npm_config_store_dir = ${childEnv?.npm_config_store_dir}`);
-  gate(childEnv?.LOCALBOT_DSH_NODE === node.bin, "the shim was told to use the Harness Node (LOCALBOT_DSH_NODE)");
+  gate(
+    bundles.includes("localbot-plugin-hello"),
+    `profiles/acp/package.json dsh.profile.bundles = [${bundles.join(", ")}]`,
+  );
+  gate(
+    "localbot-plugin-hello" in (manifest?.dependencies ?? {}),
+    `profiles/acp/package.json dependencies has localbot-plugin-hello (${manifest?.dependencies?.["localbot-plugin-hello"] ?? "missing"})`,
+  );
+  gate(
+    childEnv && String(childEnv.PATH).startsWith(pnpm.binDir + path.delimiter),
+    `dsh child PATH starts with the bundle: ${childEnv ? String(childEnv.PATH).split(path.delimiter)[0] : "?"}`,
+  );
+  gate(
+    childEnv &&
+      childEnv.PATH.split(path.delimiter).length === 2 &&
+      childEnv.PATH.split(path.delimiter)[1] === emptyPath,
+    "…and holds nothing else but the empty folder (no host pnpm anywhere on it)",
+  );
+  gate(
+    childEnv?.npm_config_store_dir === path.join(dshHome, "pnpm-store"),
+    `npm_config_store_dir = ${childEnv?.npm_config_store_dir}`,
+  );
+  gate(
+    childEnv?.LOCALBOT_DSH_NODE === node.bin,
+    "the shim was told to use the Harness Node (LOCALBOT_DSH_NODE)",
+  );
   const storeUsed = fs.existsSync(path.join(dshHome, "pnpm-store"));
-  log(`pnpm store under DSH_HOME: ${storeUsed ? "created" : "not created (a link: add needs no store entries)"}`);
+  log(
+    `pnpm store under DSH_HOME: ${storeUsed ? "created" : "not created (a link: add needs no store entries)"}`,
+  );
   const installed = await P.pluginsInstalled({ dataDir, dshHome, dshDir, env }, { dump: true });
   const hello = installed.plugins.find((p) => p.name === "localbot-plugin-hello");
-  gate(Boolean(hello) && hello.isBundle && hello.enabled, "Installed lists localbot-plugin-hello (bundle, enabled)");
-  gate(installed.dump.ok && installed.dump.layers.includes("localbot-plugin-hello"), "dsh --dump-config composes the layer # == localbot-plugin-hello");
-  gate(installed.guardsHold === true, "hosted / telemetry / web / fs-sandbox still disabled with the plugin composed");
-  gate(installed.pnpm.source === "bundled" && installed.pnpm.version === PNPM_PIN, `Installed report says pnpm ${installed.pnpm.version} (${installed.pnpm.source}) — the UI shows no red banner`);
+  gate(
+    Boolean(hello) && hello.isBundle && hello.enabled,
+    "Installed lists localbot-plugin-hello (bundle, enabled)",
+  );
+  gate(
+    installed.dump.ok && installed.dump.layers.includes("localbot-plugin-hello"),
+    "dsh --dump-config composes the layer # == localbot-plugin-hello",
+  );
+  gate(
+    installed.guardsHold === true,
+    "hosted / telemetry / web / fs-sandbox still disabled with the plugin composed",
+  );
+  gate(
+    installed.pnpm.source === "bundled" && installed.pnpm.version === PNPM_PIN,
+    `Installed report says pnpm ${installed.pnpm.version} (${installed.pnpm.source}) — the UI shows no red banner`,
+  );
 
-  const remove = await P.pluginsRemove({ dataDir, dshHome, dshDir, env, run: P.spawnRunner }, null, "localbot-plugin-hello");
+  const remove = await P.pluginsRemove(
+    { dataDir, dshHome, dshDir, env, run: P.spawnRunner },
+    null,
+    "localbot-plugin-hello",
+  );
   gate(remove.ok && remove.code === 0, "dsh plugin remove through the bundled pnpm exits 0");
 }
 
@@ -165,14 +214,26 @@ const dshDir = path.join(root, "dsh");
     code = err?.code ?? null;
     message = err instanceof Error ? err.message : String(err);
   }
-  gate(code === "NO_PNPM", `PATH empty, LOCALBOT_PACKAGED=1, no LOCALBOT_PNPM_DIR → PluginError NO_PNPM (got ${code ?? "no error"})`);
+  gate(
+    code === "NO_PNPM",
+    `PATH empty, LOCALBOT_PACKAGED=1, no LOCALBOT_PNPM_DIR → PluginError NO_PNPM (got ${code ?? "no error"})`,
+  );
   gate(/never uses pnpm from PATH/.test(message), `refusal says why: ${message.split(". ")[0]}`);
   gate(spawned === 0, "dsh was never spawned (no exit 127, no profile init)");
-  gate(!fs.existsSync(path.join(dshHome, "profiles")), "fresh DSH_HOME has no profile after the refusal");
+  gate(
+    !fs.existsSync(path.join(dshHome, "profiles")),
+    "fresh DSH_HOME has no profile after the refusal",
+  );
   const status = await P.pnpmStatus(env, P.spawnRunner);
-  gate(status.found === false && status.source === null, "pnpmStatus reports not found without probing PATH (the UI shows the NO_PNPM banner)");
+  gate(
+    status.found === false && status.source === null,
+    "pnpmStatus reports not found without probing PATH (the UI shows the NO_PNPM banner)",
+  );
   const installed = await P.pluginsInstalled({ dataDir, dshHome, dshDir, env }, { dump: true });
-  gate(installed.dump.ok, "Installed (dsh --dump-config) still works without a pnpm — only Add / Remove refuse");
+  gate(
+    installed.dump.ok,
+    "Installed (dsh --dump-config) still works without a pnpm — only Add / Remove refuse",
+  );
 }
 
 finish(`static+live pnpm=bundled/${PNPM_PIN} node=${node.version} whisper=seed-unit-only`);
