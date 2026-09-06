@@ -17,24 +17,25 @@ import {
   agentSetScopes,
   agentUpdateProfile,
   chatLoadAll,
-  chatSave,
+  chatSave as chatSaveFn,
   foldersGet,
   foldersSet,
-  sectionCreate,
-  sectionDelete,
-  sectionRename,
+  sectionCreate as sectionCreateFn,
+  sectionDelete as sectionDeleteFn,
+  sectionRename as sectionRenameFn,
   stateLoad,
-  stateMigrate,
-  statePatchAgent,
-  statePatchIndex,
-  stateReset,
+  stateMigrate as stateMigrateFn,
+  statePatchAgent as statePatchAgentFn,
+  statePatchIndex as statePatchIndexFn,
+  stateReset as stateResetFn,
   type ChatBody,
   type StateLoadResult,
 } from "./fs/server";
 import type { LegacySnapshot, RosterEntry } from "./fs/host-index";
+import { tracked } from "./pending-writes";
 import {
   channelsAddMember,
-  channelsAppend,
+  channelsAppend as channelsAppendFn,
   channelsCreate,
   channelsDelete,
   channelsList,
@@ -73,6 +74,20 @@ import {
   type RuntimeStatus,
 } from "./types";
 import { nowIso, uid } from "./utils";
+
+// Stage 18: every call that ends in a write under {dataDir} — chats/, the host
+// index, channels/*.messages.json — is registered in pending-writes so
+// `flushForQuit` can wait for the ones still in flight before main stops the
+// sidecar. Same names at the call sites; only the binding is wrapped.
+const chatSave = tracked(chatSaveFn);
+const channelsAppend = tracked(channelsAppendFn);
+const sectionCreate = tracked(sectionCreateFn);
+const sectionDelete = tracked(sectionDeleteFn);
+const sectionRename = tracked(sectionRenameFn);
+const stateMigrate = tracked(stateMigrateFn);
+const statePatchAgent = tracked(statePatchAgentFn);
+const statePatchIndex = tracked(statePatchIndexFn);
+const stateReset = tracked(stateResetFn);
 
 const DEFAULT_SETTINGS: Settings = {
   darkMode: true,
@@ -441,28 +456,64 @@ function scheduleChatSave(botId: string): void {
   );
 }
 
-async function saveChatNow(botId: string): Promise<void> {
-  const s = useLocalBot.getState();
-  if (!s.diskLoaded) return;
-  if (!s.bots.some((b) => b.id === botId)) return;
-  const sess = s.sessions[botId];
-  if (!sess) return;
-  await chatSave({
-    data: { agentId: botId, messages: sess.messages, chatGrants: sess.chatGrants, lastReadAt: sess.lastReadAt },
-  });
+/** Stage 18: saves that have left the debounce and are on the wire; `flushChatSaves` waits for these too. */
+const chatSavesInFlight = new Set<Promise<void>>();
+
+function saveChatNow(botId: string): Promise<void> {
+  const run = (async () => {
+    const s = useLocalBot.getState();
+    if (!s.diskLoaded) return;
+    if (!s.bots.some((b) => b.id === botId)) return;
+    const sess = s.sessions[botId];
+    if (!sess) return;
+    await chatSave({
+      data: { agentId: botId, messages: sess.messages, chatGrants: sess.chatGrants, lastReadAt: sess.lastReadAt },
+    });
+  })();
+  chatSavesInFlight.add(run);
+  const forget = () => {
+    chatSavesInFlight.delete(run);
+  };
+  run.then(forget, forget);
+  return run;
 }
 
-/** Write every pending chat now (window closing). */
-export function flushChatSaves(): void {
+/** Chats with a debounce still ticking (not yet sent). */
+export function pendingChatSaveCount(): number {
+  return chatTimers.size;
+}
+
+/** Chat saves already on the wire. */
+export function inFlightChatSaveCount(): number {
+  return chatSavesInFlight.size;
+}
+
+/**
+ * Write every pending chat now and wait for every chat save that is on the
+ * wire. Stage 18: returns only when each `chatSave` has answered (or failed),
+ * so main can stop the sidecar after this. Fire-and-forget callers may still
+ * `void` it.
+ */
+export async function flushChatSaves(): Promise<void> {
+  const waits: Promise<void>[] = [];
   for (const [botId, t] of chatTimers) {
     clearTimeout(t);
     chatTimers.delete(botId);
-    void saveChatNow(botId);
+    waits.push(saveChatNow(botId));
   }
+  for (const p of chatSavesInFlight) waits.push(p);
+  await Promise.allSettled(waits);
 }
 
 if (typeof window !== "undefined") {
-  window.addEventListener("pagehide", flushChatSaves);
+  // Fallback for the bare browser (`npm run dev` in Chrome): nothing can wait
+  // for us there, so the best a closing tab can do is fire the saves. Under
+  // Electron the preload bridge has onFlushRequest and main waits for
+  // `flushForQuit` (quit-flush.ts) instead — this listener does nothing then.
+  window.addEventListener("pagehide", () => {
+    if (typeof window.localbotDesktop?.onFlushRequest === "function") return;
+    void flushChatSaves();
+  });
 }
 
 export const useLocalBot = create<LocalBotState>()(

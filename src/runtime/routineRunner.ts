@@ -21,6 +21,7 @@ import { runAgentTurn } from "@/runtime/harnessAdapter";
 import { routinesClaim, routinesDue, routinesFinish } from "@/lib/runtime/routines";
 import type { DueRoutine, FinishStatus } from "@/lib/harness/routines";
 import { ROUTINE_PERMISSION_DECISION, ROUTINE_TICK_MS, describeSchedule } from "@/lib/routines-model";
+import { registerRoutineClaim } from "@/lib/pending-writes";
 import { useLocalBot } from "@/lib/store";
 import type { ToolChip } from "@/lib/types";
 
@@ -64,6 +65,17 @@ export async function runRoutine(
   const claimed = await deps.claim(id, opts.manual);
   if (!claimed.ok) return { started: false, code: claimed.code, error: claimed.error };
   const due = claimed.due;
+  // Stage 18: from here until `finish` this window owns `{id}.running`; a quit
+  // in between finishes it as "stopped" (quit-flush.ts) instead of leaving it stale.
+  const forgetClaim = registerRoutineClaim({ id, agentId: due.agentId });
+  try {
+    return await runClaimedRoutine(id, due, opts, deps);
+  } finally {
+    forgetClaim();
+  }
+}
+
+async function runClaimedRoutine(id: string, due: DueRoutine, opts: { manual: boolean }, deps: RunnerDeps): Promise<RunOutcome> {
   const bot = useLocalBot.getState().bots.find((b) => b.id === due.agentId);
   if (!bot) {
     await deps.finish(id, "error", "Agent is not in this window's roster.");

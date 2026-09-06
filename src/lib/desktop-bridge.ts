@@ -14,6 +14,9 @@ export type LocalBotDesktopBridge = {
   onSettings: (fn: () => void) => () => void;
   pickFolder?: (opts?: { title?: string; defaultPath?: string }) => Promise<string | null>;
   revealPath?: (hostPath: string) => Promise<{ ok: boolean; error?: string }>;
+  /** Stage 18: main asks for a flush before it stops the sidecar; answer with `flushDone`. */
+  onFlushRequest?: (fn: (req: { reason: string; timeoutMs: number }) => void) => () => void;
+  flushDone?: (summary: unknown) => void;
 };
 
 declare global {

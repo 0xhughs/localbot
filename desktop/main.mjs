@@ -19,6 +19,7 @@ import {
   unpackAsarPath,
 } from "./packaged.mjs";
 import { mintSidecarToken, SIDECAR_TOKEN_ARG, SIDECAR_TOKEN_ENV } from "./sidecar-token.mjs";
+import { createQuitCoordinator, FLUSH_DONE_CHANNEL, FLUSH_REQUEST_CHANNEL, QUIT_FLUSH_TIMEOUT_MS } from "./quit-flush.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
@@ -350,6 +351,17 @@ async function createWindow(uiUrl, tokenForWindow) {
   });
   ipcMain.on("localbot:close", () => win.close());
 
+  // Stage 18: the first close (title-bar X, OS close button, Cmd+W) is held
+  // until the renderer has flushed; the coordinator then quits, and this
+  // handler lets the window go on the second pass.
+  win.on("close", (event) => {
+    if (quitReady) return;
+    event.preventDefault();
+    void quitCoordinator.requestQuit("window-close").then(() => {
+      if (!win.isDestroyed()) win.destroy();
+    });
+  });
+
   win.once("ready-to-show", () => win.show());
   await win.loadURL(uiUrl);
 }
@@ -369,6 +381,34 @@ function stopChildren() {
   }
 }
 
+// Stage 18: quit handshake. Nothing in this file calls stopChildren() except
+// the coordinator, and the coordinator only calls it after the renderer's
+// flushDone or QUIT_FLUSH_TIMEOUT_MS — whichever comes first. See quit-flush.mjs.
+let quitReady = false;
+
+/** Ask every live window to flush; false when there is no renderer to ask (quit during boot). */
+function requestRendererFlush(reason) {
+  const wins = BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed() && !w.webContents.isDestroyed());
+  if (wins.length === 0) return false;
+  for (const w of wins) w.webContents.send(FLUSH_REQUEST_CHANNEL, { reason, timeoutMs: QUIT_FLUSH_TIMEOUT_MS });
+  return true;
+}
+
+const quitCoordinator = createQuitCoordinator({
+  requestFlush: requestRendererFlush,
+  stopChildren,
+  quit: () => {
+    quitReady = true;
+    app.quit();
+  },
+  timeoutMs: QUIT_FLUSH_TIMEOUT_MS,
+  log: (line) => console.error(line),
+});
+
+ipcMain.on(FLUSH_DONE_CHANNEL, (_e, summary) => {
+  quitCoordinator.flushDone(summary);
+});
+
 app.whenReady().then(async () => {
   applyPaths();
   const isPkg = packaged();
@@ -384,10 +424,16 @@ app.whenReady().then(async () => {
 });
 
 app.on("window-all-closed", () => {
-  stopChildren();
-  app.quit();
+  // The window went through win.on("close") first, so this joins the same
+  // handshake (or starts one with nothing to ask when no renderer was up).
+  void quitCoordinator.requestQuit("window-all-closed");
 });
 
-app.on("before-quit", () => {
-  stopChildren();
+app.on("before-quit", (event) => {
+  // Cmd+Q / menu Quit / app.quit() from a startup error: hold the quit until
+  // the renderer has flushed, then the coordinator calls app.quit() again
+  // with quitReady set and this handler lets it through.
+  if (quitReady) return;
+  event.preventDefault();
+  void quitCoordinator.requestQuit("before-quit");
 });

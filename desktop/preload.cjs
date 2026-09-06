@@ -49,4 +49,19 @@ contextBridge.exposeInMainWorld("localbotDesktop", {
    * @returns {Promise<{ ok: boolean; error?: string }>}
    */
   revealPath: (hostPath) => ipcRenderer.invoke("localbot:revealPath", hostPath),
+  /**
+   * Stage 18: main asks the renderer to flush before it stops the sidecar.
+   * `fn` receives `{ reason, timeoutMs }`; the renderer answers with
+   * `flushDone(summary)` (or main gives up after timeoutMs). Names must match
+   * FLUSH_REQUEST_CHANNEL / FLUSH_DONE_CHANNEL in desktop/quit-flush.mjs.
+   * @param {(req: { reason: string; timeoutMs: number }) => void} fn
+   * @returns {() => void}
+   */
+  onFlushRequest: (fn) => {
+    const wrap = (_e, req) => fn(req && typeof req === "object" ? req : { reason: "unknown", timeoutMs: 0 });
+    ipcRenderer.on("localbot:flush", wrap);
+    return () => ipcRenderer.removeListener("localbot:flush", wrap);
+  },
+  /** @param {unknown} summary */
+  flushDone: (summary) => ipcRenderer.send("localbot:flushDone", summary),
 });
