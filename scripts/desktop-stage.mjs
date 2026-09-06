@@ -395,6 +395,70 @@ export function stageWhisperBuilt({ root, stage, target, from, log = console.log
   return { dir: out, exe, sha256: check.sha256, matchesCatalog: check.matchesCatalog, dylibs: check.dylibs };
 }
 
+/* ---------- Stage 21: catalog/ next to the packaged sidecar ---------- */
+
+export const CATALOG_DIR = "catalog";
+/** The one catalog file the sidecar opens with fs at runtime; its absence in the packed app is a build failure. */
+export const CATALOG_REQUIRED_FILE = "dsh-plugins.json";
+/** Where the sidecar's `catalogRoot()` looks in the packed app (`LOCALBOT_SERVER_DIR` = resources/localbot-server). */
+export const CATALOG_RESOURCE_DIR = "localbot-server/catalog";
+
+/**
+ * Every `catalog/*.json` in the repo (top level only, sorted). Throws when the
+ * folder is missing or does not hold dsh-plugins.json — the build must not
+ * produce an installer whose Plugins screen opens to ENOENT.
+ * @param {string} root
+ */
+export function listCatalogJson(root) {
+  const dir = path.join(root, CATALOG_DIR);
+  if (!fs.existsSync(dir)) throw new Error(`${dir} does not exist`);
+  const names = fs
+    .readdirSync(dir)
+    .filter((n) => n.endsWith(".json") && fs.statSync(path.join(dir, n)).isFile())
+    .sort();
+  if (!names.includes(CATALOG_REQUIRED_FILE)) throw new Error(`${dir} has no ${CATALOG_REQUIRED_FILE}`);
+  for (const n of names) JSON.parse(fs.readFileSync(path.join(dir, n), "utf8"));
+  return names;
+}
+
+/**
+ * Copy every repo `catalog/*.json` into `{into}/catalog/` — `into` is the
+ * Nitro output (`.output`), which extraResources maps to
+ * `resources/localbot-server`, so the packed sidecar finds
+ * `resources/localbot-server/catalog/dsh-plugins.json` at the same relative
+ * path the dev checkout has. Byte-for-byte copies, re-read after writing.
+ * @param {{ root: string, into: string, log?: (s: string) => void }} o
+ */
+export function stageCatalog({ root, into, log = console.log }) {
+  const names = listCatalogJson(root);
+  const out = path.join(into, CATALOG_DIR);
+  fs.rmSync(out, { recursive: true, force: true });
+  fs.mkdirSync(out, { recursive: true });
+  for (const n of names) {
+    const from = path.join(root, CATALOG_DIR, n);
+    const to = path.join(out, n);
+    fs.copyFileSync(from, to);
+    if (sha256File(from) !== sha256File(to)) throw new Error(`${to} does not match ${from} after copy`);
+  }
+  const missing = catalogLayoutChecks(names)
+    .map((rel) => path.basename(rel))
+    .filter((n) => !fs.existsSync(path.join(out, n)));
+  if (missing.length) throw new Error(`staged catalog is missing ${missing.join(", ")}`);
+  log(`[desktop] catalog (${names.length}): ${names.join(", ")} → ${out}`);
+  return { dir: out, files: names.map((n) => path.join(out, n)), names };
+}
+
+/**
+ * The packed-app paths (relative to `Contents/` or `*-unpacked/`) that must
+ * exist for the catalog: `resources/localbot-server/catalog/<file>` for every
+ * staged file, dsh-plugins.json always first.
+ * @param {string[]} names
+ */
+export function catalogLayoutChecks(names) {
+  const set = new Set([CATALOG_REQUIRED_FILE, ...names]);
+  return [...set].map((n) => `resources/${CATALOG_RESOURCE_DIR}/${n}`);
+}
+
 /** Run a Node binary's `--version` (build-time check of the staged runtime). */
 export function nodeBinaryVersion(bin) {
   const r = spawnSync(bin, ["--version"], { encoding: "utf8", timeout: 10000 });

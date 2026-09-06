@@ -7,8 +7,13 @@ import { fileURLToPath } from "node:url";
 import crypto from "node:crypto";
 import {
   buildTargetsOf,
+  CATALOG_REQUIRED_FILE,
+  CATALOG_RESOURCE_DIR,
+  catalogLayoutChecks,
   checkBuiltWhisper,
   checksumLines,
+  listCatalogJson,
+  stageCatalog,
   harnessPackageJson,
   hasInstallerTarget,
   listInstallers,
@@ -215,5 +220,42 @@ describe("desktop-stage: Stage 20 baked darwin-arm64 whisper-cli", () => {
     assert.equal(checkBuiltWhisper({ catalog, target: "darwin-arm64", dir: staged.dir }).ok, true);
     fs.rmSync(from, { recursive: true, force: true });
     fs.rmSync(stage, { recursive: true, force: true });
+  });
+});
+
+describe("desktop-stage: Stage 21 catalog next to the packaged sidecar", () => {
+  it("listCatalogJson lists every catalog/*.json (dsh-plugins.json included) and refuses a folder without it or with a non-JSON file", () => {
+    const names = listCatalogJson(root);
+    assert.ok(names.includes(CATALOG_REQUIRED_FILE));
+    assert.equal(CATALOG_REQUIRED_FILE, "dsh-plugins.json");
+    for (const n of names) assert.ok(fs.existsSync(path.join(root, "catalog", n)));
+    const fake = fs.mkdtempSync(path.join(os.tmpdir(), "lb-cat-"));
+    assert.throws(() => listCatalogJson(fake), /does not exist/);
+    fs.mkdirSync(path.join(fake, "catalog"));
+    fs.writeFileSync(path.join(fake, "catalog/models.json"), "{}");
+    assert.throws(() => listCatalogJson(fake), /has no dsh-plugins\.json/);
+    fs.writeFileSync(path.join(fake, "catalog/dsh-plugins.json"), "{ nope");
+    assert.throws(() => listCatalogJson(fake), /JSON/);
+    fs.rmSync(fake, { recursive: true, force: true });
+  });
+
+  it("stageCatalog writes byte-identical copies into <into>/catalog/ and the layout list names resources/localbot-server/catalog/dsh-plugins.json first", () => {
+    const into = fs.mkdtempSync(path.join(os.tmpdir(), "lb-output-"));
+    const r = stageCatalog({ root, into, log: () => undefined });
+    assert.equal(r.dir, path.join(into, "catalog"));
+    assert.deepEqual(r.names, listCatalogJson(root));
+    for (const n of r.names) assert.equal(sha256File(path.join(into, "catalog", n)), sha256File(path.join(root, "catalog", n)), n);
+    const checks = catalogLayoutChecks(r.names);
+    assert.equal(checks[0], `resources/${CATALOG_RESOURCE_DIR}/dsh-plugins.json`);
+    assert.equal(CATALOG_RESOURCE_DIR, "localbot-server/catalog");
+    assert.equal(checks.length, r.names.length);
+    // What electron-builder makes of it: resources/localbot-server = .output. Every check resolves; drop catalog/ and the first one fails.
+    const packed = fs.mkdtempSync(path.join(os.tmpdir(), "lb-packed-"));
+    fs.cpSync(into, path.join(packed, "resources/localbot-server"), { recursive: true });
+    assert.deepEqual(checks.filter((rel) => !fs.existsSync(path.join(packed, rel))), []);
+    fs.rmSync(path.join(packed, "resources/localbot-server/catalog"), { recursive: true });
+    assert.ok(checks.filter((rel) => !fs.existsSync(path.join(packed, rel))).includes(checks[0]));
+    fs.rmSync(into, { recursive: true, force: true });
+    fs.rmSync(packed, { recursive: true, force: true });
   });
 });
