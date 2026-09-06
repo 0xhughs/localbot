@@ -88,6 +88,11 @@ const LOCALBOT_FS_SHA256 = "0bb5593abecbc116a7b3c614882cfc109831e88c45b735962ce1
 
   const runner = read("src/runtime/channelRunner.ts");
   gate(/import \{ runAgentTurn \} from "@\/runtime\/harnessAdapter"/.test(runner) && /turn: runAgentTurn,/.test(runner), "channelRunner uses runAgentTurn");
+  // Stage 21: @ is resolved against membersOf(channel) — the Run-all list — by id / name / slug.
+  gate(/const members = membersOf\(channel\);\s*const plan = planSpeakers\(trimmed, members, \{ all: opts\.all \}\);/.test(runner), "Stage 21: @ and Run all share the one membersOf(channel) list");
+  const model = read("src/lib/channels-model.ts");
+  gate(/export function resolveMentions\(/.test(model) && /const \{ speakers, unknown \} = resolveMentions\(text, members\);/.test(model), "Stage 21: planSpeakers resolves @ through resolveMentions (id / full name / slug, longest match)");
+  gate(/import \{ agentSlug \} from "\.\/fs\/scope-model\.ts";/.test(model) && !/from "node:/.test(model), "Stage 21: channels-model imports agentSlug and stays browser-safe");
   gate(/await deps\.turn\(\{\s*botId: bot\.id,\s*userText,/.test(runner) && /const userText = renderChannelPrompt\(\{/.test(runner), "one runAgentTurn per member with the channel lines as user text");
   gate(/onAssistantText: \(text\) => \{[\s\S]*?appendChannelMessage\(channelId, \{ id, role: "assistant", speakerId: bot\.id, content: text \}\)/.test(runner), "the reply lands on the shared transcript with speakerId");
   gate(!/@\/lib\/runtime\/harness"|harnessPrompt|harnessPoll|getHarnessManager|HarnessManager|session\/new/.test(runner), "channelRunner has no second Harness loop / shared session");
@@ -146,7 +151,7 @@ if (!set.ok) {
   finish();
 }
 const now0 = new Date().toISOString();
-for (const [name, mascotId] of [["Alice", "writer"], ["Bob", "ops"], ["Cara", "ops"], ["Retired", "ops"]]) {
+for (const [name, mascotId] of [["Alice", "writer"], ["Bob", "ops"], ["Cara", "ops"], ["Retired", "ops"], ["Seven of Nine", "ops"]]) {
   scopes.ensureAgent(set.folders, { name, job: name, modelId: "fixture", color: "sage", mascotId, scopes: ["private"], standingInstructions: "", createdAt: now0 });
 }
 scopes.setAgentArchived(set.folders, "Retired", true);
@@ -156,6 +161,7 @@ const alice = idOf("Alice");
 const bob = idOf("Bob");
 const cara = idOf("Cara");
 const retired = idOf("Retired");
+const seven = idOf("Seven of Nine");
 const cctx = () => ({ folders: set.folders, roster: roster() });
 log(`dataDir=${dataDir}\n  employeeRoot=${set.folders.employeeRoot}\n  channels/=${C.channelsDir()}`);
 
@@ -261,6 +267,29 @@ try {
     q = M.enqueuePage(q.queue, bob);
     gate(q.queue.length === 1 && q.added === false, "BUSY queue keeps exactly one page per member");
 
+    // Stage 21: a multi-word roster member is paged by name the way Run all pages it by id.
+    {
+      C.addChannelMember(ch.id, seven, cctx());
+      const withSeven = C.readChannel(ch.id);
+      const rows = roster();
+      // membersOf(channel): memberIds ∩ roster, in memberIds order (what channelRunner builds).
+      const membersOf = withSeven.memberIds.map((id) => rows.find((r) => r.id === id)).filter(Boolean).map((r) => ({ id: r.id, name: r.name }));
+      gate(membersOf.some((m) => m.id === seven && m.name === "Seven of Nine"), "Seven of Nine is in memberIds and the roster");
+      const runAll = M.planSpeakers("", membersOf, { all: true }).speakers;
+      gate(runAll.includes(seven), "Run all once pages Seven of Nine by id");
+      const byName = M.planSpeakers("@Seven of Nine status?", membersOf);
+      gate(byName.speakers.length === 1 && byName.speakers[0] === seven && byName.unknown.length === 0, `@Seven of Nine → Seven of Nine's id (got ${byName.speakers.join(",") || "nobody"}${byName.unknown.length ? `; unknown ${byName.unknown.join(",")}` : ""})`);
+      gate(M.planSpeakers("@Seven of Nine ", membersOf).speakers[0] === seven, "the picker's `@Seven of Nine ` (trailing space) pages her too");
+      gate(M.planSpeakers("@seven-of-nine go", membersOf).speakers[0] === seven && M.planSpeakers("@SEVEN_OF_NINE go", membersOf).speakers[0] === seven && M.planSpeakers(`@${seven} go`, membersOf).speakers[0] === seven, "slug / underscore / raw id / any case → the same id");
+      const stillBob = M.planSpeakers("@bob first, then @Seven of Nine", membersOf);
+      gate(JSON.stringify(stillBob.speakers) === JSON.stringify([bob, seven]), "@bob then @Seven of Nine → that order");
+      gate(G.channelGate(ch.id, seven, { folders: set.folders, roster: rows, hasActiveTurn: () => false }).ok === true, "…and the sidecar gate lets that id through (it IS a member) — the Stage 16 'not a member' line is gone for her");
+      const prefix = M.planSpeakers("@Seven do it", membersOf);
+      gate(prefix.speakers.length === 0 && prefix.unknown[0] === "Seven", "@Seven (no member called exactly Seven) stays unknown → system line, no run");
+      C.removeChannelMember(ch.id, seven, cctx());
+      gate(JSON.stringify(C.readChannel(ch.id).memberIds) === JSON.stringify([alice, bob]), "Seven of Nine removed again (channel back to Alice, Bob)");
+    }
+
     const rec = C.readChannel(ch.id);
     const mgr = new HarnessManager();
     const deps = () => ({ folders: set.folders, roster: roster(), hasActiveTurn: (n) => mgr.hasActiveTurn(n) });
@@ -314,6 +343,6 @@ function finish() {
     console.error(`\n[prove-channels] ${failures.length} failure(s):\n - ${failures.join("\n - ")}`);
     process.exit(1);
   }
-  console.log(`\nSTAGE16_CHANNELS_PASS static+${flag("--static") ? "0" : "live"} outside/refuse/record-fresh-process/members/transcript/turn-rules/busy-one/archived/disconnected/delete`);
+  console.log(`\nSTAGE16_CHANNELS_PASS static+${flag("--static") ? "0" : "live"} outside/refuse/record-fresh-process/members/transcript/turn-rules/mention-by-name(stage21)/busy-one/archived/disconnected/delete`);
   process.exit(0);
 }

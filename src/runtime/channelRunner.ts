@@ -12,7 +12,10 @@
  * Rules:
  *   - no `@` → the first member; `@Alice` → Alice only; several → in order,
  *     one at a time; "Run all members once" only when `all: true` is passed
- *     by the button.
+ *     by the button. Stage 21: `@` is resolved against `membersOf(channel)` —
+ *     the very list Run-all pages — by id, full roster name (multi-word,
+ *     case-insensitive) or slug, so a member whose id is in `memberIds` is
+ *     never told "not a member" because of how its name was typed.
  *   - `@Name` that is not a member → a system line. Nothing runs and no
  *     handoff file is written (that is the 1:1 chat's rule, untouched).
  *   - ARCHIVED / DISCONNECTED → skip + system line.
